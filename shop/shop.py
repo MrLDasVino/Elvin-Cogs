@@ -3,7 +3,7 @@ import discord
 from typing import Dict
 
 from redbot.core import commands, Config, checks, bank
-from discord.ui import View, Button, Modal, TextInput
+from discord.ui import View, Button, Modal, TextInput, button
 
 
 class Shop(commands.Cog):
@@ -47,7 +47,7 @@ class ManageView(View):
         self.config = config
         self.guild_id = guild_id
 
-    @Button(label="Manage Shop", style=discord.ButtonStyle.primary, custom_id="shop_manage")
+    @button(label="Manage Shop", style=discord.ButtonStyle.primary, custom_id="shop_manage")
     async def manage_button(self, button: Button, interaction: discord.Interaction):
         # open the modal in response to the button interaction
         await interaction.response.send_modal(
