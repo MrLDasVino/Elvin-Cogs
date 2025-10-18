@@ -251,7 +251,7 @@ class ShopModal(Modal, title="Create or Edit Shop"):
 class StockModal(Modal, title="Add / Restock Item"):
     item = TextInput(label="Item Name", required=True)
     price = TextInput(label="Price (credits)", required=True)
-    amount = TextInput(label="Amount to add", required=True)
+    amount = TextInput(label="Amount to add (leave blank for ∞)", required=False)
 
     def __init__(self, config: Config, guild_id: int, shop_name: str):
         super().__init__()
@@ -263,11 +263,23 @@ class StockModal(Modal, title="Add / Restock Item"):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
         stock = shops[self.shop_name]["stock"]
-        name = self.item.value
-        old = stock.get(name, {"amount": 0})
+        name = self.item.value.strip()
+        old_entry = stock.get(name, {})
+        old_amount = old_entry.get("amount", 0)  # could be None or int
+
+        # Parse new amount
+        raw = (self.amount.value or "").strip()
+        if raw == "":
+            # blank → infinite
+            new_amount = None
+        else:
+            added = int(raw)
+            # if old was infinite, stay infinite
+            new_amount = None if old_amount is None else old_amount + added
+
         stock[name] = {
             "price": int(self.price.value),
-            "amount": old.get("amount", 0) + int(self.amount.value),
+            "amount": new_amount,
         }
         shops[self.shop_name]["stock"] = stock
         await guild_conf.shops.set(shops)
@@ -353,7 +365,8 @@ class GiftModal(Modal, title="Gift Item"):
                 await member.add_roles(role)
 
         # Decrement shop stock
-        entry["amount"] -= amount
+        if entry.get("amount") is not None:
+            entry["amount"] -= amount
         shops[self.shop_name]["stock"][self.item_name] = entry
         await self.config.guild_from_id(self.guild_id).shops.set(shops)
 
@@ -439,7 +452,9 @@ class ItemListView(View):
         shops = await guild_conf.shops()
         stock = shops[self.shop_name]["stock"]
         for item_name, entry in stock.items():
-            label = f"{item_name} ({entry['price']}cr, 🗃️{entry['amount']})"
+            amt = entry.get("amount")
+            amt_display = "∞" if amt is None else str(amt)
+            label = f"{item_name} ({entry['price']}cr, 🗃️{amt_display})"
             btn = Button(label=label, style=discord.ButtonStyle.secondary)
             btn.callback = self._make_item_callback(item_name, entry["price"])
             self.add_item(btn)
@@ -558,7 +573,8 @@ class BuyModal(Modal, title="Buy Item"):
                 await interaction.user.add_roles(role)
 
         # Decrement shop stock
-        entry["amount"] -= qty
+        if entry.get("amount") is not None:
+            entry["amount"] -= qty
         shops[self.shop_name]["stock"][self.item_name] = entry
         await guild_conf.shops.set(shops)
 
