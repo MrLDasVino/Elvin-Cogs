@@ -2,8 +2,7 @@ import asyncio
 import discord
 from typing import Dict
 
-from redbot.core import commands, Config, checks
-from redbot.core.utils.bank import get_balance, withdraw_credits, deposit_credits
+from redbot.core import commands, Config, checks, bank
 from discord.ui import View, Button, Modal, TextInput
 
 
@@ -214,14 +213,14 @@ class GiftModal(Modal, title="Gift Item"):
 
         amount = int(self.amount.value)
         total = self.price * amount
-        bal = await get_balance(user)
+        bal = await bank.get_balance(interaction.user)
         if bal < total:
             return await interaction.response.send_message(
                 "❌ Insufficient funds.", ephemeral=True
             )
 
         # Withdraw from gifter
-        await withdraw_credits(user, amount)
+        await bank.withdraw_credits(interaction.user, total_cost)
 
         # Add to recipient inventory
         user_conf = self.config.user(member)
@@ -417,7 +416,7 @@ class BuyModal(Modal, title="Buy Item"):
 
         qty = max(1, int(self.quantity.value))
         total_cost = self.price * qty
-        bal = await get_balance(user)
+        bal = await bank.get_balance(interaction.user)
         if bal < total_cost:
             return await interaction.response.send_message(
                 f"❌ You need {total_cost} credits but only have {bal}.",
