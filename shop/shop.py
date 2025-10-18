@@ -37,14 +37,16 @@ class Shop(commands.Cog):
         await view._populate()
         await ctx.send("Click below to create or edit your shop:", view=view)
         
-    @shop.command()
-    async def addstock(self, ctx, shop_name: str):
-        """Add or restock an item via modal."""
+    async def addstock(self, ctx):
+        """Pick a shop to restock, then open the restock modal."""
         guild_conf = self.config.guild(ctx.guild)
         shops = await guild_conf.shops()
-        if shop_name not in shops:
-            return await ctx.send(f"❌ Shop `{shop_name}` doesn’t exist.")
-        await ctx.send_modal(StockModal(self.config, ctx.guild.id, shop_name))
+        if not shops:
+            return await ctx.send("❌ There are no shops to restock.")
+   
+        view = AddStockView(self.config, ctx.guild.id)
+        await view.populate()                    
+        await ctx.send("Select a shop to restock:", view=view)
 
     @shop.command()
     async def addrole(
@@ -562,5 +564,57 @@ class BuyModal(Modal, title="Buy Item"):
         await interaction.response.send_message(
             f"✅ You bought {qty}× `{self.item_name}` for {total_cost} credits.",
             ephemeral=True,
+        )
+
+class AddStockView(View):
+    """View that shows a dropdown of shops to restock."""
+
+    def __init__(self, config: Config, guild_id: int):
+        super().__init__(timeout=60)
+        self.config = config
+        self.guild_id = guild_id
+
+    async def populate(self):
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+        options = [
+            discord.SelectOption(label=name, value=name)
+            for name in shops.keys()
+        ]
+        # shop selector
+        if options:
+            self.add_item(
+                AddStockSelect(options, self.config, self.guild_id)
+            )
+        # cancel button
+        cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
+        cancel.callback = self._cancel
+        self.add_item(cancel)
+
+    async def _cancel(self, interaction: discord.Interaction):
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(content="Cancelled.", view=self)
+
+
+class AddStockSelect(Select):
+    """Dropdown of existing shops—opens StockModal on selection."""
+
+    def __init__(self, options, config: Config, guild_id: int):
+        super().__init__(
+            placeholder="Choose a shop…",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="addstock_shop_select",
+        )
+        self.config = config
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        shop_name = self.values[0]
+        # launch the existing StockModal with chosen shop
+        await interaction.response.send_modal(
+            StockModal(self.config, self.guild_id, shop_name)
         )
 
