@@ -37,6 +37,7 @@ class Shop(commands.Cog):
         await view._populate()
         await ctx.send("Click below to create or edit your shop:", view=view)
         
+    @shop.command()    
     async def addstock(self, ctx):
         """Pick a shop to restock, then open the restock modal."""
         guild_conf = self.config.guild(ctx.guild)
@@ -84,7 +85,7 @@ class Shop(commands.Cog):
     # USER COMMANDS
     # --------------------
 
-    @commands.command()
+    @shop.command()
     async def buy(self, ctx):
         """Browse shops and buy items via buttons & modals."""
         shops = await self.config.guild(ctx.guild).shops()
@@ -93,7 +94,7 @@ class Shop(commands.Cog):
         view = ShopSelectView(self.config, ctx.guild.id, ctx.author.id, mode="buy")
         await ctx.send("🛒 **Select a shop to buy from:**", view=view)
 
-    @commands.command()
+    @shop.command()
     async def gift(self, ctx):
         """Gift an item to another user."""
         shops = await self.config.guild(ctx.guild).shops()
@@ -102,7 +103,7 @@ class Shop(commands.Cog):
         view = ShopSelectView(self.config, ctx.guild.id, ctx.author.id, mode="gift")
         await ctx.send("🎁 **Select a shop to gift from:**", view=view)
 
-    @commands.command()
+    @shop.command()
     async def redeem(self, ctx):
         """Redeem a voucher or special code via modal."""
         await ctx.send_modal(RedeemModal(self.config, ctx.author.id))        
