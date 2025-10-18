@@ -116,11 +116,10 @@ class ManageView(View):
         self.guild_id = guild_id
 
     @button(label="Manage Shop", style=discord.ButtonStyle.primary, custom_id="shop_manage")
-    async def manage_button(self, button: Button, interaction: discord.Interaction):
-        """Opens the modal in response to a button click."""
+    async def manage_button(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(
             ShopModal(self.config, self.guild_id)
-        )       
+        )      
 
 
 
