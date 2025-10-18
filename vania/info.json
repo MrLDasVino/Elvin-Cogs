@@ -1,6 +1,6 @@
 {
   "name": "cvrpg",
-  "author": "Elvin",
+  "author": ["Elvin"],
   "description": "Belmont’s Legacy RPG progression cog",
   "install_msg": "Type `[p]cvrpg` to get started.",
   "requirements": [],
