@@ -33,7 +33,26 @@ class Shop(commands.Cog):
     @shop.command()
     async def manage(self, ctx):
         """Create or edit a shop."""
-        await ctx.send_modal(ShopModal(self.config, ctx.guild.id))
+        view = ManageView(self.config, ctx.guild.id)
+        await ctx.send("Click below to create or edit your shop:", view=view)
+        
+# --------------------
+# BUTTON‐LAUNCH VIEW
+# --------------------
+class ManageView(View):
+    """Shows a single button that opens ShopModal when clicked."""
+
+    def __init__(self, config: Config, guild_id: int):
+        super().__init__(timeout=None)
+        self.config = config
+        self.guild_id = guild_id
+
+    @Button(label="Manage Shop", style=discord.ButtonStyle.primary, custom_id="shop_manage")
+    async def manage_button(self, button: Button, interaction: discord.Interaction):
+        # open the modal in response to the button interaction
+        await interaction.response.send_modal(
+            ShopModal(self.config, self.guild_id)
+        )        
 
     @shop.command()
     async def addstock(self, ctx, shop_name: str):
