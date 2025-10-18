@@ -1,0 +1,14 @@
+{
+  "name": "Shop",
+  "author": ["Elvin"],
+  "version": "1.0.0",
+  "description": "A fully asynchronous shop cog with buttons, modals, Red’s bank integration, inventory management, and role purchases.",
+  "install_msg": "Thanks for installing the Shop cog!  \n• Use `[p]shop manage` to create or edit your shops.  \n• Use `[p]shop addstock <shop>`, `[p]shop addrole <shop> <@role> <price>` to configure stock.  \n• Users can run `[p]buy`, `[p]gift`, and `[p]redeem` to interact via buttons and modals.  \nMake sure Red’s Bank cog is enabled so the economy features work properly.",
+  "requirements": [],
+  "tags": [
+    "economy",
+    "shop",
+    "inventory",
+    "roles"
+  ]
+}
