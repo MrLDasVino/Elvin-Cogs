@@ -3,7 +3,7 @@ import discord
 from typing import Dict
 
 from redbot.core import commands, Config, checks, bank
-from discord.ui import View, button, Button, Modal, TextInput
+from discord.ui import View, button, Button, Modal, TextInput, Select
 
 
 class Shop(commands.Cog):
@@ -108,18 +108,72 @@ class Shop(commands.Cog):
 # BUTTON‐LAUNCH VIEW
 # --------------------
 class ManageView(View):
-    """Shows a single button that opens ShopModal when clicked."""
+    """Dropdown to pick a shop to edit, or click to create a new one."""
 
     def __init__(self, config: Config, guild_id: int):
         super().__init__(timeout=None)
         self.config = config
         self.guild_id = guild_id
+        # we’ll populate the dropdown after init
+        asyncio.create_task(self._populate())
 
-    @button(label="Manage Shop", style=discord.ButtonStyle.primary, custom_id="shop_manage")
-    async def manage_button(self, interaction: discord.Interaction, button: Button):
+    async def _populate(self):
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+        options = [
+            discord.SelectOption(label=name, value=name)
+            for name in shops.keys()
+        ]
+        if options:
+            self.add_item(ShopSelect(options, self.config, self.guild_id))
+        # always have a “New Shop” button
+        self.add_item(NewShopButton(self.config, self.guild_id))
+
+
+class ShopSelect(Select):
+    def __init__(self, options, config: Config, guild_id: int):
+        super().__init__(
+            placeholder="Select a shop to edit…",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="shop_manage_select",
+        )
+        self.config = config
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        shop_name = self.values[0]
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+        data = shops[shop_name]
+        # open the modal with the existing values pre-filled
+        await interaction.response.send_modal(
+            ShopModal(
+                self.config,
+                self.guild_id,
+                original_name=shop_name,
+                description=data.get("description", ""),
+                thumbnail=data.get("thumbnail", ""),
+            )
+        )
+
+
+class NewShopButton(Button):
+    def __init__(self, config: Config, guild_id: int):
+        super().__init__(
+            label="Create New Shop",
+            style=discord.ButtonStyle.success,
+            custom_id="shop_manage_new",
+        )
+        self.config = config
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        # empty fields for a brand-new shop
         await interaction.response.send_modal(
             ShopModal(self.config, self.guild_id)
-        )      
+        )    
 
 
 
@@ -128,26 +182,70 @@ class ManageView(View):
 # --------------------
 
 class ShopModal(Modal, title="Create or Edit Shop"):
-    shop_name = TextInput(label="Shop Name", placeholder="unique_id", required=True)
+    shop_name = TextInput(
+        label="Shop Name",
+        placeholder="unique_id",
+        required=True,
+    )
     description = TextInput(
-        label="Description", style=discord.TextStyle.long, required=False
+        label="Description (optional)",
+        style=discord.TextStyle.long,
+        required=False,
+    )
+    thumbnail = TextInput(
+        label="Thumbnail URL (optional)",
+        style=discord.TextStyle.short,
+        required=False,
+        placeholder="https://…jpg",
     )
 
-    def __init__(self, config: Config, guild_id: int):
+    def __init__(
+        self,
+        config: Config,
+        guild_id: int,
+        *,
+        original_name: str = None,
+        description: str = "",
+        thumbnail: str = "",
+    ):
         super().__init__()
         self.config = config
         self.guild_id = guild_id
+        # if original_name is set, we’re editing an existing shop
+        self.original_name = original_name
+        # prefill fields when editing
+        if original_name:
+            self.shop_name.default = original_name
+            self.description.default = description
+            self.thumbnail.default = thumbnail
 
     async def on_submit(self, interaction: discord.Interaction):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
-        shops[self.shop_name.value] = {
-            "description": self.description.value or "",
-            "stock": {},
+
+        new_name = self.shop_name.value.strip()
+        desc = self.description.value.strip()
+        thumb = self.thumbnail.value.strip()
+
+        # if renaming, carry over existing stock
+        stock = {}
+        if self.original_name and self.original_name in shops:
+            stock = shops[self.original_name].get("stock", {})
+            # remove the old key if the name actually changed
+            if new_name != self.original_name:
+                shops.pop(self.original_name, None)
+
+        # save the new/updated shop
+        shops[new_name] = {
+            "description": desc,
+            "thumbnail": thumb,
+            "stock": stock,
         }
+
         await guild_conf.shops.set(shops)
+
         await interaction.response.send_message(
-            f"✅ Shop `{self.shop_name.value}` created/updated.", ephemeral=True
+            f"✅ Shop `{new_name}` created/updated.", ephemeral=True
         )
 
 
