@@ -36,24 +36,6 @@ class Shop(commands.Cog):
         view = ManageView(self.config, ctx.guild.id)
         await ctx.send("Click below to create or edit your shop:", view=view)
         
-# --------------------
-# BUTTON‐LAUNCH VIEW
-# --------------------
-class ManageView(View):
-    """Shows a single button that opens ShopModal when clicked."""
-
-    def __init__(self, config: Config, guild_id: int):
-        super().__init__(timeout=None)
-        self.config = config
-        self.guild_id = guild_id
-
-    @button(label="Manage Shop", style=discord.ButtonStyle.primary, custom_id="shop_manage")
-    async def manage_button(self, button: Button, interaction: discord.Interaction):
-        """Opens the modal in response to a button click."""
-        await interaction.response.send_modal(
-            ShopModal(self.config, self.guild_id)
-        )       
-
     @shop.command()
     async def addstock(self, ctx, shop_name: str):
         """Add or restock an item via modal."""
@@ -93,7 +75,7 @@ class ManageView(View):
     async def clearinv(self, ctx, member: discord.Member):
         """Clear a user's custom inventory (does not remove roles)."""
         await self.config.user(member).inventory.clear()
-        await ctx.send(f"✅ Cleared inventory of {member.mention}.")
+        await ctx.send(f"✅ Cleared inventory of {member.mention}.") 
 
     # --------------------
     # USER COMMANDS
@@ -120,7 +102,26 @@ class ManageView(View):
     @commands.command()
     async def redeem(self, ctx):
         """Redeem a voucher or special code via modal."""
-        await ctx.send_modal(RedeemModal(self.config, ctx.author.id))
+        await ctx.send_modal(RedeemModal(self.config, ctx.author.id))        
+        
+# --------------------
+# BUTTON‐LAUNCH VIEW
+# --------------------
+class ManageView(View):
+    """Shows a single button that opens ShopModal when clicked."""
+
+    def __init__(self, config: Config, guild_id: int):
+        super().__init__(timeout=None)
+        self.config = config
+        self.guild_id = guild_id
+
+    @button(label="Manage Shop", style=discord.ButtonStyle.primary, custom_id="shop_manage")
+    async def manage_button(self, button: Button, interaction: discord.Interaction):
+        """Opens the modal in response to a button click."""
+        await interaction.response.send_modal(
+            ShopModal(self.config, self.guild_id)
+        )       
+
 
 
 # --------------------
