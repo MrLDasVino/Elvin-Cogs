@@ -49,20 +49,6 @@ class Shop(commands.Cog):
         await view.populate()                    
         await ctx.send("Select a shop to restock:", view=view)
 
-    @shop.command()
-    async def addrole(
-        self, ctx, shop_name: str, role: discord.Role, price: int
-    ):
-        """Add a Discord role as a purchasable stock item."""
-        guild_conf = self.config.guild(ctx.guild)
-        shops = await guild_conf.shops()
-        if shop_name not in shops:
-            return await ctx.send(f"❌ Shop `{shop_name}` not found.")
-        stock = shops[shop_name]["stock"]
-        stock[role.name] = {"price": price, "amount": 1, "role_id": role.id}
-        shops[shop_name]["stock"] = stock
-        await guild_conf.shops.set(shops)
-        await ctx.send(f"✅ Role `{role.name}` added to `{shop_name}` for {price} credits.")
 
     @shop.command()
     async def give(
@@ -249,7 +235,12 @@ class ShopModal(Modal, title="Create or Edit Shop"):
 
 
 class StockModal(Modal, title="Add / Restock Item"):
-    item = TextInput(label="Item Name", required=True)
+    item = TextInput(label="Item Name (leave blank to add a role)", required=False)
+    role = TextInput(
+        label="Role to Add (mention or ID, leave blank for item)",
+        placeholder="<@&123456789012345678> or role ID",
+        required=False,
+    )
     price = TextInput(label="Price (credits)", required=True)
     amount = TextInput(label="Amount to add (leave blank for ∞)", required=False)
 
@@ -263,28 +254,62 @@ class StockModal(Modal, title="Add / Restock Item"):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
         stock = shops[self.shop_name]["stock"]
-        name = self.item.value.strip()
-        old_entry = stock.get(name, {})
-        old_amount = old_entry.get("amount", 0)  # could be None or int
 
-        # Parse new amount
-        raw = (self.amount.value or "").strip()
-        if raw == "":
-            # blank → infinite
+        # Determine mode: role vs item
+        raw_item = (self.item.value or "").strip()
+        raw_role = (self.role.value or "").strip()
+        if not raw_item and not raw_role:
+            return await interaction.response.send_message(
+                "❌ You must fill either Item Name or Role field.", ephemeral=True
+            )
+        if raw_item and raw_role:
+            return await interaction.response.send_message(
+                "❌ You can’t add both an item and a role at once.", ephemeral=True
+            )
+
+        # Parse the stock key and role_id if necessary
+        if raw_role:
+            # Role path
+            rid = int(raw_role.strip("<@&>")) if raw_role.startswith("<@&") else int(raw_role)
+            role_obj = interaction.guild.get_role(rid)
+            if not role_obj:
+                return await interaction.response.send_message(
+                    "❌ Role not found.", ephemeral=True
+                )
+            name = role_obj.name
+            role_id = role_obj.id
+        else:
+            # Item path
+            name = raw_item
+            role_id = None
+
+        # Price always required
+        price = int(self.price.value)
+
+        # Amount: blank = infinite, else int
+        raw_amt = (self.amount.value or "").strip()
+        if raw_amt == "":
             new_amount = None
         else:
-            added = int(raw)
-            # if old was infinite, stay infinite
-            new_amount = None if old_amount is None else old_amount + added
+            add_amt = int(raw_amt)
+            old_amt = stock.get(name, {}).get("amount")
+            if old_amt is None:
+                new_amount = None
+            else:
+                new_amount = old_amt + add_amt
 
-        stock[name] = {
-            "price": int(self.price.value),
-            "amount": new_amount,
-        }
+        # Write stock entry
+        stock[name] = {"price": price, "amount": new_amount}
+        if role_id:
+            stock[name]["role_id"] = role_id
+
         shops[self.shop_name]["stock"] = stock
         await guild_conf.shops.set(shops)
         await interaction.response.send_message(
-            f"✅ Restocked `{name}` (+{self.amount.value}).", ephemeral=True
+            f"✅ {'Added' if raw_role else 'Restocked'} `{name}` "
+            f"for {price} credits"
+            f"{'' if new_amount is None else f', amount={new_amount}'}."
+            , ephemeral=True
         )
 
 
