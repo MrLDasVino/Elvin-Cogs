@@ -34,6 +34,7 @@ class Shop(commands.Cog):
     async def manage(self, ctx):
         """Send a button to open the shop‐manage modal."""
         view = ManageView(self.config, ctx.guild.id)
+        await view._populate()
         await ctx.send("Click below to create or edit your shop:", view=view)
         
     @shop.command()
@@ -114,19 +115,14 @@ class ManageView(View):
         super().__init__(timeout=None)
         self.config = config
         self.guild_id = guild_id
-        # we’ll populate the dropdown after init
-        asyncio.create_task(self._populate())
 
     async def _populate(self):
+        """Fill in the Select + New‐Shop button synchronously."""
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
-        options = [
-            discord.SelectOption(label=name, value=name)
-            for name in shops.keys()
-        ]
+        options = [discord.SelectOption(label=n, value=n) for n in shops]
         if options:
             self.add_item(ShopSelect(options, self.config, self.guild_id))
-        # always have a “New Shop” button
         self.add_item(NewShopButton(self.config, self.guild_id))
 
 
