@@ -235,14 +235,21 @@ class ShopModal(Modal, title="Create or Edit Shop"):
 
 
 class StockModal(Modal, title="Add / Restock Item"):
-    item = TextInput(label="Item Name (leave blank to add a role)", required=False)
+    item = TextInput(
+        label="Item Name",
+        placeholder="leave blank to add a role",
+        required=False,
+    )
     role = TextInput(
-        label="Role to Add (mention or ID, leave blank for item)",
-        placeholder="<@&123456789012345678> or role ID",
+        label="Role (mention or ID)",
+        placeholder="leave blank for item",
         required=False,
     )
     price = TextInput(label="Price (credits)", required=True)
-    amount = TextInput(label="Amount to add (leave blank for ∞)", required=False)
+    amount = TextInput(
+        label="Amount to add (blank = ∞)",
+        required=False,
+    )
 
     def __init__(self, config: Config, guild_id: int, shop_name: str):
         super().__init__()
