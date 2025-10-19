@@ -11,18 +11,13 @@ from redbot.core import commands, checks, Config, bank
 class Lottery(commands.Cog):
     """A lottery system using Red's bank for ticket purchases."""
 
-    def __new__(cls, bot):
-        self = super().__new__(cls)
-        bot.loop.create_task(self.__async_init(bot))
-        return self
-
-    async def __async_init(self, bot):
+    def __init__(self, bot: commands.Bot):
+        super().__init__()  # initialize Cog base
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890123456)
-        default_g = {"lotteries": {}}  # name: {desc, price, winners, tickets[]}
-        default_u = {"tickets": {}}    # guild_id: {lottery_name: count}
-        await self.config.register_global(**default_g)
-        await self.config.register_user(**default_u)
+        # register defaults synchronously
+        self.config.register_global(lotteries={})
+        self.config.register_user(tickets={})
 
     @commands.group()
     async def lottery(self, ctx: commands.Context):
