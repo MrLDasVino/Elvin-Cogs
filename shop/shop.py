@@ -102,10 +102,14 @@ class Shop(commands.Cog):
     @shop.command()
     async def gift(self, ctx):
         """Gift an item to another user."""
-        shops = await self.config.guild(ctx.guild).shops()
+        guild_conf = self.config.guild(ctx.guild)
+        shops = await guild_conf.shops()
         if not shops:
             return await ctx.send("❌ There are no shops to browse.")
-        view = ShopSelectView(self.config, ctx.guild.id, ctx.author.id, mode="gift")
+
+        # use the dropdown‐based shop selector (same as /shop buy)
+        view = ShopDropdownView(self.config, ctx.guild.id, ctx.author.id, mode="gift")
+        await view.populate()
         await ctx.send("🎁 **Select a shop to gift from:**", view=view)
      
         
