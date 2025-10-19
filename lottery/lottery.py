@@ -1,8 +1,10 @@
 import random
 
+import random
+
 import discord
-from discord import Embed
-from discord.ui import View, Button, Select, Modal, TextInput, SelectOption
+from discord import Embed, SelectOption
+from discord.ui import View, Button, Select, Modal, TextInput
 from redbot.core import commands, checks, Config, bank
 
 
