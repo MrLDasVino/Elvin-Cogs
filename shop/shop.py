@@ -107,10 +107,14 @@ class Shop(commands.Cog):
         if not shops:
             return await ctx.send("❌ There are no shops to browse.")
 
-        # use the dropdown‐based shop selector (same as /shop buy)
-        view = ShopDropdownView(self.config, ctx.guild.id, ctx.author.id, mode="gift")
-        await view.populate()
-        await ctx.send("🎁 **Select a shop to gift from:**", view=view)
+        embed = discord.Embed(
+            title="🎁 Gift Items",
+            description="Select a shop from the dropdown below:",
+            color=discord.Color.random()
+        )
+        view = ShopEmbedView(self.config, ctx.guild.id, ctx.author.id, mode="gift")
+        await view.populate_shops(shops)
+        await ctx.send(embed=embed, view=view)
      
         
 # --------------------
@@ -911,19 +915,24 @@ class RemoveItemSelect(Select):
         await interaction.message.edit(view=self.view)
         
 class ShopEmbedView(View):
-    """First dropdown: pick which shop to browse."""
-    def __init__(self, config: Config, guild_id: int, user_id: int):
+    """First dropdown: pick which shop to browse (buy vs gift)."""
+    def __init__(self, config: Config, guild_id: int, user_id: int, mode: str = "buy"):
         super().__init__(timeout=60)
         self.config = config
         self.guild_id = guild_id
         self.user_id = user_id
+        self.mode = mode
 
     async def populate_shops(self, shops: Dict[str, dict]):
         options = [
             discord.SelectOption(label=name, value=name)
             for name in shops.keys()
         ]
-        self.add_item(ShopEmbedSelect(options, self.config, self.guild_id, self.user_id))
+        self.add_item(
+            ShopEmbedSelect(
+                options, self.config, self.guild_id, self.user_id, self.mode
+            )
+        )
         cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
         async def _cancel(inter: discord.Interaction):
             for c in self.children:
@@ -934,7 +943,14 @@ class ShopEmbedView(View):
 
 class ShopEmbedSelect(Select):
     """Dropdown of shops → edits to shop embed + item selector."""
-    def __init__(self, options, config: Config, guild_id: int, user_id: int):
+    def __init__(
+        self,
+        options,
+        config: Config,
+        guild_id: int,
+        user_id: int,
+        mode: str = "buy",
+    ):
         super().__init__(
             placeholder="Choose a shop…",
             min_values=1, max_values=1,
@@ -944,6 +960,7 @@ class ShopEmbedSelect(Select):
         self.config = config
         self.guild_id = guild_id
         self.user_id = user_id
+        self.mode = mode
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
@@ -985,6 +1002,7 @@ class ShopEmbedSelect(Select):
             self.user_id,
             shop_name,
             currency,
+            self.mode,
         )
         await view.populate_items()
         await interaction.response.edit_message(embed=embed, view=view)
@@ -997,7 +1015,8 @@ class ItemEmbedView(View):
         guild_id: int,
         user_id: int,
         shop_name: str,
-        currency: str,              
+        currency: str,
+        mode: str = "buy",
     ):
         super().__init__(timeout=60)
         self.config = config
@@ -1005,6 +1024,7 @@ class ItemEmbedView(View):
         self.user_id = user_id
         self.shop_name = shop_name
         self.currency = currency
+        self.mode = mode
 
     async def populate_items(self):
         guild_conf = self.config.guild_from_id(self.guild_id)
@@ -1014,7 +1034,17 @@ class ItemEmbedView(View):
             amt = "∞" if entry.get("amount") is None else entry["amount"]
             label = f"{item_name} ({entry['price']} {self.currency}, {amt} left)"
             options.append(discord.SelectOption(label=label, value=item_name))
-        self.add_item(ItemEmbedSelect(options, self.config, self.guild_id, self.user_id, self.shop_name))
+        self.add_item(
+            ItemEmbedSelect(
+                options,
+                self.config,
+                self.guild_id,
+                self.user_id,
+                self.shop_name,
+                self.currency,
+                self.mode,
+            )
+        )
 
         cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
         async def _cancel(inter: discord.Interaction):
@@ -1025,8 +1055,17 @@ class ItemEmbedView(View):
         self.add_item(cancel)
 
 class ItemEmbedSelect(Select):
-    """Dropdown of items → send BuyModal(quantity)."""
-    def __init__(self, options, config: Config, guild_id: int, user_id: int, shop_name: str):
+    """Dropdown of items → send Buy or Gift modal."""
+    def __init__(
+        self,
+        options,
+        config: Config,
+        guild_id: int,
+        user_id: int,
+        shop_name: str,
+        currency: str,
+        mode: str = "buy",
+    ):
         super().__init__(
             placeholder="Select an item to buy…",
             min_values=1, max_values=1,
@@ -1037,6 +1076,8 @@ class ItemEmbedSelect(Select):
         self.guild_id = guild_id
         self.user_id = user_id
         self.shop_name = shop_name
+        self.currency = currency
+        self.mode = mode        
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
