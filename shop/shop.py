@@ -73,11 +73,14 @@ class Shop(commands.Cog):
 
     @shop.command()
     async def buy(self, ctx):
-        """Browse shops and buy items via buttons & modals."""
-        shops = await self.config.guild(ctx.guild).shops()
+        """Browse shops and buy items via a dropdown + item list."""
+        guild_conf = self.config.guild(ctx.guild)
+        shops = await guild_conf.shops()
         if not shops:
             return await ctx.send("❌ There are no shops to browse.")
-        view = ShopSelectView(self.config, ctx.guild.id, ctx.author.id, mode="buy")
+
+        view = ShopDropdownView(self.config, ctx.guild.id, ctx.author.id, mode="buy")
+        await view.populate()  # build the select before sending
         await ctx.send("🛒 **Select a shop to buy from:**", view=view)
 
     @shop.command()
@@ -667,3 +670,72 @@ class AddStockSelect(Select):
             StockModal(self.config, self.guild_id, shop_name)
         )
 
+class ShopDropdownView(View):
+    """View that shows a dropdown of shops to choose from."""
+    def __init__(self, config: Config, guild_id: int, user_id: int, mode: str = "buy"):
+        super().__init__(timeout=60)
+        self.config = config
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.mode = mode
+
+    async def populate(self):
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+        options = [
+            discord.SelectOption(label=name, value=name)
+            for name in shops.keys()
+        ]
+        # add our dropdown
+        self.add_item(
+            ShopDropdownSelect(options, self.config, self.guild_id, self.user_id, self.mode)
+        )
+        # optional cancel button
+        cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
+        async def _cancel(interaction: discord.Interaction):
+            for item in self.children:
+                item.disabled = True
+            await interaction.response.edit_message(content="Cancelled.", view=self)
+        cancel.callback = _cancel
+        self.add_item(cancel)
+
+
+class ShopDropdownSelect(Select):
+    """Dropdown listing all shops; on select, shows the items view."""
+    def __init__(
+        self,
+        options: list[discord.SelectOption],
+        config: Config,
+        guild_id: int,
+        user_id: int,
+        mode: str,
+    ):
+        super().__init__(
+            placeholder="Choose a shop…",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="shop_buy_dropdown",
+        )
+        self.config = config
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.mode = mode
+
+    async def callback(self, interaction: discord.Interaction):
+        shop_name = self.values[0]
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message(
+                "This menu isn’t for you.", ephemeral=True
+            )
+        # switch to the ItemListView you already have
+        await interaction.response.edit_message(
+            content=f"**{shop_name}** – Select an item to {self.mode}:",
+            view=ItemListView(
+                self.config,
+                self.guild_id,
+                self.user_id,
+                self.mode,
+                shop_name,
+            ),
+        )
