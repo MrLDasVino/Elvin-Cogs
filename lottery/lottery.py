@@ -262,40 +262,70 @@ class BuyView(View):
         self.add_item(buy_select)
 
     async def _buy_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         choice = interaction.data["values"][0]
         lotteries = await self.cog.config.lotteries()
         data = lotteries[choice]
         price = data["price"]
+
+        # Open a modal to ask for ticket quantity
+        await interaction.response.send_modal(
+            BuyAmountModal(self.cog, choice, price)
+        )
+        self.stop()
+
+# Modal for entering how many tickets to purchase
+class BuyAmountModal(Modal, title="Buy Tickets"):
+    def __init__(self, cog: Lottery, choice: str, price: int):
+        super().__init__()
+        self.cog = cog
+        self.choice = choice
+        self.price = price
+        self.amount = TextInput(
+            label="Number of tickets",
+            placeholder="Enter how many tickets you want",
+            min_length=1,
+            max_length=6
+        )
+        self.add_item(self.amount)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        amount = int(self.amount.value)
+        total_cost = amount * self.price
         author = interaction.user
 
-        if not await bank.can_spend(author, price):
-            return await interaction.followup.send(
-                "You don't have enough funds to buy a ticket.",
+        # Check funds for total
+        if not await bank.can_spend(author, total_cost):
+            return await interaction.response.send_message(
+                f"You need {total_cost} {await bank.get_currency_name(interaction.guild)}, "
+                "but you have insufficient funds.",
                 ephemeral=True
             )
 
-        await bank.withdraw_credits(author, price)
+        # Withdraw total cost
+        await bank.withdraw_credits(author, total_cost)
 
-        # Global ticket record
-        data["tickets"].append(author.id)
-        lotteries[choice] = data
+        # Record tickets globally
+        lotteries = await self.cog.config.lotteries()
+        data = lotteries[self.choice]
+        data["tickets"].extend([author.id] * amount)
+        lotteries[self.choice] = data
         await self.cog.config.lotteries.set(lotteries)
 
-        # User inventory record
+        # Record tickets per user
         user_tix = await self.cog.config.user(author).tickets()
         guild_key = str(interaction.guild.id)
         user_tix.setdefault(guild_key, {})
-        user_tix[guild_key][choice] = user_tix[guild_key].get(choice, 0) + 1
+        user_tix[guild_key][self.choice] = (
+            user_tix[guild_key].get(self.choice, 0) + amount
+        )
         await self.cog.config.user(author).tickets.set(user_tix)
 
         curr_name = await bank.get_currency_name(interaction.guild)
-        await interaction.followup.send(
-            f"🎟️ You bought a ticket for **{choice}** "
-            f"for {price} {curr_name}.",
+        await interaction.response.send_message(
+            f"🎟️ You purchased {amount} tickets for **{self.choice}** "
+            f"for {total_cost} {curr_name}.",
             ephemeral=True
         )
-        self.stop()
 
 
 # ----------------------------
