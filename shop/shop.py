@@ -630,9 +630,12 @@ class AddStockView(View):
     async def populate(self):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
+        shop_names = list(shops.keys())
+        # cap at 25 choices
+        display = shop_names[:25]
         options = [
             discord.SelectOption(label=name, value=name)
-            for name in shops.keys()
+            for name in display
         ]
         # shop selector
         if options:
