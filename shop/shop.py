@@ -48,8 +48,8 @@ class Shop(commands.Cog):
    
         view = AddStockView(self.config, ctx.guild.id)
         await view.populate()                    
-        await ctx.send("Select a shop to restock:", view=view)
-        view.message = msg
+        msg = await ctx.send("Select a shop to restock:", view=view)
+        view.message = msg      
         
     @shop.command()
     @checks.admin()
