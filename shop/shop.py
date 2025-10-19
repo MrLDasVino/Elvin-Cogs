@@ -715,6 +715,18 @@ class AddStockView(View):
         super().__init__(timeout=60)
         self.config = config
         self.guild_id = guild_id
+        
+    async def on_timeout(self):
+        # disable all buttons/dropdowns
+        for child in self.children:
+            child.disabled = True
+        # edit the original message to show it timed out
+        try:
+            await self.message.edit(
+                content="⌛ Restock session timed out.", view=self
+            )
+        except Exception:
+            pass        
 
     async def populate(self):
         guild_conf = self.config.guild_from_id(self.guild_id)
