@@ -259,6 +259,12 @@ class StockModal(Modal, title="Add / Restock Item"):
         placeholder="leave blank for item",
         required=False,
     )
+    description = TextInput(
+        label="Description (optional)",
+        style=discord.TextStyle.long,
+        required=False,
+        placeholder="Short blurb about this item",
+    )    
     price = TextInput(label="Price (credits)", required=True)
     amount = TextInput(
         label="Amount to add (blank = ∞)",
@@ -335,11 +341,16 @@ class StockModal(Modal, title="Add / Restock Item"):
                 new_amount = None
             else:
                 new_amount = old_amt + add_amt
+                
+        raw_desc = (self.description.value or "").strip()
+        old_entry = stock.get(name, {})
+        final_desc = raw_desc or old_entry.get("description", "")                
 
         # Write stock entry
-        stock[name] = {"price": price, "amount": new_amount}
+        entry = {"price": price, "amount": new_amount, "description": final_desc}
         if role_id:
-            stock[name]["role_id"] = role_id
+            entry["role_id"] = role_id
+        stock[name] = entry
 
         shops[self.shop_name]["stock"] = stock
         await guild_conf.shops.set(shops)
