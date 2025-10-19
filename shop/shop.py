@@ -23,7 +23,7 @@ class Shop(commands.Cog):
     # ADMIN COMMANDS
     # --------------------
 
-    @commands.group()    
+    @commands.group(invoke_without_command=True)    
     async def shop(self, ctx):
         """Shop commands."""
         if not ctx.invoked_subcommand:
