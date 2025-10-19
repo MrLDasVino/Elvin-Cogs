@@ -113,18 +113,21 @@ class DrawView(View):
         super().__init__(timeout=None)
         self.cog = cog
         self.currency = currency
-        self.add_item(Select(
+
+        # Add exactly one Select with real options
+        draw_select = Select(
             placeholder="Choose a lottery…",
             options=options,
             custom_id="lottery_draw_select",
             min_values=1,
             max_values=1
-        ))
+        )
+        draw_select.callback = self._draw_callback
+        self.add_item(draw_select)
 
-    @discord.ui.select()
-    async def select_callback(self, select: Select, interaction: discord.Interaction):
+    async def _draw_callback(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        choice = select.values[0]
+        choice = interaction.data["values"][0]
         data = (await self.cog.config.lotteries())[choice]
         tickets = data["tickets"]
         if not tickets:
@@ -139,7 +142,7 @@ class DrawView(View):
         )
         for uid in winners:
             member = interaction.guild.get_member(uid) or await self.cog.bot.fetch_user(uid)
-            embed.add_field(name=member.display_name, value=f"Congratulations!", inline=False)
+            embed.add_field(name=member.display_name, value="Congratulations!", inline=False)
 
         await interaction.followup.send(embed=embed)
 
@@ -155,8 +158,6 @@ class DrawView(View):
             if choice in tix:
                 tix.pop(choice)
                 await self.cog.config.user_from_id(user_id).tickets.set(tix)
-
-        # Stop listening to further interactions
         self.stop()
 
 
