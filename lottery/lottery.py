@@ -250,54 +250,51 @@ class BuyView(View):
     def __init__(self, cog: Lottery, options: list[SelectOption]):
         super().__init__(timeout=None)
         self.cog = cog
-        self.add_item(Select(
+
+        buy_select = Select(
             placeholder="Select lottery…",
             options=options,
             custom_id="lottery_buy_select",
             min_values=1,
             max_values=1
-        ))
+        )
+        buy_select.callback = self._buy_callback
+        self.add_item(buy_select)
 
-    @discord.ui.select(custom_id="lottery_buy_select")
-    async def buy_select(self, select: Select, interaction: discord.Interaction):
+    async def _buy_callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        choice = select.values[0]
+        choice = interaction.data["values"][0]
         lotteries = await self.cog.config.lotteries()
         data = lotteries[choice]
         price = data["price"]
         author = interaction.user
 
-        # Check funds
         if not await bank.can_spend(author, price):
             return await interaction.followup.send(
                 "You don't have enough funds to buy a ticket.",
                 ephemeral=True
             )
 
-        # Withdraw cost
         await bank.withdraw_credits(author, price)
 
-        # Record ticket in lottery
+        # Global ticket record
         data["tickets"].append(author.id)
         lotteries[choice] = data
         await self.cog.config.lotteries.set(lotteries)
 
-        # Record ticket in user inventory
+        # User inventory record
         user_tix = await self.cog.config.user(author).tickets()
         guild_key = str(interaction.guild.id)
         user_tix.setdefault(guild_key, {})
         user_tix[guild_key][choice] = user_tix[guild_key].get(choice, 0) + 1
         await self.cog.config.user(author).tickets.set(user_tix)
 
-        # Confirmation
         curr_name = await bank.get_currency_name(interaction.guild)
         await interaction.followup.send(
             f"🎟️ You bought a ticket for **{choice}** "
             f"for {price} {curr_name}.",
             ephemeral=True
         )
-
-        # Stop listening for further input
         self.stop()
 
 
