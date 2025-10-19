@@ -1,0 +1,8 @@
+{
+  "name": "Lottery",
+  "version": "1.0.0",
+  "description": "A bank-backed lottery system with buy, inventory, manage, and draw commands.",
+  "author": ["Elvin"],
+  "requirements": [],
+  "tags": ["economy", "fun", "gambling"]
+}
