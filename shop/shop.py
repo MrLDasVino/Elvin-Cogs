@@ -49,6 +49,7 @@ class Shop(commands.Cog):
         view = AddStockView(self.config, ctx.guild.id)
         await view.populate()                    
         await ctx.send("Select a shop to restock:", view=view)
+        view.message = msg
         
     @shop.command()
     @checks.admin()
@@ -60,7 +61,8 @@ class Shop(commands.Cog):
             return await ctx.send("❌ There are no shops to edit.")
         view = RemoveStockView(self.config, ctx.guild.id)
         await view.populate()
-        await ctx.send("🗑️ **Select a shop to remove items from:**", view=view)        
+        msg = await ctx.send("Select a shop to remove stock from:", view=view)
+        view.message = msg       
 
 
     @shop.command()
@@ -850,6 +852,18 @@ class RemoveStockView(View):
         super().__init__(timeout=60)
         self.config = config
         self.guild_id = guild_id
+        
+    async def on_timeout(self):
+        # disable all buttons & selects
+        for child in self.children:
+            child.disabled = True
+        # edit the original message so users know it expired
+        try:
+            await self.message.edit(
+                content="⌛ Removal session timed out.", view=self
+            )
+        except Exception:
+            pass        
 
     async def populate(self):
         guild_conf = self.config.guild_from_id(self.guild_id)
