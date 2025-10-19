@@ -946,7 +946,7 @@ class ShopEmbedSelect(Select):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops_data = await guild_conf.shops()
         shop = shops_data[shop_name]
-        currency = await get_currency_name(interaction.guild)
+        currency = await bank.get_currency_name(interaction.guild)
 
         # build shop embed w/ header info
         embed = discord.Embed(
