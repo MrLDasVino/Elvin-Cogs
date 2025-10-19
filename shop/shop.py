@@ -426,9 +426,9 @@ class GiftModal(Modal, title="Gift Item"):
             )
 
         amount = int(self.amount.value)
-        total = self.price * amount
+        total_cost = self.price * amount
         bal = await bank.get_balance(interaction.user)
-        if bal < total:
+        if bal < total_cost:
             return await interaction.response.send_message(
                 "❌ Insufficient funds.", ephemeral=True
             )
