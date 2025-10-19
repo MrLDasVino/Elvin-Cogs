@@ -807,13 +807,16 @@ class RemoveStockSelect(Select):
 
     async def callback(self, interaction: discord.Interaction):
         shop_name = self.values[0]
-        # load the next view
+
+        # 1. Instantiate and populate the item‐removal view
+        view = RemoveItemView(self.config, self.guild_id, shop_name)
+        await view.populate()
+
+        # 2. Swap in the fully‐built view
         await interaction.response.edit_message(
             content=f"🗑️ **{shop_name}** – select an item to remove:",
-            view=RemoveItemView(self.config, self.guild_id, shop_name),
+            view=view,
         )
-        # populate that view’s dropdown
-        asyncio.create_task(interaction.message.components[0].view.populate())
 
 
 class RemoveItemView(View):
