@@ -97,7 +97,8 @@ class Shop(commands.Cog):
         )
         view = ShopEmbedView(self.config, ctx.guild.id, ctx.author.id)
         await view.populate_shops(shops)
-        await ctx.send(embed=embed, view=view)
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
 
     @shop.command()
     async def gift(self, ctx):
@@ -114,7 +115,8 @@ class Shop(commands.Cog):
         )
         view = ShopEmbedView(self.config, ctx.guild.id, ctx.author.id, mode="gift")
         await view.populate_shops(shops)
-        await ctx.send(embed=embed, view=view)
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
         
     @shop.command(name="inventory")
     async def inventory(self, ctx, member: discord.Member = None):
@@ -951,6 +953,16 @@ class ShopEmbedView(View):
         self.guild_id = guild_id
         self.user_id = user_id
         self.mode = mode
+        
+    async def on_timeout(self):
+        # disable all buttons/selects
+        for child in self.children:
+            child.disabled = True
+        # edit original message to indicate timeout
+        try:
+            await self.message.edit(content="⌛ Interaction timed out.", view=self)
+        except Exception:
+            pass        
 
     async def populate_shops(self, shops: Dict[str, dict]):
         options = [
@@ -1054,6 +1066,16 @@ class ItemEmbedView(View):
         self.shop_name = shop_name
         self.currency = currency
         self.mode = mode
+        
+    async def on_timeout(self):
+        # disable all buttons/selects
+        for child in self.children:
+            child.disabled = True
+        # edit original message to indicate timeout
+        try:
+            await self.message.edit(view=self)
+        except Exception:
+            pass        
 
     async def populate_items(self):
         guild_conf = self.config.guild_from_id(self.guild_id)
