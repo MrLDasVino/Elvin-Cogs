@@ -265,7 +265,7 @@ class StockModal(Modal, title="Add / Restock Item"):
         shops = await guild_conf.shops()
         stock = shops[self.shop_name]["stock"]
 
-        # Determine mode: role vs item
+        # Resolve item vs role by name/mention/ID
         raw_item = (self.item.value or "").strip()
         raw_role = (self.role.value or "").strip()
         if not raw_item and not raw_role:
@@ -277,19 +277,36 @@ class StockModal(Modal, title="Add / Restock Item"):
                 "❌ You can’t add both an item and a role at once.", ephemeral=True
             )
 
-        # Parse the stock key and role_id if necessary
         if raw_role:
-            # Role path
-            rid = int(raw_role.strip("<@&>")) if raw_role.startswith("<@&") else int(raw_role)
-            role_obj = interaction.guild.get_role(rid)
+            role_obj = None
+            # 1) Mention syntax
+            if raw_role.startswith("<@&") and raw_role.endswith(">"):
+                rid = int(raw_role[3:-1])
+                role_obj = interaction.guild.get_role(rid)
+            # 2) Raw ID
+            elif raw_role.isdigit():
+                role_obj = interaction.guild.get_role(int(raw_role))
+            # 3) Exact name match (case-insensitive)
+            else:
+                matches = [
+                    r for r in interaction.guild.roles
+                    if r.name.lower() == raw_role.lower()
+                ]
+                if len(matches) == 1:
+                    role_obj = matches[0]
+                elif len(matches) > 1:
+                    dupes = ", ".join(r.name for r in matches)
+                    return await interaction.response.send_message(
+                        f"❌ Ambiguous role name – matched: {dupes}", ephemeral=True
+                    )
             if not role_obj:
                 return await interaction.response.send_message(
-                    "❌ Role not found.", ephemeral=True
+                    f"❌ Role `{raw_role}` not found.", ephemeral=True
                 )
+
             name = role_obj.name
             role_id = role_obj.id
         else:
-            # Item path
             name = raw_item
             role_id = None
 
