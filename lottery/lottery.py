@@ -164,22 +164,30 @@ class ManageView(View):
     def __init__(self, cog: Lottery, options: list[SelectOption]):
         super().__init__(timeout=None)
         self.cog = cog
-        self.add_item(Button(label="Create Lottery", style=discord.ButtonStyle.green, custom_id="lottery_create"))
-        self.add_item(Select(
+
+        create_btn = Button(
+            label="Create Lottery",
+            style=discord.ButtonStyle.green,
+            custom_id="lottery_create"
+        )
+        create_btn.callback = self._create_callback
+        self.add_item(create_btn)
+
+        edit_sel = Select(
             placeholder="Edit existing…",
             options=options,
             custom_id="lottery_edit_select",
             min_values=1,
             max_values=1
-        ))
+        )
+        edit_sel.callback = self._edit_callback
+        self.add_item(edit_sel)
 
-    @discord.ui.button(custom_id="lottery_create", label="Create Lottery", style=discord.ButtonStyle.green)
-    async def create_button(self, button: Button, interaction: discord.Interaction):
+    async def _create_callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(CreateLotteryModal(self.cog))
 
-    @discord.ui.select(custom_id="lottery_edit_select")
-    async def edit_select(self, select: Select, interaction: discord.Interaction):
-        name = select.values[0]
+    async def _edit_callback(self, interaction: discord.Interaction):
+        name = interaction.data["values"][0]
         data = (await self.cog.config.lotteries())[name]
         await interaction.response.send_modal(EditLotteryModal(self.cog, name, data))
 
