@@ -115,6 +115,35 @@ class Shop(commands.Cog):
         view = ShopEmbedView(self.config, ctx.guild.id, ctx.author.id, mode="gift")
         await view.populate_shops(shops)
         await ctx.send(embed=embed, view=view)
+        
+    @shop.command(name="inventory")
+    async def inventory(self, ctx, member: discord.Member = None):
+        """Show the items you or another member have bought."""
+        target = member or ctx.author
+        user_conf = self.config.user(target)
+        inv = await user_conf.inventory()
+        if not inv:
+            return await ctx.send(f"❌ {target.display_name} has no items.")
+
+        embed = discord.Embed(
+            title=f"{target.display_name}'s Inventory",
+            color=discord.Color.random()
+        )
+        # show avatar next to the embed title
+        if target.avatar:
+            embed.set_author(name=target.display_name, icon_url=target.avatar.url)
+        else:
+            embed.set_author(name=target.display_name)
+
+        # one field per item
+        for item_name, count in inv.items():
+            embed.add_field(
+                name=f"🔸 {item_name}",
+                value=f"Quantity: {count}",
+                inline=False
+            )
+
+        await ctx.send(embed=embed)        
      
         
 # --------------------
