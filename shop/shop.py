@@ -1089,15 +1089,26 @@ class ItemEmbedSelect(Select):
         entry = (await guild_conf.shops())[self.shop_name]["stock"][item_name]
         price = entry["price"]
 
-        # open your existing BuyModal
-        await interaction.response.send_modal(
-            BuyModal(
-                self.config,
-                self.guild_id,
-                self.user_id,
-                self.shop_name,
-                item_name,
-                price,
+        if self.mode == "buy":
+            await interaction.response.send_modal(
+                BuyModal(
+                    self.config,
+                    self.guild_id,
+                    self.user_id,
+                    self.shop_name,
+                    item_name,
+                    price,
+                )
             )
-        )
+        else:  # gift
+            await interaction.response.send_modal(
+                GiftModal(
+                    self.config,
+                    self.guild_id,
+                    self.user_id,
+                    self.shop_name,
+                    item_name,
+                    price,
+                )
+            )
         
