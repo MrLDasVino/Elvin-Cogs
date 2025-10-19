@@ -966,7 +966,7 @@ class ShopEmbedSelect(Select):
             left = "∞" if amt is None else str(amt)
             desc = entry.get("description", "No description.")
             embed.add_field(
-                name=f"🪙 {item_name} — {price} {currency}",
+                name=f"🔶 {item_name} — {price} {currency}",
                 value=f"{desc}\n🗃️ Stock: {left}",
                 inline=False
             )
