@@ -772,7 +772,9 @@ class RoleOrItemView(View):
         self.add_item(btn)
 
         # Dropdown to select a role
-        self.add_item(RoleDropdown(roles, config, guild_id, shop_name))
+        btn_role = Button(label="➕ Add Role (mention or ID)", style=discord.ButtonStyle.secondary)
+        btn_role.callback = self._add_role_manual
+        self.add_item(btn_role)
 
         # Cancel
         cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
@@ -783,6 +785,11 @@ class RoleOrItemView(View):
         await interaction.response.send_modal(
             StockModal(self.config, self.guild_id, self.shop_name)
         )
+        
+    async def _add_role_manual(self, interaction):
+        await interaction.response.send_modal(
+            StockModal(self.config, self.guild_id, self.shop_name)
+        )        
 
     async def _cancel(self, interaction: discord.Interaction):
         for c in self.children:
