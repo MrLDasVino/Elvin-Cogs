@@ -480,9 +480,9 @@ class ItemListView(View):
         self.user_id = user_id
         self.mode = mode
         self.shop_name = shop_name
-        asyncio.create_task(self._populate_items())
 
-    async def _populate_items(self):
+
+    async def populate_items(self):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
         stock = shops[self.shop_name]["stock"]
@@ -729,13 +729,16 @@ class ShopDropdownSelect(Select):
                 "This menu isn’t for you.", ephemeral=True
             )
         # switch to the ItemListView you already have
+        view = ItemListView(
+            self.config,
+            self.guild_id,
+            self.user_id,
+            self.mode,
+            shop_name,
+        )
+        await view.populate_items()
+
         await interaction.response.edit_message(
             content=f"**{shop_name}** – Select an item to {self.mode}:",
-            view=ItemListView(
-                self.config,
-                self.guild_id,
-                self.user_id,
-                self.mode,
-                shop_name,
-            ),
+            view=view,
         )
