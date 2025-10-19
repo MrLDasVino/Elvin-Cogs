@@ -946,6 +946,7 @@ class ShopEmbedSelect(Select):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops_data = await guild_conf.shops()
         shop = shops_data[shop_name]
+        currency = await get_currency_name(interaction.guild)
 
         # build shop embed w/ header info
         embed = discord.Embed(
@@ -965,24 +966,38 @@ class ShopEmbedSelect(Select):
             amt_display = "∞" if amt is None else str(amt)
             desc = entry.get("description", "No description.")
             embed.add_field(
-                name=f"{item_name} ({price}cr, {amt_display})",
+                name=f"{item_name} ({price} {currency}, {amt_display} left)",
                 value=desc,
                 inline=False
             )
 
         # swap in Item dropdown view
-        view = ItemEmbedView(self.config, self.guild_id, self.user_id, shop_name)
+        view = ItemEmbedView(
+            self.config,
+            self.guild_id,
+            self.user_id,
+            shop_name,
+            currency,
+        )
         await view.populate_items()
         await interaction.response.edit_message(embed=embed, view=view)
 
 class ItemEmbedView(View):
     """After shop select: dropdown of items → opens BuyModal."""
-    def __init__(self, config: Config, guild_id: int, user_id: int, shop_name: str):
+    def __init__(
+        self,
+        config: Config,
+        guild_id: int,
+        user_id: int,
+        shop_name: str,
+        currency: str,              
+    ):
         super().__init__(timeout=60)
         self.config = config
         self.guild_id = guild_id
         self.user_id = user_id
         self.shop_name = shop_name
+        self.currency = currency
 
     async def populate_items(self):
         guild_conf = self.config.guild_from_id(self.guild_id)
@@ -990,7 +1005,7 @@ class ItemEmbedView(View):
         options = []
         for item_name, entry in stock.items():
             amt = "∞" if entry.get("amount") is None else entry["amount"]
-            label = f"{item_name} ({entry['price']}cr, {amt} left)"
+            label = f"{item_name} ({entry['price']} {self.currency}, {amt} left)"
             options.append(discord.SelectOption(label=label, value=item_name))
         self.add_item(ItemEmbedSelect(options, self.config, self.guild_id, self.user_id, self.shop_name))
 
