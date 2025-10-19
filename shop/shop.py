@@ -800,18 +800,33 @@ class RoleDropdown(Select):
         guild_id: int,
         shop_name: str,
     ):
-        options = [
-            discord.SelectOption(label=r.name, value=str(r.id))
-            for r in roles
-            if not r.is_default()
-        ]
+        filtered = [r for r in roles if not r.is_default()]
+
+        if not filtered:
+            # No roles available → disabled placeholder
+            options = [
+                discord.SelectOption(label="No roles available", value="none")
+            ]
+            placeholder = "No roles to add"
+            disabled = True
+        else:
+            # Slice to first 25
+            filtered = filtered[:25]
+            options = [
+                discord.SelectOption(label=r.name, value=str(r.id))
+                for r in filtered
+            ]
+            placeholder = "Select a role to add…"
+            disabled = False
+            
         super().__init__(
-            placeholder="Select a role to add…",
+            placeholder=placeholder,
             min_values=1,
             max_values=1,
             options=options,
             custom_id="addstock_role_select",
         )
+        self.disabled = disabled
         self.config = config
         self.guild_id = guild_id
         self.shop_name = shop_name
