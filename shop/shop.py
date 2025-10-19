@@ -1,9 +1,10 @@
 import asyncio
 import discord
 from typing import Dict
+from discord import ui, SelectOption
 
 from redbot.core import commands, Config, checks, bank
-from discord.ui import View, button, Button, Modal, TextInput, Select
+from discord.ui import View, button, Button, Modal, TextInput, Select, RoleSelect
 
 
 class Shop(commands.Cog):
@@ -759,7 +760,6 @@ class RoleOrItemView(View):
         config: Config,
         guild_id: int,
         shop_name: str,
-        roles: list[discord.Role],
     ):
         super().__init__(timeout=60)
         self.config = config
@@ -771,10 +771,8 @@ class RoleOrItemView(View):
         btn.callback = self._add_item
         self.add_item(btn)
 
-        # Dropdown to select a role
-        btn_role = Button(label="➕ Add Role (mention or ID)", style=discord.ButtonStyle.secondary)
-        btn_role.callback = self._add_role_manual
-        self.add_item(btn_role)
+        # Searchable role selector
+        self.add_item(RoleDropdown(self.config, self.guild_id, self.shop_name))
 
         # Cancel
         cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
@@ -797,51 +795,28 @@ class RoleOrItemView(View):
         await interaction.response.edit_message(content="Cancelled.", view=self)
 
 
-class RoleDropdown(Select):
-    """Dropdown listing all guild roles; opens RoleStockModal on select."""
-
-    def __init__(
-        self,
-        roles: list[discord.Role],
-        config: Config,
-        guild_id: int,
-        shop_name: str,
-    ):
-        filtered = [r for r in roles if not r.is_default()]
-
-        if not filtered:
-            # No roles available → disabled placeholder
-            options = [
-                discord.SelectOption(label="No roles available", value="none")
-            ]
-            placeholder = "No roles to add"
-            disabled = True
-        else:
-            # Slice to first 25
-            filtered = filtered[:25]
-            options = [
-                discord.SelectOption(label=r.name, value=str(r.id))
-                for r in filtered
-            ]
-            placeholder = "Select a role to add…"
-            disabled = False
-            
+class RoleDropdown(RoleSelect):
+    def __init__(self, config: Config, guild_id: int, shop_name: str):
         super().__init__(
-            placeholder=placeholder,
+            placeholder="Search for a role…",
             min_values=1,
             max_values=1,
-            options=options,
-            custom_id="addstock_role_select",
+            custom_id="addstock_role_select"
         )
-        self.disabled = disabled
         self.config = config
         self.guild_id = guild_id
         self.shop_name = shop_name
 
     async def callback(self, interaction: discord.Interaction):
-        role_id = int(self.values[0])
+        # `self.values` now contains actual Role objects
+        role: discord.Role = self.values[0]
         await interaction.response.send_modal(
-            RoleStockModal(self.config, self.guild_id, self.shop_name, role_id)
+            RoleStockModal(
+                self.config,
+                self.guild_id,
+                self.shop_name,
+                role.id
+            )
         )
 
 class RoleStockModal(Modal, title="Add / Restock Role"):
