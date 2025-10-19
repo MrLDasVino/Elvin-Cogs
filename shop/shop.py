@@ -7,7 +7,7 @@ from discord.ui import View, button, Button, Modal, TextInput, Select
 
 
 class Shop(commands.Cog):
-    """A fully async shop cog with buttons, modals, and Red’s bank integration."""
+    """A shop cog with buttons, modals, and Red’s bank integration."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -23,21 +23,22 @@ class Shop(commands.Cog):
     # ADMIN COMMANDS
     # --------------------
 
-    @commands.group()
-    @checks.admin()
+    @commands.group()    
     async def shop(self, ctx):
-        """Shop administration commands."""
+        """Shop commands."""
         if not ctx.invoked_subcommand:
             await ctx.send_help(ctx.command)
 
     @shop.command()
+    @checks.admin()
     async def manage(self, ctx):
         """Send a button to open the shop‐manage modal."""
         view = ManageView(self.config, ctx.guild.id)
         await view._populate()
         await ctx.send("Click below to create or edit your shop:", view=view)
         
-    @shop.command()    
+    @shop.command()
+    @checks.admin()    
     async def addstock(self, ctx):
         """Pick a shop to restock, then open the restock modal."""
         guild_conf = self.config.guild(ctx.guild)
@@ -50,6 +51,7 @@ class Shop(commands.Cog):
         await ctx.send("Select a shop to restock:", view=view)
         
     @shop.command()
+    @checks.admin()
     async def removestock(self, ctx):
         """Remove an item from a shop."""
         guild_conf = self.config.guild(ctx.guild)
@@ -62,6 +64,7 @@ class Shop(commands.Cog):
 
 
     @shop.command()
+    @checks.admin()
     async def give(
         self, ctx, member: discord.Member, item_name: str, amount: int = 1
     ):
@@ -73,6 +76,7 @@ class Shop(commands.Cog):
         await ctx.send(f"✅ Gave {amount}× `{item_name}` to {member.mention}.")
 
     @shop.command()
+    @checks.admin()
     async def clearinv(self, ctx, member: discord.Member):
         """Clear a user's custom inventory (does not remove roles)."""
         await self.config.user(member).inventory.clear()
