@@ -107,11 +107,7 @@ class Shop(commands.Cog):
             return await ctx.send("❌ There are no shops to browse.")
         view = ShopSelectView(self.config, ctx.guild.id, ctx.author.id, mode="gift")
         await ctx.send("🎁 **Select a shop to gift from:**", view=view)
-
-    @shop.command()
-    async def redeem(self, ctx):
-        """Redeem a voucher or special code via modal."""
-        await ctx.send_modal(RedeemModal(self.config, ctx.author.id))        
+     
         
 # --------------------
 # BUTTON‐LAUNCH VIEW
@@ -364,21 +360,6 @@ class StockModal(Modal, title="Add / Restock Item"):
             f"for {price} credits"
             f"{'' if new_amount is None else f', amount={new_amount}'}."
             , ephemeral=True
-        )
-
-
-class RedeemModal(Modal, title="Redeem Code"):
-    code = TextInput(label="Enter your code", required=True)
-
-    def __init__(self, config: Config, user_id: int):
-        super().__init__()
-        self.config = config
-        self.user_id = user_id
-
-    async def on_submit(self, interaction: discord.Interaction):
-        # Placeholder for your voucher logic
-        await interaction.response.send_message(
-            "✅ Code redeemed (logic not implemented).", ephemeral=True
         )
 
 
