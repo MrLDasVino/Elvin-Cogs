@@ -394,10 +394,32 @@ class GiftModal(Modal, title="Gift Item"):
                 "This gift dialog isn’t for you.", ephemeral=True
             )
 
-        # Parse member
+        # Parse recipient by mention, ID, or exact name/nickname
         raw = self.recipient.value.strip()
-        member_id = int(raw.strip("<@!>")) if raw.startswith("<@") else int(raw)
-        member = interaction.guild.get_member(member_id)
+        member = None
+
+        # 1) Mention syntax
+        if raw.startswith("<@") and raw.endswith(">"):
+            member_id = int(raw.strip("<@!>"))
+            member = interaction.guild.get_member(member_id)
+        # 2) Raw ID
+        elif raw.isdigit():
+            member = interaction.guild.get_member(int(raw))
+        # 3) Exact username or nickname (case-insensitive)
+        else:
+            lowered = raw.lower()
+            matches = [
+                m for m in interaction.guild.members
+                if m.name.lower() == lowered or m.display_name.lower() == lowered
+            ]
+            if len(matches) == 1:
+                member = matches[0]
+            elif len(matches) > 1:
+                dupes = ", ".join(m.name for m in matches)
+                return await interaction.response.send_message(
+                    f"❌ Ambiguous user name – matched: {dupes}", ephemeral=True
+                )
+
         if not member:
             return await interaction.response.send_message(
                 "❌ Recipient not found.", ephemeral=True
