@@ -667,6 +667,12 @@ class AddStockSelect(Select):
         shop_name = self.values[0]
         # edit into a view where admin picks item vs role
         view = RoleOrItemView(
+            self.config,
+            self.guild_id,
+            shop_name,
+            interaction.guild.roles
+        )  
+
         await interaction.response.edit_message(
             content=f"**{shop_name}** – Add an item or select a role:",
             view=view,
