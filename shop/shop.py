@@ -1,10 +1,9 @@
 import asyncio
 import discord
 from typing import Dict
-from discord import ui, SelectOption
 
 from redbot.core import commands, Config, checks, bank
-from discord.ui import View, button, Button, Modal, TextInput, Select, RoleSelect
+from discord.ui import View, button, Button, Modal, TextInput, Select
 
 
 class Shop(commands.Cog):
@@ -630,12 +629,9 @@ class AddStockView(View):
     async def populate(self):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
-        shop_names = list(shops.keys())
-        # cap at 25 choices
-        display = shop_names[:25]
         options = [
             discord.SelectOption(label=name, value=name)
-            for name in display
+            for name in shops.keys()
         ]
         # shop selector
         if options:
@@ -669,17 +665,9 @@ class AddStockSelect(Select):
 
     async def callback(self, interaction: discord.Interaction):
         shop_name = self.values[0]
-        # edit into a view where admin picks item vs role
-        view = RoleOrItemView(
-            self.config,
-            self.guild_id,
-            shop_name,
-            interaction.guild.roles
-        )  
-
-        await interaction.response.edit_message(
-            content=f"**{shop_name}** – Add an item or select a role:",
-            view=view,
+        # launch the existing StockModal with chosen shop
+        await interaction.response.send_modal(
+            StockModal(self.config, self.guild_id, shop_name)
         )
 
 class ShopDropdownView(View):
@@ -753,106 +741,4 @@ class ShopDropdownSelect(Select):
         await interaction.response.edit_message(
             content=f"**{shop_name}** – Select an item to {self.mode}:",
             view=view,
-        )
-
-class RoleOrItemView(View):
-    """After shop select: choose to add a generic item or pick a role."""
-
-    def __init__(
-        self,
-        config: Config,
-        guild_id: int,
-        shop_name: str,
-    ):
-        super().__init__(timeout=60)
-        self.config = config
-        self.guild_id = guild_id
-        self.shop_name = shop_name
-
-        # Button to open the item modal
-        btn = Button(label="➕ Add Item", style=discord.ButtonStyle.primary)
-        btn.callback = self._add_item
-        self.add_item(btn)
-
-        # Searchable role selector
-        self.add_item(RoleDropdown(self.config, self.guild_id, self.shop_name))
-
-        # Cancel
-        cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
-        cancel.callback = self._cancel
-        self.add_item(cancel)
-
-    async def _add_item(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(
-            StockModal(self.config, self.guild_id, self.shop_name)
-        )
-        
-    async def _add_role_manual(self, interaction):
-        await interaction.response.send_modal(
-            StockModal(self.config, self.guild_id, self.shop_name)
-        )        
-
-    async def _cancel(self, interaction: discord.Interaction):
-        for c in self.children:
-            c.disabled = True
-        await interaction.response.edit_message(content="Cancelled.", view=self)
-
-
-class RoleDropdown(RoleSelect):
-    def __init__(self, config: Config, guild_id: int, shop_name: str):
-        super().__init__(
-            placeholder="Search for a role…",
-            min_values=1,
-            max_values=1,
-            custom_id="addstock_role_select"
-        )
-        self.config = config
-        self.guild_id = guild_id
-        self.shop_name = shop_name
-
-    async def callback(self, interaction: discord.Interaction):
-        # `self.values` now contains actual Role objects
-        role: discord.Role = self.values[0]
-        await interaction.response.send_modal(
-            RoleStockModal(
-                self.config,
-                self.guild_id,
-                self.shop_name,
-                role.id
-            )
-        )
-
-class RoleStockModal(Modal, title="Add / Restock Role"):
-    price = TextInput(label="Price (credits)", required=True)
-    amount = TextInput(label="Amount to add (blank = ∞)", required=False)
-
-    def __init__(self, config: Config, guild_id: int, shop_name: str, role_id: int):
-        super().__init__()
-        self.config = config
-        self.guild_id = guild_id
-        self.shop_name = shop_name
-        self.role_id = role_id
-
-    async def on_submit(self, interaction: discord.Interaction):
-        guild_conf = self.config.guild_from_id(self.guild_id)
-        shops = await guild_conf.shops()
-        stock = shops[self.shop_name]["stock"]
-
-        # parse infinite vs finite
-        raw = (self.amount.value or "").strip()
-        new_amt = None if raw == "" else int(raw) + stock.get(self.role_id, {}).get("amount", 0)
-
-        role = interaction.guild.get_role(self.role_id)
-        stock[role.name] = {
-            "price": int(self.price.value),
-            "amount": new_amt,
-            "role_id": self.role_id,
-        }
-        shops[self.shop_name]["stock"] = stock
-        await guild_conf.shops.set(shops)
-
-        await interaction.response.send_message(
-            f"✅ Added role `{role.name}` for {self.price.value}cr"
-            + (", ∞ stock" if new_amt is None else f", ×{new_amt}"),
-            ephemeral=True,
         )
