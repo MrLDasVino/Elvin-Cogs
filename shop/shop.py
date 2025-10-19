@@ -93,7 +93,7 @@ class Shop(commands.Cog):
         embed = discord.Embed(
             title="🛒 Browse Shops",
             description="Select a shop from the dropdown below:",
-            color=discord.Color.blurple()
+            color=discord.Color.random()
         )
         view = ShopEmbedView(self.config, ctx.guild.id, ctx.author.id)
         await view.populate_shops(shops)
@@ -950,24 +950,24 @@ class ShopEmbedSelect(Select):
 
         # build shop embed w/ header info
         embed = discord.Embed(
-            title=f"🏬 {shop_name}",
+            title=f"💰 {shop_name}",
             description=shop.get("description", "") or "No description.",
-            color=discord.Color.green()
+            color=discord.Color.random()
         )
         thumb = shop.get("thumbnail", "").strip()
         if thumb:
             embed.set_thumbnail(url=thumb)
 
-        # ── ADDED: list every item + its description ──
+        # ── Use one field per item ──
         stock = shop.get("stock", {})
         for item_name, entry in stock.items():
             price = entry.get("price", 0)
             amt = entry.get("amount")
-            amt_display = "∞" if amt is None else str(amt)
+            left = "∞" if amt is None else str(amt)
             desc = entry.get("description", "No description.")
             embed.add_field(
-                name=f"{item_name} ({price} {currency}, {amt_display} left)",
-                value=desc,
+                name=f"🔹 {item_name} — {price} {currency}",
+                value=f"{desc}\n🗃️ Stock: {left}",
                 inline=False
             )
 
