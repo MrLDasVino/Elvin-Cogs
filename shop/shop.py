@@ -299,7 +299,7 @@ class StockModal(Modal, title="Add / Restock Item"):
         required=False,
     )
     role = TextInput(
-        label="Role (mention or ID)",
+        label="Role (name, mention or ID)",
         placeholder="leave blank for item",
         required=False,
     )
@@ -407,7 +407,7 @@ class StockModal(Modal, title="Add / Restock Item"):
 
 
 class GiftModal(Modal, title="Gift Item"):
-    recipient = TextInput(label="Recipient (mention or ID)", required=True)
+    recipient = TextInput(label="Recipient (name, mention or ID)", required=True)
     amount = TextInput(label="Amount", required=True)
 
     def __init__(
