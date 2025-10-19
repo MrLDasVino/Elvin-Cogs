@@ -40,7 +40,10 @@ class Lottery(commands.Cog):
             for name, data in lotteries.items()
         ]
         view = ManageView(self, options)
-        await ctx.send("Lottery Management Panel", view=view)
+        if options:
+            await ctx.send("🎟️ Lottery Management Panel", view=view)
+        else:
+            await ctx.send("No lotteries exist yet. Create one below:", view=view)
 
     # ----------------------------
     # User: Buy tickets
@@ -165,23 +168,26 @@ class ManageView(View):
         super().__init__(timeout=None)
         self.cog = cog
 
+        # Always add the Create button with a unique custom_id
         create_btn = Button(
             label="Create Lottery",
             style=discord.ButtonStyle.green,
-            custom_id="lottery_create"
+            custom_id="lottery_create_btn"
         )
         create_btn.callback = self._create_callback
         self.add_item(create_btn)
 
-        edit_sel = Select(
-            placeholder="Edit existing…",
-            options=options,
-            custom_id="lottery_edit_select",
-            min_values=1,
-            max_values=1
-        )
-        edit_sel.callback = self._edit_callback
-        self.add_item(edit_sel)
+        # Only add the Edit dropdown if there are existing lotteries
+        if options:
+            edit_select = Select(
+                placeholder="Edit existing…",
+                options=options,
+                custom_id="lottery_edit_select",
+                min_values=1,
+                max_values=1
+            )
+            edit_select.callback = self._edit_callback
+            self.add_item(edit_select)
 
     async def _create_callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(CreateLotteryModal(self.cog))
