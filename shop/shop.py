@@ -753,7 +753,14 @@ class ShopDropdownSelect(Select):
 
 class RoleOrItemView(View):
     """After shop select: choose to add a generic item or pick a role."""
-    def __init__(self, config: Config, guild_id: int, shop_name: str):
+
+    def __init__(
+        self,
+        config: Config,
+        guild_id: int,
+        shop_name: str,
+        roles: list[discord.Role],
+    ):
         super().__init__(timeout=60)
         self.config = config
         self.guild_id = guild_id
@@ -765,7 +772,7 @@ class RoleOrItemView(View):
         self.add_item(btn)
 
         # Dropdown to select a role
-        self.add_item(RoleDropdown(config, guild_id, shop_name))
+        self.add_item(RoleDropdown(roles, config, guild_id, shop_name))
 
         # Cancel
         cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
@@ -785,7 +792,14 @@ class RoleOrItemView(View):
 
 class RoleDropdown(Select):
     """Dropdown listing all guild roles; opens RoleStockModal on select."""
-    def __init__(self, config: Config, guild_id: int, shop_name: str):
+
+    def __init__(
+        self,
+        roles: list[discord.Role],
+        config: Config,
+        guild_id: int,
+        shop_name: str,
+    ):
         options = [
             discord.SelectOption(label=r.name, value=str(r.id))
             for r in config._bot.get_guild(guild_id).roles
