@@ -944,9 +944,10 @@ class ShopEmbedSelect(Select):
 
         shop_name = self.values[0]
         guild_conf = self.config.guild_from_id(self.guild_id)
-        shop = (await guild_conf.shops())[shop_name]
+        shops_data = await guild_conf.shops()
+        shop = shops_data[shop_name]
 
-        # build shop embed
+        # build shop embed w/ header info
         embed = discord.Embed(
             title=f"🏬 {shop_name}",
             description=shop.get("description", "") or "No description.",
@@ -955,6 +956,19 @@ class ShopEmbedSelect(Select):
         thumb = shop.get("thumbnail", "").strip()
         if thumb:
             embed.set_thumbnail(url=thumb)
+
+        # ── ADDED: list every item + its description ──
+        stock = shop.get("stock", {})
+        for item_name, entry in stock.items():
+            price = entry.get("price", 0)
+            amt = entry.get("amount")
+            amt_display = "∞" if amt is None else str(amt)
+            desc = entry.get("description", "No description.")
+            embed.add_field(
+                name=f"{item_name} ({price}cr, {amt_display})",
+                value=desc,
+                inline=False
+            )
 
         # swap in Item dropdown view
         view = ItemEmbedView(self.config, self.guild_id, self.user_id, shop_name)
