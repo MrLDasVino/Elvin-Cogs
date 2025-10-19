@@ -802,7 +802,7 @@ class RoleDropdown(Select):
     ):
         options = [
             discord.SelectOption(label=r.name, value=str(r.id))
-            for r in config._bot.get_guild(guild_id).roles
+            for r in roles
             if not r.is_default()
         ]
         super().__init__(
