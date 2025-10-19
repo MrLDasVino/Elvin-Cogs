@@ -84,15 +84,20 @@ class Shop(commands.Cog):
 
     @shop.command()
     async def buy(self, ctx):
-        """Browse shops and buy items via a dropdown + item list."""
+        """Browse shops via an embed + dropdown, then pick item & amount."""
         guild_conf = self.config.guild(ctx.guild)
         shops = await guild_conf.shops()
         if not shops:
             return await ctx.send("❌ There are no shops to browse.")
 
-        view = ShopDropdownView(self.config, ctx.guild.id, ctx.author.id, mode="buy")
-        await view.populate()  # build the select before sending
-        await ctx.send("🛒 **Select a shop to buy from:**", view=view)
+        embed = discord.Embed(
+            title="🛒 Browse Shops",
+            description="Select a shop from the dropdown below:",
+            color=discord.Color.blurple()
+        )
+        view = ShopEmbedView(self.config, ctx.guild.id, ctx.author.id)
+        await view.populate_shops(shops)
+        await ctx.send(embed=embed, view=view)
 
     @shop.command()
     async def gift(self, ctx):
@@ -897,3 +902,125 @@ class RemoveItemSelect(Select):
         for c in self.view.children:
             c.disabled = True
         await interaction.message.edit(view=self.view)
+        
+class ShopEmbedView(View):
+    """First dropdown: pick which shop to browse."""
+    def __init__(self, config: Config, guild_id: int, user_id: int):
+        super().__init__(timeout=60)
+        self.config = config
+        self.guild_id = guild_id
+        self.user_id = user_id
+
+    async def populate_shops(self, shops: Dict[str, dict]):
+        options = [
+            discord.SelectOption(label=name, value=name)
+            for name in shops.keys()
+        ]
+        self.add_item(ShopEmbedSelect(options, self.config, self.guild_id, self.user_id))
+        cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
+        async def _cancel(inter: discord.Interaction):
+            for c in self.children:
+                c.disabled = True
+            await inter.response.edit_message(content="Cancelled.", view=self)
+        cancel.callback = _cancel
+        self.add_item(cancel)
+
+class ShopEmbedSelect(Select):
+    """Dropdown of shops → edits to shop embed + item selector."""
+    def __init__(self, options, config: Config, guild_id: int, user_id: int):
+        super().__init__(
+            placeholder="Choose a shop…",
+            min_values=1, max_values=1,
+            options=options,
+            custom_id="shop_embed_select"
+        )
+        self.config = config
+        self.guild_id = guild_id
+        self.user_id = user_id
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("This menu isn’t for you.", ephemeral=True)
+
+        shop_name = self.values[0]
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shop = (await guild_conf.shops())[shop_name]
+
+        # build shop embed
+        embed = discord.Embed(
+            title=f"🏬 {shop_name}",
+            description=shop.get("description", "") or "No description.",
+            color=discord.Color.green()
+        )
+        thumb = shop.get("thumbnail", "").strip()
+        if thumb:
+            embed.set_thumbnail(url=thumb)
+
+        # swap in Item dropdown view
+        view = ItemEmbedView(self.config, self.guild_id, self.user_id, shop_name)
+        await view.populate_items()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+class ItemEmbedView(View):
+    """After shop select: dropdown of items → opens BuyModal."""
+    def __init__(self, config: Config, guild_id: int, user_id: int, shop_name: str):
+        super().__init__(timeout=60)
+        self.config = config
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.shop_name = shop_name
+
+    async def populate_items(self):
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        stock = (await guild_conf.shops())[self.shop_name]["stock"]
+        options = []
+        for item_name, entry in stock.items():
+            amt = "∞" if entry.get("amount") is None else entry["amount"]
+            label = f"{item_name} ({entry['price']}cr, {amt} left)"
+            options.append(discord.SelectOption(label=label, value=item_name))
+        self.add_item(ItemEmbedSelect(options, self.config, self.guild_id, self.user_id, self.shop_name))
+
+        cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
+        async def _cancel(inter: discord.Interaction):
+            for c in self.children:
+                c.disabled = True
+            await inter.response.edit_message(content="Cancelled.", view=self)
+        cancel.callback = _cancel
+        self.add_item(cancel)
+
+class ItemEmbedSelect(Select):
+    """Dropdown of items → send BuyModal(quantity)."""
+    def __init__(self, options, config: Config, guild_id: int, user_id: int, shop_name: str):
+        super().__init__(
+            placeholder="Select an item to buy…",
+            min_values=1, max_values=1,
+            options=options,
+            custom_id="item_embed_select"
+        )
+        self.config = config
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.shop_name = shop_name
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("This menu isn’t for you.", ephemeral=True)
+
+        item_name = self.values[0]
+        # pull price from config
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        entry = (await guild_conf.shops())[self.shop_name]["stock"][item_name]
+        price = entry["price"]
+
+        # open your existing BuyModal
+        await interaction.response.send_modal(
+            BuyModal(
+                self.config,
+                self.guild_id,
+                self.user_id,
+                self.shop_name,
+                item_name,
+                price,
+            )
+        )
+        
