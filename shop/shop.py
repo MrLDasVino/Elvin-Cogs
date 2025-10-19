@@ -48,6 +48,17 @@ class Shop(commands.Cog):
         view = AddStockView(self.config, ctx.guild.id)
         await view.populate()                    
         await ctx.send("Select a shop to restock:", view=view)
+        
+    @shop.command()
+    async def removestock(self, ctx):
+        """Remove an item from a shop."""
+        guild_conf = self.config.guild(ctx.guild)
+        shops = await guild_conf.shops()
+        if not shops:
+            return await ctx.send("❌ There are no shops to edit.")
+        view = RemoveStockView(self.config, ctx.guild.id)
+        await view.populate()
+        await ctx.send("🗑️ **Select a shop to remove items from:**", view=view)        
 
 
     @shop.command()
@@ -759,3 +770,116 @@ class ShopDropdownSelect(Select):
             content=f"**{shop_name}** – Select an item to {self.mode}:",
             view=view,
         )
+
+class RemoveStockView(View):
+    def __init__(self, config: Config, guild_id: int):
+        super().__init__(timeout=60)
+        self.config = config
+        self.guild_id = guild_id
+
+    async def populate(self):
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+        options = [discord.SelectOption(label=n, value=n) for n in shops]
+        if options:
+            self.add_item(RemoveStockSelect(options, self.config, self.guild_id))
+        cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
+        cancel.callback = self._cancel
+        self.add_item(cancel)
+
+    async def _cancel(self, interaction: discord.Interaction):
+        for c in self.children:
+            c.disabled = True
+        await interaction.response.edit_message(content="Cancelled.", view=self)
+
+
+class RemoveStockSelect(Select):
+    def __init__(self, options, config: Config, guild_id: int):
+        super().__init__(
+            placeholder="Choose a shop…",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="remove_stock_shop_select",
+        )
+        self.config = config
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        shop_name = self.values[0]
+        # load the next view
+        await interaction.response.edit_message(
+            content=f"🗑️ **{shop_name}** – select an item to remove:",
+            view=RemoveItemView(self.config, self.guild_id, shop_name),
+        )
+        # populate that view’s dropdown
+        asyncio.create_task(interaction.message.components[0].view.populate())
+
+
+class RemoveItemView(View):
+    def __init__(self, config: Config, guild_id: int, shop_name: str):
+        super().__init__(timeout=60)
+        self.config = config
+        self.guild_id = guild_id
+        self.shop_name = shop_name
+
+    async def populate(self):
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+        stock = shops[self.shop_name]["stock"]
+        options = [
+            discord.SelectOption(label=item, value=item)
+            for item in stock.keys()
+        ]
+        if options:
+            self.add_item(
+                RemoveItemSelect(options, self.config, self.guild_id, self.shop_name)
+            )
+        cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
+        cancel.callback = self._cancel
+        self.add_item(cancel)
+
+    async def _cancel(self, interaction: discord.Interaction):
+        for c in self.children:
+            c.disabled = True
+        await interaction.response.edit_message(content="Cancelled.", view=self)
+
+
+class RemoveItemSelect(Select):
+    def __init__(
+        self, options, config: Config, guild_id: int, shop_name: str
+    ):
+        super().__init__(
+            placeholder="Choose an item…",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="remove_stock_item_select",
+        )
+        self.config = config
+        self.guild_id = guild_id
+        self.shop_name = shop_name
+
+    async def callback(self, interaction: discord.Interaction):
+        item_name = self.values[0]
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+        stock = shops[self.shop_name]["stock"]
+
+        if item_name in stock:
+            stock.pop(item_name)
+            shops[self.shop_name]["stock"] = stock
+            await guild_conf.shops.set(shops)
+            await interaction.response.send_message(
+                f"✅ Removed `{item_name}` from **{self.shop_name}**.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                f"❌ Item `{item_name}` not found.", ephemeral=True
+            )
+
+        # disable buttons/select after action
+        for c in self.view.children:
+            c.disabled = True
+        await interaction.message.edit(view=self.view)
