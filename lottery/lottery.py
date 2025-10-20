@@ -20,16 +20,16 @@ class Lottery(commands.Cog):
         self.config.register_global(lotteries={})
         self.config.register_user(tickets={})
 
-    @commands.group()
+    @commands.group(invoke_without_command=True)
     async def lottery(self, ctx: commands.Context):
         """Base group for lottery commands."""
         if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+            return
 
     # ----------------------------
     # Admin: Manage lotteries
     # ----------------------------
-    @lottery.group()
+    @lottery.command()
     @checks.admin()
     async def manage(self, ctx: commands.Context):
         """
