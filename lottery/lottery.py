@@ -136,11 +136,13 @@ class Lottery(commands.Cog):
 
         currency = await bank.get_currency_name(ctx.guild)
         config_lots = await self.config.lotteries()
-
+        total = sum(lotteries.values())
         embed = Embed(
             title="🎟️ Your Lottery Tickets",
-            color=discord.Color.blurple()
+            description=f"You have a total of **{total}** tickets.",
+            color=discord.Color.random()
         )
+        embed.set_thumbnail(url="https://files.catbox.moe/9200lc.jpg")
         embed.set_author(
             name=ctx.author.display_name,
             icon_url=ctx.author.display_avatar.url
