@@ -33,9 +33,10 @@ class Shop(commands.Cog):
     @checks.admin()
     async def manage(self, ctx):
         """Send a button to open the shop‐manage modal."""
-        view = ManageView(self.config, ctx.guild.id)
+        view = ManageView(self.config, ctx.guild.id, timeout=60)
         await view._populate()
-        await ctx.send("Click below to create or edit your shop:", view=view)
+        msg = await ctx.send("Click below to create or edit your shop:", view=view)
+        view.message = msg
         
     @shop.command()
     @checks.admin()    
@@ -160,10 +161,11 @@ class Shop(commands.Cog):
 class ManageView(View):
     """Dropdown to pick a shop to edit, or click to create a new one."""
 
-    def __init__(self, config: Config, guild_id: int):
-        super().__init__(timeout=None)
+    def __init__(self, config: Config, guild_id: int, *, timeout: float = 60):
+        super().__init__(timeout=timeout)
         self.config = config
         self.guild_id = guild_id
+        self.message: discord.Message | None = None
 
     async def _populate(self):
         """Fill in the Select + New‐Shop button synchronously."""
@@ -173,6 +175,20 @@ class ManageView(View):
         if options:
             self.add_item(ShopSelect(options, self.config, self.guild_id))
         self.add_item(NewShopButton(self.config, self.guild_id))
+        
+    async def on_timeout(self):
+        # disable every component
+        for child in self.children:
+            child.disabled = True
+        # update the original message to indicate expiration
+        if self.message:
+            try:
+                await self.message.edit(
+                    content="⌛ Manage session expired.",
+                    view=self
+                )
+            except Exception:
+                pass        
 
 
 class ShopSelect(Select):
