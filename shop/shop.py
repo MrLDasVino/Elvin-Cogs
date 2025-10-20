@@ -62,7 +62,7 @@ class Shop(commands.Cog):
             return await ctx.send("❌ There are no shops to edit.")
         embed = discord.Embed(
             title="⚠️ Remove Stock",
-            description="Select a shop to remove an item from (this cannot be undone).",
+            description="Select a shop to remove an item from (THIS CANNOT BE UNDONE).",
             color=discord.Color.red()
         )
         view = RemoveStockView(self.config, ctx.guild.id, timeout=60)
@@ -953,7 +953,7 @@ class RemoveStockSelect(Select):
 
         embed = discord.Embed(
             title="⚠️ Delete Item",
-            description=f"**{shop_name}** – select an item to remove (this cannot be undone)",
+            description=f"**{shop_name}** – select an item to remove (THIS CANNOT BE UNDONE)",
             color=discord.Color.red()
         )
         view = RemoveItemView(self.config, self.guild_id, shop_name, timeout=60)
