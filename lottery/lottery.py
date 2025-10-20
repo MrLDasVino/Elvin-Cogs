@@ -41,9 +41,10 @@ class Lottery(commands.Cog):
         ]
         view = ManageView(self, options)
         if options:
-            await ctx.send("🎟️ Lottery Management Panel", view=view)
+            msg = await ctx.send("🎟️ Lottery Management Panel", view=view)
         else:
-            await ctx.send("No lotteries exist yet. Create one below:", view=view)
+            msg = await ctx.send("No lotteries exist yet. Create one below:", view=view)
+        view.message = msg  
             
     @lottery.command()
     @checks.admin()
@@ -118,7 +119,8 @@ class Lottery(commands.Cog):
             for name, data in lotteries.items()
         ]
         view = BuyView(self, options)
-        await ctx.send("Select a lottery to buy a ticket:", view=view)
+        msg = await ctx.send("🎟️ Select a lottery to buy a ticket:", view=view)
+        view.message = msg  
 
     # ----------------------------
     # User: Inventory of tickets
@@ -180,14 +182,16 @@ class Lottery(commands.Cog):
             for name, data in lotteries.items()
         ]
         view = DrawView(self, options, currency)
-        await ctx.send("Select a lottery to draw a winner for:", view=view)
+        msg = await ctx.send("🎟️ Select a lottery to draw a winner for:", view=view)
+        view.message = msg  
 
 
 class DrawView(View):
     def __init__(self, cog: Lottery, options: list[SelectOption], currency: str):
-        super().__init__(timeout=None)
+        super().__init__(timeout=60) 
         self.cog = cog
         self.currency = currency
+        self.message: discord.Message        
 
         # Add exactly one Select with real options
         draw_select = Select(
@@ -199,6 +203,12 @@ class DrawView(View):
         )
         draw_select.callback = self._draw_callback
         self.add_item(draw_select)
+        
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message"):
+            await self.message.edit(view=self)        
 
     async def _draw_callback(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -284,8 +294,9 @@ class DrawView(View):
     # ----------------------------
 class ManageView(View):
     def __init__(self, cog: Lottery, options: list[SelectOption]):
-        super().__init__(timeout=None)
+        super().__init__(timeout=60)  
         self.cog = cog
+        self.message: discord.Message         
 
         # Always add the Create button with a unique custom_id
         create_btn = Button(
@@ -307,6 +318,13 @@ class ManageView(View):
             )
             edit_select.callback = self._edit_callback
             self.add_item(edit_select)
+            
+    async def on_timeout(self):
+        # disable every component when the view times out
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message"):
+            await self.message.edit(view=self)            
 
     async def _create_callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(CreateLotteryModal(self.cog))
@@ -449,8 +467,9 @@ class EditLotteryModal(Modal):
     # ----------------------------
 class BuyView(View):
     def __init__(self, cog: Lottery, options: list[SelectOption]):
-        super().__init__(timeout=None)
+        super().__init__(timeout=60) 
         self.cog = cog
+        self.message: discord.Message       
 
         buy_select = Select(
             placeholder="🎟️ Select lottery…",
@@ -461,6 +480,12 @@ class BuyView(View):
         )
         buy_select.callback = self._buy_callback
         self.add_item(buy_select)
+        
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message"):
+            await self.message.edit(view=self)        
 
     async def _buy_callback(self, interaction: discord.Interaction):
         choice = interaction.data["values"][0]
