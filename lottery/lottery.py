@@ -134,16 +134,12 @@ class Lottery(commands.Cog):
         if not lotteries:
             return await ctx.send("You have no lottery tickets.")
 
-        from datetime import datetime
-
-        total = sum(lotteries.values())
         currency = await bank.get_currency_name(ctx.guild)
+        config_lots = await self.config.lotteries()
 
         embed = Embed(
             title="🎟️ Your Lottery Tickets",
-            description=f"You have a total of **{total}** tickets.",
-            color=discord.Color.random(),
-            timestamp=datetime.utcnow()
+            color=discord.Color.blurple()
         )
         embed.set_author(
             name=ctx.author.display_name,
@@ -151,13 +147,14 @@ class Lottery(commands.Cog):
         )
 
         for name, count in lotteries.items():
+            # pull the configured price for this lottery
+            price = config_lots.get(name, {}).get("price", 0)
             embed.add_field(
                 name=name,
-                value=f"{count} 🎟️",
+                value=f"{count} 🎟️ at {price} {currency}",
                 inline=True
             )
 
-        embed.set_footer(text=f"Each ticket costs {currency}")
         await ctx.send(embed=embed)
 
     # ----------------------------
