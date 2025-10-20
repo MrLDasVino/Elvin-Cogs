@@ -277,34 +277,34 @@ class CreateLotteryModal(Modal):
         self.winners = TextInput(label="Number of Winners", placeholder="e.g. 1", max_length=2)        
         for item in (self.name, self.desc, self.price, self.winners):
             self.add_item(item)
-        self.currency_prize = TextInput(
-            label="Currency Prize (optional)",
-            placeholder="e.g. 1000",
-            required=False
+        self.prizes = TextInput(
+            label="Prizes (optional)",
+            placeholder="Format: currency=1000;role=Moderator (or role ID)",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=100
         )
-        self.role_prize = TextInput(
-            label="Role Prize (optional)",
-            placeholder="Role ID or exact name",
-            required=False
-        )
-        self.add_item(self.currency_prize)
-        self.add_item(self.role_prize)            
+        self.add_item(self.prizes)           
 
     async def on_submit(self, interaction: discord.Interaction):
         name = self.name.value.strip()
         desc = self.desc.value.strip()
         cur_prize = None
-        if self.currency_prize.value and self.currency_prize.value.strip():
-            cur_prize = int(self.currency_prize.value.strip())
-
-        role_input = self.role_prize.value.strip()
         role_id = None
-        if role_input:
-            if role_input.isdigit():
-                role_id = int(role_input)
-            else:
-                role_obj = discord.utils.get(interaction.guild.roles, name=role_input)
-                role_id = role_obj.id if role_obj else None
+        if self.prizes.value and self.prizes.value.strip():
+            for part in self.prizes.value.split(";"):
+                key, *val = part.strip().split("=", 1)
+                if not val:
+                    continue
+                v = val[0].strip()
+                if key.lower() == "currency" and v.isdigit():
+                    cur_prize = int(v)
+                elif key.lower() == "role":
+                    if v.isdigit():
+                        role_id = int(v)
+                    else:
+                        role = discord.utils.get(interaction.guild.roles, name=v)
+                        role_id = role.id if role else None
         lotteries = await self.cog.config.lotteries()
         if name in lotteries:
             return await interaction.response.send_message("A lottery with that name already exists.", ephemeral=True)
@@ -328,35 +328,43 @@ class EditLotteryModal(Modal):
         self.desc = TextInput(label="Description", default=data["desc"])
         self.price = TextInput(label="Ticket Price", default=str(data["price"]), max_length=12)
         self.winners = TextInput(label="Number of Winners", default=str(data["winners"]), max_length=2)
-        self.currency_prize = TextInput(
-            label="Currency Prize (optional)",
-            default=str(data.get("currency_prize", "")) or "",
-            required=False
+        prize_defaults = []
+        if data.get("currency_prize") is not None:
+            prize_defaults.append(f"currency={data['currency_prize']}")
+        if data.get("role_prize") is not None:
+            prize_defaults.append(f"role={data['role_prize']}")
+        default_prizes = ";".join(prize_defaults)
+
+        self.prizes = TextInput(
+            label="Prizes (optional)",
+            placeholder="currency=1000;role=Moderator or role ID",
+            style=discord.TextStyle.paragraph,
+            default=default_prizes,
+            required=False,
+            max_length=100
         )
-        self.role_prize = TextInput(
-            label="Role Prize (optional)",
-            default=str(data.get("role_prize", "")) or "",
-            required=False
-        )
-        self.add_item(self.currency_prize)
-        self.add_item(self.role_prize)
+        self.add_item(self.prizes)
 
     async def on_submit(self, interaction: discord.Interaction):
         desc = self.desc.value.strip()
         price = int(self.price.value)
         winners = int(self.winners.value)
         cur_prize = None
-        if self.currency_prize.value and self.currency_prize.value.strip():
-            cur_prize = int(self.currency_prize.value.strip())
-
-        role_input = self.role_prize.value.strip()
         role_id = None
-        if role_input:
-            if role_input.isdigit():
-                role_id = int(role_input)
-            else:
-                role_obj = discord.utils.get(interaction.guild.roles, name=role_input)
-                role_id = role_obj.id if role_obj else None        
+        if self.prizes.value and self.prizes.value.strip():
+            for part in self.prizes.value.split(";"):
+                key, *val = part.strip().split("=", 1)
+                if not val:
+                    continue
+                v = val[0].strip()
+                if key.lower() == "currency" and v.isdigit():
+                    cur_prize = int(v)
+                elif key.lower() == "role":
+                    if v.isdigit():
+                        role_id = int(v)
+                    else:
+                        role = discord.utils.get(interaction.guild.roles, name=v)
+                        role_id = role.id if role else None      
         lotteries = await self.cog.config.lotteries()
         lotteries[self.lotto_name].update({
             "desc": desc,
@@ -366,7 +374,10 @@ class EditLotteryModal(Modal):
             "role_prize": role_id,
         })
         await self.cog.config.lotteries.set(lotteries)
-        await interaction.response.send_message(f"✏️ Updated lottery **{self.lotto_name}**.", ephemeral=True)
+        await interaction.response.send_message(
+            f"✏️ Updated lottery **{self.lotto_name}**.",
+            ephemeral=True
+        )
 
 
     # ----------------------------
