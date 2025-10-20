@@ -192,32 +192,46 @@ class DrawView(View):
         winner_count = min(data["winners"], len(tickets))
         winners = random.sample(tickets, k=winner_count)
 
+        from datetime import datetime
+
+        # Build a richer embed
         embed = Embed(
-            title=f"🎉 Lottery Draw: {choice} 🎉",
-            color=discord.Color.gold(),
-            description=f"{winner_count} winner{'s' if winner_count>1 else ''} drawn!"
+            title="🎊 Lottery Draw Result 🎊",
+            description=(
+                f"**{choice}** has concluded!\n"
+                f"**Winners ({winner_count})**"
+            ),
+            color=discord.Color.random(),
+            timestamp=datetime.utcnow()
         )
-        # Award prizes and annotate embed
+        # Optional celebratory thumbnail
+        embed.set_thumbnail(url="https://files.catbox.moe/gachc4.jpg")
+
+        # Compile each winner with their prizes
+        lines: list[str] = []
         for uid in winners:
             member = interaction.guild.get_member(uid) or await self.cog.bot.fetch_user(uid)
-            prize_texts = []
-            # 1) Currency prize
+            prizes_awarded: list[str] = []
+
+            # Currency prize
             cur_prize = data.get("currency_prize")
             if cur_prize:
                 await bank.deposit_credits(member, cur_prize)
-                prize_texts.append(f"{cur_prize} {self.currency}")
-            # 2) Role prize
+                prizes_awarded.append(f"💰 {cur_prize} {self.currency}")
+
+            # Role prize
             role_id = data.get("role_prize")
             if role_id:
                 role = interaction.guild.get_role(role_id)
                 if role:
                     await member.add_roles(role, reason=f"Lottery win: {choice}")
-                    prize_texts.append(f"Role: {role.name}")
-            # build field value
-            field_value = "Congratulations!"
-            if prize_texts:
-                field_value += "\nWon: " + ", ".join(prize_texts)
-            embed.add_field(name=member.display_name, value=field_value, inline=False)
+                    prizes_awarded.append(f"🎖️ {role.name}")
+
+            prize_desc = " & ".join(prizes_awarded) if prizes_awarded else "🎉 Congratulations!"
+            lines.append(f"• {member.mention} — {prize_desc}")
+
+        embed.add_field(name="🏆 Winners & Prizes", value="\n".join(lines), inline=False)
+        embed.set_footer(text=f"Lottery: {choice}")
 
         await interaction.followup.send(embed=embed)
 
