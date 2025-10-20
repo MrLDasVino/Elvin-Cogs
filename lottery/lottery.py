@@ -290,6 +290,10 @@ class DrawView(View):
 
                 # Save back the cleaned tickets mapping
                 await self.cog.config.user_from_id(int(user_id)).tickets.set(tickets)
+        for child in self.children:
+            child.disabled = True
+        if getattr(self, "message", None):
+            await self.message.edit(view=self)
         self.stop()
 
 
@@ -501,6 +505,10 @@ class BuyView(View):
         await interaction.response.send_modal(
             BuyAmountModal(self.cog, choice, price)
         )
+        for child in self.children:
+            child.disabled = True
+        if getattr(self, "message", None):
+            await self.message.edit(view=self)
         self.stop()
 
 # Modal for entering how many tickets to purchase
