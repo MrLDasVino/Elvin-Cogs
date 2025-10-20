@@ -287,8 +287,13 @@ class CreateLotteryModal(Modal):
         self.add_item(self.prizes)           
 
     async def on_submit(self, interaction: discord.Interaction):
+        # strip and convert the core fields
         name = self.name.value.strip()
         desc = self.desc.value.strip()
+        price = int(self.price.value.strip())
+        winners = int(self.winners.value.strip())
+
+        # ─── PARSE COMBINED PRIZES ────────────────────────────────────────────
         cur_prize = None
         role_id = None
         if self.prizes.value and self.prizes.value.strip():
@@ -305,9 +310,15 @@ class CreateLotteryModal(Modal):
                     else:
                         role = discord.utils.get(interaction.guild.roles, name=v)
                         role_id = role.id if role else None
+
+        # ensure we don’t overwrite an existing lottery
         lotteries = await self.cog.config.lotteries()
         if name in lotteries:
-            return await interaction.response.send_message("A lottery with that name already exists.", ephemeral=True)
+            return await interaction.response.send_message(
+                "A lottery with that name already exists.", ephemeral=True
+            )
+
+        # build and persist
         lotteries[name] = {
             "desc": desc,
             "price": price,
@@ -317,8 +328,11 @@ class CreateLotteryModal(Modal):
             "role_prize": role_id,
         }
         await self.cog.config.lotteries.set(lotteries)
-        await interaction.response.send_message(f"✅ Created lottery **{name}**.", ephemeral=True)
 
+        # confirm creation
+        await interaction.response.send_message(
+            f"✅ Created lottery **{name}**.", ephemeral=True
+        )
 
 class EditLotteryModal(Modal):
     def __init__(self, cog: Lottery, name: str, data: dict):
