@@ -5,6 +5,7 @@ import random
 import discord
 from discord import Embed, SelectOption
 from discord.ui import View, Button, Select, Modal, TextInput
+from typing import Optional
 from redbot.core import commands, checks, Config, bank
 
 
@@ -44,6 +45,63 @@ class Lottery(commands.Cog):
             await ctx.send("🎟️ Lottery Management Panel", view=view)
         else:
             await ctx.send("No lotteries exist yet. Create one below:", view=view)
+            
+    @lottery.command()
+    @checks.admin()
+    async def purge(
+        self,
+        ctx: commands.Context,
+        member: discord.Member,
+        lottery_name: Optional[str] = None,
+    ):
+        """
+        Purge a user's lottery tickets.
+        If lottery_name is provided, clears only that lottery;
+        otherwise clears all lotteries for that user in this server.
+        """
+        lotteries = await self.config.lotteries()
+        user_conf = self.config.user(member)
+        user_tix = await user_conf.tickets()
+        guild_key = str(ctx.guild.id)
+
+        if guild_key not in user_tix:
+            return await ctx.send(f"{member.display_name} has no tickets in this server.")
+
+        # Purge a single lottery if specified
+        if lottery_name:
+            if lottery_name not in lotteries:
+                return await ctx.send(f"No lottery named `{lottery_name}` exists.")
+            removed_count = user_tix[guild_key].pop(lottery_name, 0)
+
+            # Remove from global ticket list
+            tickets = lotteries[lottery_name]["tickets"]
+            lotteries[lottery_name]["tickets"] = [uid for uid in tickets if uid != member.id]
+            await self.config.lotteries.set(lotteries)
+
+            if not user_tix[guild_key]:
+                user_tix.pop(guild_key)
+            await user_conf.tickets.set(user_tix)
+
+            return await ctx.send(
+                f"Purged {removed_count} tickets of {member.display_name} from `{lottery_name}`."
+            )
+
+        # Purge all lotteries for this user
+        total_removed = 0
+        for name, data in lotteries.items():
+            before = len(data["tickets"])
+            data["tickets"] = [uid for uid in data["tickets"] if uid != member.id]
+            total_removed += before - len(data["tickets"])
+        await self.config.lotteries.set(lotteries)
+
+        count_lots = len(user_tix[guild_key])
+        user_tix.pop(guild_key)
+        await user_conf.tickets.set(user_tix)
+
+        await ctx.send(
+            f"Purged {total_removed} tickets across {count_lots} lotteries for {member.display_name}."
+        )
+            
 
     # ----------------------------
     # User: Buy tickets
