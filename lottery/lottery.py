@@ -13,18 +13,17 @@ class Lottery(commands.Cog):
     """A lottery system using Red's bank for ticket purchases."""
 
     def __init__(self, bot: commands.Bot):
-        super().__init__()  # initialize Cog base
+        super().__init__()  
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890123456)
         # register defaults synchronously
         self.config.register_global(lotteries={})
         self.config.register_user(tickets={})
 
-    @commands.group(invoke_without_command=True)
+    @commands.group()
     async def lottery(self, ctx: commands.Context):
         """Base group for lottery commands."""
-        if ctx.invoked_subcommand is None:
-            return
+        pass
 
     # ----------------------------
     # Admin: Manage lotteries
