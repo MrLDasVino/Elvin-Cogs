@@ -151,13 +151,24 @@ class DrawView(View):
         lotteries.pop(choice, None)
         await self.cog.config.lotteries.set(lotteries)
 
-        # Clean up tickets from all users
+        # Clean up tickets from all users in this guild
         all_users = await self.cog.config.all_users()
+        guild_key = str(interaction.guild.id)
         for user_id, udata in all_users.items():
-            tix = udata["tickets"]
-            if choice in tix:
-                tix.pop(choice)
-                await self.cog.config.user_from_id(user_id).tickets.set(tix)
+            tickets = udata.get("tickets", {})
+            user_tix = tickets.get(guild_key, {})
+            if choice in user_tix:
+                # Remove this lottery from the user's guild‐specific tickets
+                user_tix.pop(choice, None)
+
+                # If no other lotteries in this guild, drop the guild entry
+                if not user_tix:
+                    tickets.pop(guild_key, None)
+                else:
+                    tickets[guild_key] = user_tix
+
+                # Save back the cleaned tickets mapping
+                await self.cog.config.user_from_id(int(user_id)).tickets.set(tickets)
         self.stop()
 
 
