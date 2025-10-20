@@ -173,7 +173,7 @@ class DrawView(View):
 
         # Add exactly one Select with real options
         draw_select = Select(
-            placeholder="Choose a lottery…",
+            placeholder="🎟️ Choose a lottery…",
             options=options,
             custom_id="lottery_draw_select",
             min_values=1,
@@ -435,7 +435,7 @@ class BuyView(View):
         self.cog = cog
 
         buy_select = Select(
-            placeholder="Select lottery…",
+            placeholder="🎟️ Select lottery…",
             options=options,
             custom_id="lottery_buy_select",
             min_values=1,
