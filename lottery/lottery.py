@@ -197,9 +197,27 @@ class DrawView(View):
             color=discord.Color.gold(),
             description=f"{winner_count} winner{'s' if winner_count>1 else ''} drawn!"
         )
+        # Award prizes and annotate embed
         for uid in winners:
             member = interaction.guild.get_member(uid) or await self.cog.bot.fetch_user(uid)
-            embed.add_field(name=member.display_name, value="Congratulations!", inline=False)
+            prize_texts = []
+            # 1) Currency prize
+            cur_prize = data.get("currency_prize")
+            if cur_prize:
+                await bank.deposit_credits(member, cur_prize)
+                prize_texts.append(f"{cur_prize} {self.currency}")
+            # 2) Role prize
+            role_id = data.get("role_prize")
+            if role_id:
+                role = interaction.guild.get_role(role_id)
+                if role:
+                    await member.add_roles(role, reason=f"Lottery win: {choice}")
+                    prize_texts.append(f"Role: {role.name}")
+            # build field value
+            field_value = "Congratulations!"
+            if prize_texts:
+                field_value += "\nWon: " + ", ".join(prize_texts)
+            embed.add_field(name=member.display_name, value=field_value, inline=False)
 
         await interaction.followup.send(embed=embed)
 
