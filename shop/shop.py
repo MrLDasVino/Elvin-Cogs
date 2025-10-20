@@ -60,10 +60,15 @@ class Shop(commands.Cog):
         shops = await guild_conf.shops()
         if not shops:
             return await ctx.send("❌ There are no shops to edit.")
-        view = RemoveStockView(self.config, ctx.guild.id)
+        embed = discord.Embed(
+            title="⚠️ Remove Stock",
+            description="Select a shop to remove an item from (this cannot be undone).",
+            color=discord.Color.red()
+        )
+        view = RemoveStockView(self.config, ctx.guild.id, timeout=60)
         await view.populate()
-        msg = await ctx.send("Select a shop to remove stock from:", view=view)
-        view.message = msg       
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg     
 
 
     @shop.command()
@@ -94,10 +99,15 @@ class Shop(commands.Cog):
         if not shops:
             return await ctx.send("❌ There are no shops to delete.")
 
+        embed = discord.Embed(
+            title="⚠️ Delete Shop",
+            description="Select a shop to delete (THIS CANNOT BE UNDONE).",
+            color=discord.Color.red()
+        )
         view = DeleteShopView(self.config, ctx.guild.id, timeout=60)
         await view.populate()
-        msg = await ctx.send("Select a shop to delete:", view=view)
-        view.message = msg        
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg     
 
     # --------------------
     # USER COMMANDS
@@ -940,15 +950,14 @@ class RemoveStockSelect(Select):
     async def callback(self, interaction: discord.Interaction):
         shop_name = self.values[0]
 
-        # 1. Instantiate and populate the item‐removal view
-        view = RemoveItemView(self.config, self.guild_id, shop_name)
-        await view.populate()
-
-        # 2. Swap in the fully‐built view
-        await interaction.response.edit_message(
-            content=f"🗑️ **{shop_name}** – select an item to remove:",
-            view=view,
+        embed = discord.Embed(
+            title="⚠️ Delete Item",
+            description=f"**{shop_name}** – select an item to remove (this cannot be undone)",
+            color=discord.Color.red()
         )
+        view = RemoveItemView(self.config, self.guild_id, shop_name, timeout=60)
+        await view.populate()
+        await interaction.response.edit_message(embed=embed, view=view)
 
 
 class RemoveItemView(View):
@@ -996,28 +1005,70 @@ class RemoveItemSelect(Select):
         self.shop_name = shop_name
 
     async def callback(self, interaction: discord.Interaction):
-        item_name = self.values[0]
+        # open confirmation modal instead of immediate delete
+        await interaction.response.send_modal(
+            DeleteItemConfirmationModal(
+                self.config,
+                self.guild_id,
+                self.shop_name,
+                self.values[0],
+                interaction.message,
+                self.view
+            )
+        )
+
+class DeleteItemConfirmationModal(Modal, title="Confirm Item Deletion"):
+    confirmation = TextInput(
+        label="Type DELETE to confirm",
+        placeholder="DELETE",
+        style=discord.TextStyle.short,
+        required=True
+    )
+
+    def __init__(
+        self,
+        config: Config,
+        guild_id: int,
+        shop_name: str,
+        item_name: str,
+        original_msg: discord.Message,
+        parent_view: View
+    ):
+        super().__init__()
+        self.config = config
+        self.guild_id = guild_id
+        self.shop_name = shop_name
+        self.item_name = item_name
+        self.original_msg = original_msg
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # require exact DELETE
+        if self.confirmation.value.strip().upper() != "DELETE":
+            return await interaction.response.send_message(
+                "❌ Deletion cancelled. You did not type DELETE.", ephemeral=True
+            )
+
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
         stock = shops[self.shop_name]["stock"]
+        # perform removal
+        stock.pop(self.item_name, None)
+        shops[self.shop_name]["stock"] = stock
+        await guild_conf.shops.set(shops)
 
-        if item_name in stock:
-            stock.pop(item_name)
-            shops[self.shop_name]["stock"] = stock
-            await guild_conf.shops.set(shops)
-            await interaction.response.send_message(
-                f"✅ Removed `{item_name}` from **{self.shop_name}**.",
-                ephemeral=True,
-            )
-        else:
-            await interaction.response.send_message(
-                f"❌ Item `{item_name}` not found.", ephemeral=True
-            )
+        # acknowledgment
+        await interaction.response.send_message(
+            f"✅ Removed `{self.item_name}` from **{self.shop_name}**.", ephemeral=True
+        )
 
-        # disable buttons/select after action
-        for c in self.view.children:
+        # disable original view components
+        for c in self.parent_view.children:
             c.disabled = True
-        await interaction.message.edit(view=self.view)
+        try:
+            await self.original_msg.edit(view=self.parent_view)
+        except Exception:
+            pass
         
 class ShopEmbedView(View):
     """First dropdown: pick which shop to browse (buy vs gift)."""
@@ -1290,20 +1341,52 @@ class DeleteShopSelect(Select):
 
     async def callback(self, interaction: discord.Interaction):
         shop_name = self.values[0]
+        # instead of deleting immediately, prompt confirmation
+        await interaction.response.send_modal(
+            DeleteConfirmationModal(self.config, self.guild_id, shop_name)
+        )
+
+class DeleteConfirmationModal(Modal, title="Confirm Shop Deletion"):
+    confirmation = TextInput(
+        label="Type DELETE to confirm",
+        placeholder="DELETE",
+        style=discord.TextStyle.short,
+        required=True
+    )
+
+    def __init__(self, config: Config, guild_id: int, shop_name: str):
+        super().__init__()
+        self.config = config
+        self.guild_id = guild_id
+        self.shop_name = shop_name
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # guard against mistyped confirmation
+        if self.confirmation.value.strip().upper() != "DELETE":
+            return await interaction.response.send_message(
+                "❌ Deletion cancelled. You did not type DELETE.", ephemeral=True
+            )
+
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
+        if self.shop_name in shops:
+            shops.pop(self.shop_name)
+            await guild_conf.shops.set(shops)
+            await interaction.response.send_message(
+                f"✅ Shop `{self.shop_name}` deleted.", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"❌ Shop `{self.shop_name}` not found.", ephemeral=True
+            )
 
-        # Remove and save
-        shops.pop(shop_name, None)
-        await guild_conf.shops.set(shops)
-
-        # Disable all components
-        for child in self.view.children:
-            child.disabled = True
-
-        # Edit the original message
-        await interaction.response.edit_message(
-            content=f"✅ Shop `{shop_name}` deleted.",
-            view=self.view
-        )
-        
+        # disable the original dropdown
+        parent = interaction.message
+        view = self.view or getattr(parent, "view", None)
+        if view:
+            for child in view.children:
+                child.disabled = True
+            try:
+                await parent.edit(view=view)
+            except Exception:
+                pass        
