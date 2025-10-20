@@ -129,16 +129,35 @@ class Lottery(commands.Cog):
         Show how many tickets you hold in each lottery.
         """
         user_data = await self.config.user(ctx.author).tickets()
-        lines = []
-        currency = await bank.get_currency_name(ctx.guild)
-        for guild_id, lotteries in user_data.items():
-            if str(ctx.guild.id) != guild_id:
-                continue
-            for name, count in lotteries.items():
-                lines.append(f"{name}: {count} tickets")
-        if not lines:
+        guild_key = str(ctx.guild.id)
+        lotteries = user_data.get(guild_key, {})
+        if not lotteries:
             return await ctx.send("You have no lottery tickets.")
-        embed = Embed(title=f"{ctx.author.display_name}'s Tickets", description="\n".join(lines), color=discord.Color.blurple())
+
+        from datetime import datetime
+
+        total = sum(lotteries.values())
+        currency = await bank.get_currency_name(ctx.guild)
+
+        embed = Embed(
+            title="🎟️ Your Lottery Tickets",
+            description=f"You have a total of **{total}** tickets.",
+            color=discord.Color.random(),
+            timestamp=datetime.utcnow()
+        )
+        embed.set_author(
+            name=ctx.author.display_name,
+            icon_url=ctx.author.display_avatar.url
+        )
+
+        for name, count in lotteries.items():
+            embed.add_field(
+                name=name,
+                value=f"{count} 🎟️",
+                inline=True
+            )
+
+        embed.set_footer(text=f"Each ticket costs {currency}")
         await ctx.send(embed=embed)
 
     # ----------------------------
