@@ -902,10 +902,11 @@ class ShopDropdownSelect(Select):
         )
 
 class RemoveStockView(View):
-    def __init__(self, config: Config, guild_id: int):
-        super().__init__(timeout=60)
+    def __init__(self, config: Config, guild_id: int, *, timeout: float = 60):
+        super().__init__(timeout=timeout)
         self.config = config
         self.guild_id = guild_id
+        self.message: discord.Message | None = None
         
     async def on_timeout(self):
         # disable all buttons & selects
@@ -961,8 +962,8 @@ class RemoveStockSelect(Select):
 
 
 class RemoveItemView(View):
-    def __init__(self, config: Config, guild_id: int, shop_name: str):
-        super().__init__(timeout=60)
+    def __init__(self, config: Config, guild_id: int, shop_name: str, *, timeout: float = 60):
+        super().__init__(timeout=timeout)
         self.config = config
         self.guild_id = guild_id
         self.shop_name = shop_name
