@@ -19,6 +19,7 @@ class Lottery(commands.Cog):
         # register defaults synchronously
         self.config.register_global(lotteries={})
         self.config.register_user(tickets={})
+        self.active_views: list[View] = []
 
     @commands.group()
     async def lottery(self, ctx: commands.Context):
@@ -40,6 +41,7 @@ class Lottery(commands.Cog):
             for name, data in lotteries.items()
         ]
         view = ManageView(self, options)
+        self.active_views.append(view)
         if options:
             msg = await ctx.send("🎟️ Lottery Management Panel", view=view)
         else:
@@ -119,6 +121,7 @@ class Lottery(commands.Cog):
             for name, data in lotteries.items()
         ]
         view = BuyView(self, options)
+        self.active_views.append(view)
         msg = await ctx.send("🎟️ Select a lottery to buy a ticket:", view=view)
         view.message = msg  
 
@@ -182,6 +185,7 @@ class Lottery(commands.Cog):
             for name, data in lotteries.items()
         ]
         view = DrawView(self, options, currency)
+        self.active_views.append(view)
         msg = await ctx.send("🎟️ Select a lottery to draw a winner for:", view=view)
         view.message = msg  
 
