@@ -111,9 +111,11 @@ class Shop(commands.Cog):
     async def gift(self, ctx):
         """Gift an item to another user."""
         guild_conf = self.config.guild(ctx.guild)
-        shops = await guild_conf.shops()
+        raw = await guild_conf.shops()
+        shops = {name: data for name, data in raw.items()
+                 if data.get("giftable", True)}
         if not shops:
-            return await ctx.send("❌ There are no shops to browse.")
+            return await ctx.send("❌ There are no giftable shops available.")
 
         embed = discord.Embed(
             title="🎁 Gift Items",
@@ -216,6 +218,7 @@ class ShopSelect(Select):
                 original_name=shop_name,
                 description=data.get("description", ""),
                 thumbnail=data.get("thumbnail", ""),
+                giftable=data.get("giftable", True),
             )
         )
 
@@ -259,6 +262,12 @@ class ShopModal(Modal, title="Create or Edit Shop"):
         required=False,
         placeholder="https://…jpg",
     )
+    giftable = TextInput(
+        label="Giftable? (yes/no)",
+        style=discord.TextStyle.short,
+        required=True,
+        placeholder="yes",
+    )    
 
     def __init__(
         self,
@@ -268,6 +277,7 @@ class ShopModal(Modal, title="Create or Edit Shop"):
         original_name: str = None,
         description: str = "",
         thumbnail: str = "",
+        giftable: bool = True,
     ):
         super().__init__()
         self.config = config
@@ -279,6 +289,7 @@ class ShopModal(Modal, title="Create or Edit Shop"):
             self.shop_name.default = original_name
             self.description.default = description
             self.thumbnail.default = thumbnail
+            self.giftable.default = "yes" if giftable else "no"            
 
     async def on_submit(self, interaction: discord.Interaction):
         guild_conf = self.config.guild_from_id(self.guild_id)
@@ -287,6 +298,8 @@ class ShopModal(Modal, title="Create or Edit Shop"):
         new_name = self.shop_name.value.strip()
         desc = self.description.value.strip()
         thumb = self.thumbnail.value.strip()
+        raw_gift = self.giftable.value.strip().lower()
+        is_giftable = raw_gift in ("yes","y","true","1")        
 
         # if renaming, carry over existing stock
         stock = {}
@@ -300,6 +313,7 @@ class ShopModal(Modal, title="Create or Edit Shop"):
         shops[new_name] = {
             "description": desc,
             "thumbnail": thumb,
+            "giftable": is_giftable,
             "stock": stock,
         }
 
