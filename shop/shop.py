@@ -84,6 +84,20 @@ class Shop(commands.Cog):
         """Clear a user's custom inventory (does not remove roles)."""
         await self.config.user(member).inventory.clear()
         await ctx.send(f"✅ Cleared inventory of {member.mention}.") 
+        
+    @shop.command(name="delete")
+    @checks.admin()
+    async def delete(self, ctx):
+        """Delete a shop via dropdown selection."""
+        guild_conf = self.config.guild(ctx.guild)
+        shops = await guild_conf.shops()
+        if not shops:
+            return await ctx.send("❌ There are no shops to delete.")
+
+        view = DeleteShopView(self.config, ctx.guild.id, timeout=60)
+        await view.populate()
+        msg = await ctx.send("Select a shop to delete:", view=view)
+        view.message = msg        
 
     # --------------------
     # USER COMMANDS
@@ -1222,4 +1236,74 @@ class ItemEmbedSelect(Select):
                     price,
                 )
             )
+
+class DeleteShopView(View):
+    def __init__(self, config: Config, guild_id: int, *, timeout: float = 60):
+        super().__init__(timeout=timeout)
+        self.config = config
+        self.guild_id = guild_id
+        self.message: discord.Message | None = None
+
+    async def populate(self):
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+        options = [
+            discord.SelectOption(label=name, value=name)
+            for name in shops.keys()
+        ]
+        # Dropdown for shop selection
+        self.add_item(DeleteShopSelect(options, self.config, self.guild_id))
+        # Cancel button
+        cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
+        cancel.callback = self._cancel
+        self.add_item(cancel)
+
+    async def _cancel(self, interaction: discord.Interaction):
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="Cancelled.", view=self)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(
+                    content="⌛ Deletion session expired.",
+                    view=self
+                )
+            except Exception:
+                pass
+
+
+class DeleteShopSelect(Select):
+    def __init__(self, options, config: Config, guild_id: int):
+        super().__init__(
+            placeholder="Choose a shop…",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="delete_shop_select",
+        )
+        self.config = config
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        shop_name = self.values[0]
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+
+        # Remove and save
+        shops.pop(shop_name, None)
+        await guild_conf.shops.set(shops)
+
+        # Disable all components
+        for child in self.view.children:
+            child.disabled = True
+
+        # Edit the original message
+        await interaction.response.edit_message(
+            content=f"✅ Shop `{shop_name}` deleted.",
+            view=self.view
+        )
         
