@@ -1342,9 +1342,14 @@ class DeleteShopSelect(Select):
 
     async def callback(self, interaction: discord.Interaction):
         shop_name = self.values[0]
-        # instead of deleting immediately, prompt confirmation
         await interaction.response.send_modal(
-            DeleteConfirmationModal(self.config, self.guild_id, shop_name)
+            DeleteConfirmationModal(
+                self.config,
+                self.guild_id,
+                shop_name,
+                interaction.message,
+                self.view
+            )
         )
 
 class DeleteConfirmationModal(Modal, title="Confirm Shop Deletion"):
@@ -1355,11 +1360,20 @@ class DeleteConfirmationModal(Modal, title="Confirm Shop Deletion"):
         required=True
     )
 
-    def __init__(self, config: Config, guild_id: int, shop_name: str):
+    def __init__(
+        self,
+        config: Config,
+        guild_id: int,
+        shop_name: str,
+        original_msg: discord.Message,
+        parent_view: View
+    ):
         super().__init__()
         self.config = config
         self.guild_id = guild_id
         self.shop_name = shop_name
+        self.original_msg = original_msg
+        self.parent_view = parent_view
 
     async def on_submit(self, interaction: discord.Interaction):
         # guard against mistyped confirmation
@@ -1384,10 +1398,9 @@ class DeleteConfirmationModal(Modal, title="Confirm Shop Deletion"):
         # disable the original dropdown
         parent = self.original_msg
         view = self.parent_view
-        if view:
-            for child in view.children:
-                child.disabled = True
-            try:
-                await parent.edit(view=view)
-            except Exception:
-                pass        
+        for child in view.children:
+            child.disabled = True
+        try:
+            await parent.edit(view=view)
+        except Exception:
+            pass       
