@@ -130,7 +130,7 @@ class RadioBrowser(commands.Cog):
             country = station.get("country") or station.get("countrycode") or "Unknown"
             language = station.get("language", "Unknown")
 
-            embed = discord.Embed(title=title, color=discord.Color.blue())
+            embed = discord.Embed(title=title, color=discord.Color.random())
             embed.add_field(name="🔗 Stream URL", value=stream, inline=False)
             embed.add_field(name="🌍 Country", value=country, inline=True)
             embed.add_field(name="🗣️ Language", value=language, inline=True)
@@ -224,7 +224,7 @@ class RadioBrowser(commands.Cog):
             title = f"Search results — page {self.page+1}/{self.max_page+1}"
             if disabled:
                 title = f"{title} (expired)"
-            embed = discord.Embed(title=title, color=discord.Color.green())
+            embed = discord.Embed(title=title, color=discord.Color.random())
             for i in range(start, end):
                 station = self.all_results[i]
                 name = station.get("name", "Unknown")
@@ -324,7 +324,7 @@ class RadioBrowser(commands.Cog):
         country = station.get("country") or station.get("countrycode") or "Unknown"
         language = station.get("language", "Unknown")
 
-        embed = discord.Embed(title="🎲 Random Radio Station", color=discord.Color.purple())
+        embed = discord.Embed(title="🎲 Random Radio Station", color=discord.Color.random())
         embed.add_field(name=title, value=stream, inline=False)
         embed.add_field(name="🌍 Country", value=country, inline=True)
         embed.add_field(name="🗣️ Language", value=language, inline=True)
