@@ -175,15 +175,24 @@ class RadioBrowser(commands.Cog):
     @radio.command(name="random")
     async def radio_random(self, ctx: commands.Context):
         """
-        Fetch a completely random station using the dedicated endpoint.
+        Fetch a completely random station using the dedicated endpoint, with fallbacks.
         """
+        # Primary: try the dedicated random endpoint
         data, error = await self._api_get("stations/random", {"limit": 1})
+        # If we got an HTTP 404 specifically, try a fallback search with random ordering
+        if error and "404" in error:
+            data, error = await self._api_get("stations/search", {"limit": 1, "hidebroken": True, "order": "random"})
+        # Final fallback: fetch a small batch and pick locally
         if error:
-            return await ctx.send(f"❌ {error}. Try again later.")
-        if not data:
-            return await ctx.send("❌ No station returned. Try again later.")
+            data2, err2 = await self._api_get("stations", {"limit": 20, "hidebroken": True})
+            if err2 or not data2:
+                return await ctx.send(f"❌ {error or err2 or 'No station returned'}. Try again later.")
+            station = random.choice(data2)
+        else:
+            if not data:
+                return await ctx.send("❌ No station returned. Try again later.")
+            station = data[0]
 
-        station = data[0]
         title = station.get("name", "Random station")
         stream = station.get("url_resolved") or station.get("url") or "No URL available"
         country = station.get("country") or station.get("countrycode") or "Unknown"
