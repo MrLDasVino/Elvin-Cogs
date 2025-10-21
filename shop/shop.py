@@ -356,7 +356,7 @@ class StockModal(Modal, title="Add / Restock Item"):
     )
     role = TextInput(
         label="Role (name, mention or ID)",
-        placeholder="leave blank for item",
+        placeholder="leave blank for item or supply role ID to preserve exact role",
         required=False,
     )
     description = TextInput(
@@ -364,23 +364,47 @@ class StockModal(Modal, title="Add / Restock Item"):
         style=discord.TextStyle.long,
         required=False,
         placeholder="Short blurb about this item",
-    )    
+    )
     price = TextInput(label="Price (credits)", required=True)
     amount = TextInput(
-        label="Amount to add (blank = ∞)",
+        label="Amount to set (blank = ∞)",
         required=False,
     )
 
-    def __init__(self, config: Config, guild_id: int, shop_name: str):
+    def __init__(
+        self,
+        config: Config,
+        guild_id: int,
+        shop_name: str,
+        *,
+        existing_item_name: str | None = None,
+        existing_entry: dict | None = None,
+    ):
         super().__init__()
         self.config = config
         self.guild_id = guild_id
         self.shop_name = shop_name
 
+        # Prefill when editing an existing entry
+        if existing_item_name:
+            self.item.default = existing_item_name
+        if existing_entry:
+            if existing_entry.get("role_id"):
+                # prefer role ID so parsing is unambiguous
+                self.role.default = str(existing_entry["role_id"])
+            desc = existing_entry.get("description", "")
+            if desc:
+                self.description.default = desc
+            if "price" in existing_entry:
+                self.price.default = str(existing_entry["price"])
+            # amount: None == infinite => leave blank; else show current amount
+            if "amount" in existing_entry and existing_entry["amount"] is not None:
+                self.amount.default = str(existing_entry["amount"])
+
     async def on_submit(self, interaction: discord.Interaction):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
-        stock = shops[self.shop_name]["stock"]
+        stock = shops[self.shop_name].get("stock", {})
 
         # Resolve item vs role by name/mention/ID
         raw_item = (self.item.value or "").strip()
@@ -394,12 +418,16 @@ class StockModal(Modal, title="Add / Restock Item"):
                 "❌ You can’t add both an item and a role at once.", ephemeral=True
             )
 
+        role_id = None
         if raw_role:
             role_obj = None
             # 1) Mention syntax
             if raw_role.startswith("<@&") and raw_role.endswith(">"):
-                rid = int(raw_role[3:-1])
-                role_obj = interaction.guild.get_role(rid)
+                try:
+                    rid = int(raw_role[3:-1])
+                    role_obj = interaction.guild.get_role(rid)
+                except Exception:
+                    role_obj = None
             # 2) Raw ID
             elif raw_role.isdigit():
                 role_obj = interaction.guild.get_role(int(raw_role))
@@ -420,34 +448,37 @@ class StockModal(Modal, title="Add / Restock Item"):
                 return await interaction.response.send_message(
                     f"❌ Role `{raw_role}` not found.", ephemeral=True
                 )
-
             name = role_obj.name
             role_id = role_obj.id
         else:
             name = raw_item
-            role_id = None
 
         # Price always required
-        price = int(self.price.value)
+        try:
+            price = int(self.price.value)
+        except Exception:
+            return await interaction.response.send_message(
+                "❌ Price must be an integer.", ephemeral=True
+            )
 
-        # Amount: blank = infinite, else int
+        # Amount: blank = infinite, else set absolute amount
         raw_amt = (self.amount.value or "").strip()
         if raw_amt == "":
-            new_amount = None
+            final_amount = None
         else:
-            add_amt = int(raw_amt)
-            old_amt = stock.get(name, {}).get("amount")
-            if old_amt is None:
-                new_amount = None
-            else:
-                new_amount = old_amt + add_amt
-                
+            try:
+                final_amount = int(raw_amt)
+            except Exception:
+                return await interaction.response.send_message(
+                    "❌ Amount must be an integer or blank for infinite.", ephemeral=True
+                )
+
         raw_desc = (self.description.value or "").strip()
         old_entry = stock.get(name, {})
-        final_desc = raw_desc or old_entry.get("description", "")                
+        final_desc = raw_desc or old_entry.get("description", "")
 
-        # Write stock entry
-        entry = {"price": price, "amount": new_amount, "description": final_desc}
+        # Write stock entry (overwrite existing)
+        entry = {"price": price, "amount": final_amount, "description": final_desc}
         if role_id:
             entry["role_id"] = role_id
         stock[name] = entry
@@ -455,10 +486,9 @@ class StockModal(Modal, title="Add / Restock Item"):
         shops[self.shop_name]["stock"] = stock
         await guild_conf.shops.set(shops)
         await interaction.response.send_message(
-            f"✅ {'Added' if raw_role else 'Restocked'} `{name}` "
-            f"for {price} credits"
-            f"{'' if new_amount is None else f', amount={new_amount}'}."
-            , ephemeral=True
+            f"✅ Saved `{name}` for {price} credits"
+            f"{'' if final_amount is None else f', amount={final_amount}'}.",
+            ephemeral=True,
         )
 
 
@@ -823,9 +853,14 @@ class AddStockSelect(Select):
 
     async def callback(self, interaction: discord.Interaction):
         shop_name = self.values[0]
-        # launch the existing StockModal with chosen shop
-        await interaction.response.send_modal(
-            StockModal(self.config, self.guild_id, shop_name)
+        # present a second dropdown: choose existing item to edit or add new
+        view = AddStockChooseItemView(self.config, self.guild_id, shop_name)
+        await view.populate()
+        # attach message reference so view can edit on timeout
+        view.message = interaction.message
+        await interaction.response.edit_message(
+            content=f"Restocking **{shop_name}** — choose an item to edit or Add new:",
+            view=view,
         )
 
 class ShopDropdownView(View):
@@ -1404,3 +1439,81 @@ class DeleteConfirmationModal(Modal, title="Confirm Shop Deletion"):
             await parent.edit(view=view)
         except Exception:
             pass       
+            
+class AddStockChooseItemView(View):
+    """After selecting a shop: choose an existing item to edit, or add new."""
+    def __init__(self, config: Config, guild_id: int, shop_name: str, *, timeout: float = 60):
+        super().__init__(timeout=timeout)
+        self.config = config
+        self.guild_id = guild_id
+        self.shop_name = shop_name
+        self.message: discord.Message | None = None
+
+    async def populate(self):
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+        stock = shops.get(self.shop_name, {}).get("stock", {})
+
+        options = []
+        options.append(discord.SelectOption(label="➕ Add new item", value="__ADD_NEW__"))
+        for name in stock.keys():
+            options.append(discord.SelectOption(label=name, value=name))
+
+        if options:
+            self.add_item(AddStockItemSelect(options, self.config, self.guild_id, self.shop_name))
+        cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
+        async def _cancel(inter: discord.Interaction):
+            for c in self.children:
+                c.disabled = True
+            await inter.response.edit_message(content="Cancelled.", view=self)
+        cancel.callback = _cancel
+        self.add_item(cancel)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(content="⌛ Restock session timed out.", view=self)
+            except Exception:
+                pass
+
+
+class AddStockItemSelect(Select):
+    def __init__(self, options, config: Config, guild_id: int, shop_name: str):
+        super().__init__(
+            placeholder="Choose an item to edit or add new…",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="addstock_item_select",
+        )
+        self.config = config
+        self.guild_id = guild_id
+        self.shop_name = shop_name
+
+    async def callback(self, interaction: discord.Interaction):
+        sel = self.values[0]
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shops = await guild_conf.shops()
+        stock = shops.get(self.shop_name, {}).get("stock", {})
+
+        if sel == "__ADD_NEW__":
+            # Open an empty StockModal to add a new entry
+            await interaction.response.send_modal(
+                StockModal(self.config, self.guild_id, self.shop_name)
+            )
+            return
+
+        # Prefill modal with existing entry data for editing
+        existing = stock.get(sel, {})
+        await interaction.response.send_modal(
+            StockModal(
+                self.config,
+                self.guild_id,
+                self.shop_name,
+                existing_item_name=sel,
+                existing_entry=existing,
+            )
+        )
+            
