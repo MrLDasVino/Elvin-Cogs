@@ -1,6 +1,8 @@
 import aiohttp
 import asyncio
 import logging
+import random
+import time
 from typing import Optional, Tuple, List, Dict, Any
 
 from redbot.core import commands
@@ -135,7 +137,7 @@ class RadioBrowser(commands.Cog):
         self._search_cache[ctx.author.id] = data
         embed = discord.Embed(
             title=f"Results — {field.title()}: {query}",
-            color=discord.Color.green(),
+            color=discord.Color.random(),
         )
         for idx, station in enumerate(data, start=1):
             name = station.get("name", "Unknown")
@@ -165,7 +167,7 @@ class RadioBrowser(commands.Cog):
         stream = station.get("url_resolved") or station.get("url") or "No URL available"
         embed = discord.Embed(
             title=station.get("name", "Unknown station"),
-            color=discord.Color.blue(),
+            color=discord.Color.random(),
         )
         embed.add_field(name="🔗 Stream URL", value=stream, inline=False)
         embed.add_field(name="🌍 Country", value=station.get("country") or station.get("countrycode") or "Unknown", inline=True)
@@ -175,23 +177,23 @@ class RadioBrowser(commands.Cog):
     @radio.command(name="random")
     async def radio_random(self, ctx: commands.Context):
         """
-        Fetch a completely random station using the dedicated endpoint, with fallbacks.
+        Fetch a random station with robust fallbacks and cache-busting to avoid identical results.
         """
-        # Primary: try the dedicated random endpoint
-        data, error = await self._api_get("stations/random", {"limit": 1})
-        # If we got an HTTP 404 specifically, try a fallback search with random ordering
-        if error and "404" in error:
-            data, error = await self._api_get("stations/search", {"limit": 1, "hidebroken": True, "order": "random"})
-        # Final fallback: fetch a small batch and pick locally
+        # 1) Try the dedicated random endpoint first
+        data, error = await self._api_get("stations/random", {"limit": 1, "rand": int(time.time() * 1000)})
+        # 2) If that fails or returns 404, try search with random ordering and a larger limit
         if error:
-            data2, err2 = await self._api_get("stations", {"limit": 20, "hidebroken": True})
-            if err2 or not data2:
-                return await ctx.send(f"❌ {error or err2 or 'No station returned'}. Try again later.")
-            station = random.choice(data2)
-        else:
-            if not data:
-                return await ctx.send("❌ No station returned. Try again later.")
+            data, error = await self._api_get("stations/search", {"limit": 50, "order": "random", "hidebroken": True, "rand": random.randint(1, 1_000_000)})
+        # 3) Final fallback: fetch a small batch and pick locally
+        station = None
+        if not error and data:
             station = data[0]
+        else:
+            batch, batch_err = await self._api_get("stations", {"limit": 100, "hidebroken": True, "rand": random.randint(1, 1_000_000)})
+            if batch and isinstance(batch, list):
+                station = random.choice(batch)
+            else:
+                return await ctx.send(f"❌ {error or batch_err or 'No station returned'}. Try again later.")
 
         title = station.get("name", "Random station")
         stream = station.get("url_resolved") or station.get("url") or "No URL available"
@@ -200,7 +202,7 @@ class RadioBrowser(commands.Cog):
 
         embed = discord.Embed(
             title="🎲 Random Radio Station",
-            color=discord.Color.purple(),
+            color=discord.Color.random(),
         )
         embed.add_field(name=title, value=f"[Listen here]({stream})", inline=False)
         embed.add_field(name="🌍 Country", value=country, inline=True)
