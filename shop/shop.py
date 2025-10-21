@@ -1441,7 +1441,7 @@ class DeleteConfirmationModal(Modal, title="Confirm Shop Deletion"):
             pass       
             
 class AddStockChooseItemView(View):
-    """After selecting a shop: choose an existing item to edit, or add new."""
+    """After selecting a shop: choose an existing item to edit, or use button to add new."""
     def __init__(self, config: Config, guild_id: int, shop_name: str, *, timeout: float = 60):
         super().__init__(timeout=timeout)
         self.config = config
@@ -1454,13 +1454,20 @@ class AddStockChooseItemView(View):
         shops = await guild_conf.shops()
         stock = shops.get(self.shop_name, {}).get("stock", {})
 
-        options = []
-        options.append(discord.SelectOption(label="➕ Add new item", value="__ADD_NEW__"))
-        for name in stock.keys():
-            options.append(discord.SelectOption(label=name, value=name))
-
+        # Select for existing items only
+        options = [discord.SelectOption(label=name, value=name) for name in stock.keys()]
         if options:
             self.add_item(AddStockItemSelect(options, self.config, self.guild_id, self.shop_name))
+
+        # Add New Item button (separate from the select)
+        add_btn = Button(label="➕ Add New Item", style=discord.ButtonStyle.success)
+        async def _add_btn_cb(inter: discord.Interaction):
+            # open empty StockModal to add a new entry
+            await inter.response.send_modal(StockModal(self.config, self.guild_id, self.shop_name))
+        add_btn.callback = _add_btn_cb
+        self.add_item(add_btn)
+
+        # Cancel button
         cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
         async def _cancel(inter: discord.Interaction):
             for c in self.children:
@@ -1482,7 +1489,7 @@ class AddStockChooseItemView(View):
 class AddStockItemSelect(Select):
     def __init__(self, options, config: Config, guild_id: int, shop_name: str):
         super().__init__(
-            placeholder="Choose an item to edit or add new…",
+            placeholder="Choose an existing item to edit…",
             min_values=1,
             max_values=1,
             options=options,
@@ -1497,13 +1504,6 @@ class AddStockItemSelect(Select):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
         stock = shops.get(self.shop_name, {}).get("stock", {})
-
-        if sel == "__ADD_NEW__":
-            # Open an empty StockModal to add a new entry
-            await interaction.response.send_modal(
-                StockModal(self.config, self.guild_id, self.shop_name)
-            )
-            return
 
         # Prefill modal with existing entry data for editing
         existing = stock.get(sel, {})
