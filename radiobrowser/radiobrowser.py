@@ -8,8 +8,25 @@ from typing import Optional, Dict, List, Any
 
 from redbot.core import commands
 import discord
+import logging
 
 logger = logging.getLogger(__name__)
+
+def _safe_field_name(name: str, max_len: int = 256) -> str:
+    if not name:
+        return " "
+    name = str(name)
+    if len(name) <= max_len:
+        return name
+    return name[: max_len - 1].rstrip() + "…"
+
+def _safe_field_value(value: str, max_len: int = 1024) -> str:
+    if value is None:
+        return ""
+    value = str(value)
+    if len(value) <= max_len:
+        return value
+    return value[: max_len - 1].rstrip() + "…"
 
 
 class RadioBrowser(commands.Cog):
@@ -152,10 +169,10 @@ class RadioBrowser(commands.Cog):
             country = station.get("country") or station.get("countrycode") or "Unknown"
             language = station.get("language", "Unknown")
 
-            embed = discord.Embed(title=title, color=discord.Color.random())
-            embed.add_field(name="🔗 Stream URL", value=stream, inline=False)
-            embed.add_field(name="🌍 Country", value=country, inline=True)
-            embed.add_field(name="🗣️ Language", value=language, inline=True)
+            embed = discord.Embed(title=_safe_field_name(title), color=discord.Color.random())
+            embed.add_field(name=_safe_field_name("🔗 Stream URL"), value=_safe_field_value(stream), inline=False)
+            embed.add_field(name=_safe_field_name("🌍 Country"), value=_safe_field_value(country), inline=True)
+            embed.add_field(name=_safe_field_name("🗣️ Language"), value=_safe_field_value(language), inline=True)
 
             # Respond with chosen station
             await interaction.response.send_message(embed=embed)
@@ -246,13 +263,17 @@ class RadioBrowser(commands.Cog):
             title = f"Search results — page {self.page+1}/{self.max_page+1}"
             if disabled:
                 title = f"{title} (expired)"
-            embed = discord.Embed(title=title, color=discord.Color.random())
+            embed = discord.Embed(title=_safe_field_name(title), color=discord.Color.random())
             for i in range(start, end):
                 station = self.all_results[i]
                 name = station.get("name", "Unknown")
                 country = station.get("country") or station.get("countrycode") or "Unknown"
                 language = station.get("language", "Unknown")
-                embed.add_field(name=f"{i+1}. {name}", value=f"Country: {country} | Language: {language}", inline=False)
+                embed.add_field(
+                    name=_safe_field_name(f"{i+1}. {name}"),
+                    value=_safe_field_value(f"Country: {country} | Language: {language}"),
+                    inline=False,
+                )
             footer = "Use the dropdown to pick a station; only you can interact."
             if disabled:
                 footer = "This view has expired. Re-run the search to get fresh results."
@@ -346,10 +367,10 @@ class RadioBrowser(commands.Cog):
         country = station.get("country") or station.get("countrycode") or "Unknown"
         language = station.get("language", "Unknown")
 
-        embed = discord.Embed(title="🎲 Random Radio Station", color=discord.Color.random())
-        embed.add_field(name=title, value=stream, inline=False)
-        embed.add_field(name="🌍 Country", value=country, inline=True)
-        embed.add_field(name="🗣️ Language", value=language, inline=True)
+        embed = discord.Embed(title=_safe_field_name("🎲 Random Radio Station"), color=discord.Color.random())
+        embed.add_field(name=_safe_field_name(title), value=_safe_field_value(stream), inline=False)
+        embed.add_field(name=_safe_field_name("🌍 Country"), value=_safe_field_value(country), inline=True)
+        embed.add_field(name=_safe_field_name("🗣️ Language"), value=_safe_field_value(language), inline=True)
 
         await ctx.send(embed=embed)
         if stream and stream != "No URL available":
