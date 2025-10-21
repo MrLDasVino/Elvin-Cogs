@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import logging
+from typing import Optional, Tuple, List, Dict, Any
 
 from redbot.core import commands
 import discord
@@ -17,52 +18,86 @@ class RadioBrowser(commands.Cog):
       • [p]radio random
     """
 
-    # Use the DNS-balanced JSON endpoint
-    API_BASE = "https://all.api.radio-browser.info/json"
+    # Primary host plus fallback public servers. Using multiple servers improves reliability.
+    DEFAULT_SERVERS = [
+        "https://all.api.radio-browser.info/json",
+        "https://de2.api.radio-browser.info/json",
+        "https://fi1.api.radio-browser.info/json",
+    ]
 
     def __init__(self, bot):
         self.bot = bot
-        self.session: aiohttp.ClientSession | None = None
-        self._search_cache: dict[int, list[dict]] = {}
+        self.session: Optional[aiohttp.ClientSession] = None
+        self._search_cache: Dict[int, List[dict]] = {}
+        self.server_list = list(self.DEFAULT_SERVERS)
 
     async def cog_load(self):
         """Initialize HTTP session when the cog loads."""
         headers = {"User-Agent": "RedbotRadioCog/1.0 (+https://github.com/YourRepo)"}
-        self.session = aiohttp.ClientSession(headers=headers)
+        timeout = aiohttp.ClientTimeout(total=15)
+        self.session = aiohttp.ClientSession(headers=headers, timeout=timeout)
 
     async def cog_unload(self):
         """Close HTTP session when the cog unloads."""
         if self.session and not self.session.closed:
             await self.session.close()
 
-    async def _api_get(self, endpoint: str, params: dict):
+    async def _api_get(self, endpoint: str, params: Optional[Dict[str, Any]] = None
+                      ) -> Tuple[Optional[Any], Optional[str]]:
         """
-        Fetch JSON from API_BASE/<endpoint> with up to 3 retries on 502 or network errors.
+        Try to GET JSON from endpoint on available servers with retries and failover.
         Returns (data, error_message).
         """
         assert self.session, "HTTP session not initialized"
-        url = f"{self.API_BASE.rstrip('/')}/{endpoint.lstrip('/')}"
 
-        last_err: str | None = None
-        for attempt in range(1, 4):
+        params = params or {}
+        # Convert Python booleans to lowercase strings, and None->omit
+        safe_params: Dict[str, str] = {}
+        for k, v in params.items():
+            if v is None:
+                continue
+            if isinstance(v, bool):
+                safe_params[k] = "true" if v else "false"
+            else:
+                safe_params[k] = str(v)
+
+        last_err: Optional[str] = None
+
+        # Try each server in order, with up to 2 attempts per server
+        for base in self.server_list:
+            url = f"{base.rstrip('/')}/{endpoint.lstrip('/')}"
+            for attempt in range(1, 3):
+                try:
+                    async with self.session.get(url, params=safe_params) as resp:
+                        text = await resp.text()
+                        if resp.status == 200:
+                            try:
+                                return await resp.json(), None
+                            except Exception as e:
+                                last_err = f"Invalid JSON from {url}: {e}"
+                                logger.exception(last_err)
+                                break
+                        if resp.status == 502:
+                            last_err = f"502 from {url}"
+                            logger.warning("Server %s attempt %s returned 502", base, attempt)
+                        else:
+                            logger.error("HTTP %s from %s: %s", resp.status, url, text[:200])
+                            return None, f"HTTP {resp.status} from Radio Browser"
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    last_err = f"Network error contacting {url}: {e}"
+                    logger.warning("Attempt %s to %s failed: %s", attempt, url, e)
+
+                # small backoff between attempts for same server
+                if attempt < 2:
+                    await asyncio.sleep(1)
+
+            # rotate server list: move this server to the back so next time we try others first
             try:
-                async with self.session.get(url, params=params, timeout=10) as resp:
-                    if resp.status == 200:
-                        return await resp.json(), None
-
-                    text = await resp.text()
-                    if resp.status == 502:
-                        logger.warning("Attempt %s: 502 from %s", attempt, url)
-                        last_err = "502 Bad Gateway"
-                    else:
-                        logger.error("HTTP %s from %s: %s", resp.status, url, text[:200])
-                        return None, f"HTTP {resp.status} from Radio Browser"
-            except Exception as e:
-                last_err = str(e)
-                logger.warning("Attempt %s: network error fetching %s → %s", attempt, url, e)
-
-            if attempt < 3:
-                await asyncio.sleep(1)
+                self.server_list.append(self.server_list.pop(0))
+            except Exception:
+                pass
 
         return None, last_err or "Unknown error fetching from Radio Browser"
 
@@ -104,7 +139,8 @@ class RadioBrowser(commands.Cog):
         )
         for idx, station in enumerate(data, start=1):
             name = station.get("name", "Unknown")
-            country = station.get("country", "Unknown")
+            # prefer countrycode; older fields may be inconsistent across servers
+            country = station.get("country") or station.get("countrycode") or "Unknown"
             language = station.get("language", "Unknown")
             embed.add_field(
                 name=f"{idx}. {name}",
@@ -132,7 +168,7 @@ class RadioBrowser(commands.Cog):
             color=discord.Color.blue(),
         )
         embed.add_field(name="🔗 Stream URL", value=stream, inline=False)
-        embed.add_field(name="🌍 Country", value=station.get("country", "Unknown"), inline=True)
+        embed.add_field(name="🌍 Country", value=station.get("country") or station.get("countrycode") or "Unknown", inline=True)
         embed.add_field(name="🗣️ Language", value=station.get("language", "Unknown"), inline=True)
         await ctx.send(embed=embed)
 
@@ -150,7 +186,7 @@ class RadioBrowser(commands.Cog):
         station = data[0]
         title = station.get("name", "Random station")
         stream = station.get("url_resolved") or station.get("url") or "No URL available"
-        country = station.get("country", "Unknown")
+        country = station.get("country") or station.get("countrycode") or "Unknown"
         language = station.get("language", "Unknown")
 
         embed = discord.Embed(
