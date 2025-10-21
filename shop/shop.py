@@ -65,7 +65,7 @@ class Shop(commands.Cog):
             description="Select a shop to remove an item from (THIS CANNOT BE UNDONE).",
             color=discord.Color.red()
         )
-        view = RemoveStockView(self.config, ctx.guild.id, timeout=60)
+        view = RemoveStockView(self.config, ctx.guild.id)
         await view.populate()
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg     
@@ -902,7 +902,7 @@ class ShopDropdownSelect(Select):
         )
 
 class RemoveStockView(View):
-    def __init__(self, config: Config, guild_id: int, *, timeout: float = 60):
+    def __init__(self, config: Config, guild_id: int, timeout: float = 60):
         super().__init__(timeout=timeout)
         self.config = config
         self.guild_id = guild_id
@@ -1382,8 +1382,8 @@ class DeleteConfirmationModal(Modal, title="Confirm Shop Deletion"):
             )
 
         # disable the original dropdown
-        parent = interaction.message
-        view = self.view or getattr(parent, "view", None)
+        parent = self.original_msg
+        view = self.parent_view
         if view:
             for child in view.children:
                 child.disabled = True
