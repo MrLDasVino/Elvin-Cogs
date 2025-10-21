@@ -45,6 +45,7 @@ class RadioBrowser(commands.Cog):
             await self.session.close()
 
     async def _api_get(self, endpoint: str, params: Optional[Dict[str, Any]] = None):
+        # Failure tracker: counts per (server, endpoint)
         assert self.session, "HTTP session not initialized"
         params = params or {}
         safe_params: Dict[str, str] = {}
@@ -56,35 +57,56 @@ class RadioBrowser(commands.Cog):
             else:
                 safe_params[k] = str(v)
 
+        # initialize failure tracker store on the instance if not present
+        if not hasattr(self, "_server_failures"):
+            self._server_failures: Dict[tuple, int] = {}
+
         last_err: Optional[str] = None
-        for base in self.server_list:
+        for base in list(self.server_list):
+            key = (base, endpoint)
+            # Skip mirrors that repeatedly failed for this endpoint
+            if self._server_failures.get(key, 0) >= 3:
+                logger.info("Skipping %s for %s due to repeated failures", base, endpoint)
+                continue
+
             url = f"{base.rstrip('/')}/{endpoint.lstrip('/')}"
             for attempt in range(1, 3):
                 try:
                     async with self.session.get(url, params=safe_params) as resp:
                         text = await resp.text()
                         if resp.status == 200:
+                            # reset failure counter on success
+                            self._server_failures.pop(key, None)
                             try:
                                 return await resp.json(), None
                             except Exception as e:
                                 last_err = f"Invalid JSON from {url}: {e}"
                                 logger.exception(last_err)
                                 break
+
                         if resp.status == 502:
                             last_err = f"502 from {url}"
                             logger.warning("Server %s attempt %s returned 502", base, attempt)
+                            self._server_failures[key] = self._server_failures.get(key, 0) + 1
+                        elif resp.status == 404:
+                            last_err = f"404 from {url}"
+                            logger.info("Server %s returned 404 for %s", base, endpoint)
+                            self._server_failures[key] = self._server_failures.get(key, 0) + 1
                         else:
-                            logger.error("HTTP %s from %s: %s", resp.status, url, text[:200])
+                            logger.debug("HTTP %s from %s: %s", resp.status, url, text[:200])
                             return None, f"HTTP {resp.status} from Radio Browser"
+
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
                     last_err = f"Network error contacting {url}: {e}"
                     logger.warning("Attempt %s to %s failed: %s", attempt, url, e)
+                    self._server_failures[key] = self._server_failures.get(key, 0) + 1
 
                 if attempt < 2:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
 
+            # rotate server order so next call tries other mirrors first
             try:
                 self.server_list.append(self.server_list.pop(0))
             except Exception:
@@ -303,18 +325,18 @@ class RadioBrowser(commands.Cog):
         """
         Fetch a random station and post the raw stream URL.
         """
-        # 1) Try the dedicated random endpoint first
+        # 1) Try the dedicated random endpoint first; quick fallback to search if random isn't supported
         data, error = await self._api_get("stations/random", {"limit": 1, "rand": int(time.time() * 1000)})
-        # 2) If that fails, try search with random ordering
-        if error:
+        if error or not data:
             data, error = await self._api_get("stations/search", {"limit": 50, "order": "random", "hidebroken": True, "rand": random.randint(1, 1_000_000)})
-        # 3) Final fallback: fetch a batch and pick locally
+
+        # 2) Final fallback: fetch a batch and pick locally if needed
         station = None
-        if not error and data:
-            station = data[0]
+        if data and isinstance(data, list) and len(data) > 0:
+            station = data[0] if len(data) == 1 else random.choice(data)
         else:
             batch, batch_err = await self._api_get("stations", {"limit": 100, "hidebroken": True, "rand": random.randint(1, 1_000_000)})
-            if batch and isinstance(batch, list):
+            if batch and isinstance(batch, list) and batch:
                 station = random.choice(batch)
             else:
                 return await ctx.send(f"❌ {error or batch_err or 'No station returned'}. Try again later.")
