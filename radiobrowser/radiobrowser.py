@@ -94,174 +94,173 @@ class RadioBrowser(commands.Cog):
 
     @commands.group(name="radio", invoke_without_command=True)
     async def radio(self, ctx: commands.Context):
+        """Group command for Radio Browser integration."""
         await ctx.send_help()
 
     # ----------------------------
     # Interactive UI components
     # ----------------------------
-class _RadioSelect(discord.ui.Select):
-    def __init__(self, parent_view: "RadioBrowser._ResultView", options: List[discord.SelectOption]):
-        super().__init__(placeholder="Select a station...", min_values=1, max_values=1, options=options)
-        self.parent_view = parent_view
+    class _RadioSelect(discord.ui.Select):
+        def __init__(self, parent_view: "RadioBrowser._ResultView", options: List[discord.SelectOption]):
+            super().__init__(placeholder="Select a station...", min_values=1, max_values=1, options=options)
+            self.parent_view = parent_view
 
-    async def callback(self, interaction: discord.Interaction):
-        # Reject if view already finished (timed out or already picked)
-        if self.parent_view.is_finished():
-            await interaction.response.send_message("This selection has expired.", ephemeral=True)
-            return
+        async def callback(self, interaction: discord.Interaction):
+            # Reject if view already finished (timed out or already picked)
+            if self.parent_view.is_finished():
+                await interaction.response.send_message("This selection has expired.", ephemeral=True)
+                return
 
-        if interaction.user.id != self.parent_view.user_id:
-            await interaction.response.send_message("Only the command author can pick a station.", ephemeral=True)
-            return
+            if interaction.user.id != self.parent_view.user_id:
+                await interaction.response.send_message("Only the command author can pick a station.", ephemeral=True)
+                return
 
-        try:
-            idx = int(self.values[0])
-        except Exception:
-            await interaction.response.send_message("Invalid selection.", ephemeral=True)
-            return
+            try:
+                idx = int(self.values[0])
+            except Exception:
+                await interaction.response.send_message("Invalid selection.", ephemeral=True)
+                return
 
-        station = self.parent_view.all_results[idx]
-        # store in cog cache
-        self.parent_view.cog._search_cache[self.parent_view.user_id] = self.parent_view.all_results
+            station = self.parent_view.all_results[idx]
+            # store in cog cache
+            self.parent_view.cog._search_cache[self.parent_view.user_id] = self.parent_view.all_results
 
-        title = station.get("name", "Unknown station")
-        stream = station.get("url_resolved") or station.get("url") or "No URL available"
-        country = station.get("country") or station.get("countrycode") or "Unknown"
-        language = station.get("language", "Unknown")
-
-        embed = discord.Embed(title=title, color=discord.Color.blue())
-        embed.add_field(name="🔗 Stream URL", value=stream, inline=False)
-        embed.add_field(name="🌍 Country", value=country, inline=True)
-        embed.add_field(name="🗣️ Language", value=language, inline=True)
-
-        # Respond with chosen station
-        await interaction.response.send_message(embed=embed)
-        # After a successful selection, disable everything and edit the original message to show it's closed
-        self.parent_view._on_success_disable()
-        try:
-            await self.parent_view.message.edit(embed=self.parent_view._build_embed(disabled=True), view=self.parent_view)
-        except Exception:
-            pass
-        self.parent_view.stop()
-
-
-class _ResultView(discord.ui.View):
-    def __init__(self, cog: "RadioBrowser", user_id: int, all_results: List[dict], page: int = 0, timeout: int = 120):
-        super().__init__(timeout=timeout)
-        self.cog = cog
-        self.user_id = user_id
-        self.all_results = all_results
-        self.page = page
-        self.page_size = RadioBrowser.PAGE_SIZE
-        self.message: Optional[discord.Message] = None
-        self.max_page = max(0, math.ceil(len(all_results) / self.page_size) - 1)
-        self._disabled_flag = False
-        self._refresh_children()
-
-    def _page_slice(self):
-        start = self.page * self.page_size
-        end = start + self.page_size
-        return start, min(end, len(self.all_results))
-
-    def _build_select_options(self) -> List[discord.SelectOption]:
-        start, end = self._page_slice()
-        options: List[discord.SelectOption] = []
-        for idx in range(start, end):
-            station = self.all_results[idx]
-            label = station.get("name") or f"Station {idx+1}"
-            description = station.get("country") or station.get("language") or ""
-            options.append(discord.SelectOption(label=label[:100], description=(description[:100] if description else None), value=str(idx)))
-            if len(options) >= RadioBrowser.SELECT_LIMIT:
-                break
-        return options
-
-    def _refresh_children(self):
-        # clear existing interactive children
-        for item in list(self.children):
-            self.remove_item(item)
-
-        options = self._build_select_options()
-        if options:
-            select = RadioBrowser._RadioSelect(self, options)
-            select.disabled = self._disabled_flag
-            self.add_item(select)
-
-        if self.max_page > 0:
-            prev_btn = discord.ui.Button(label="Previous", style=discord.ButtonStyle.secondary, disabled=self._disabled_flag)
-            next_btn = discord.ui.Button(label="Next", style=discord.ButtonStyle.secondary, disabled=self._disabled_flag)
-
-            async def prev_callback(interaction: discord.Interaction):
-                if self.is_finished():
-                    await interaction.response.send_message("This view has expired.", ephemeral=True)
-                    return
-                if interaction.user.id != self.user_id:
-                    await interaction.response.send_message("Only the command author can navigate pages.", ephemeral=True)
-                    return
-                self.page = max(0, self.page - 1)
-                self._refresh_children()
-                embed = self._build_embed()
-                await interaction.response.edit_message(embed=embed, view=self)
-
-            async def next_callback(interaction: discord.Interaction):
-                if self.is_finished():
-                    await interaction.response.send_message("This view has expired.", ephemeral=True)
-                    return
-                if interaction.user.id != self.user_id:
-                    await interaction.response.send_message("Only the command author can navigate pages.", ephemeral=True)
-                    return
-                self.page = min(self.max_page, self.page + 1)
-                self._refresh_children()
-                embed = self._build_embed()
-                await interaction.response.edit_message(embed=embed, view=self)
-
-            prev_btn.callback = prev_callback
-            next_btn.callback = next_callback
-            self.add_item(prev_btn)
-            self.add_item(next_btn)
-
-    def _build_embed(self, disabled: bool = False) -> discord.Embed:
-        start, end = self._page_slice()
-        title = f"Search results — page {self.page+1}/{self.max_page+1}"
-        if disabled:
-            title = f"{title} (expired)"
-        embed = discord.Embed(title=title, color=discord.Color.green())
-        for i in range(start, end):
-            station = self.all_results[i]
-            name = station.get("name", "Unknown")
+            title = station.get("name", "Unknown station")
+            stream = station.get("url_resolved") or station.get("url") or "No URL available"
             country = station.get("country") or station.get("countrycode") or "Unknown"
             language = station.get("language", "Unknown")
-            embed.add_field(name=f"{i+1}. {name}", value=f"Country: {country} | Language: {language}", inline=False)
-        footer = "Use the dropdown to pick a station; only you can interact."
-        if disabled:
-            footer = "This view has expired. Re-run the search to get fresh results."
-        embed.set_footer(text=footer)
-        return embed
 
-    def _on_success_disable(self):
-        # Mark disabled, so future refreshes create disabled components
-        self._disabled_flag = True
-        for child in list(self.children):
+            embed = discord.Embed(title=title, color=discord.Color.blue())
+            embed.add_field(name="🔗 Stream URL", value=stream, inline=False)
+            embed.add_field(name="🌍 Country", value=country, inline=True)
+            embed.add_field(name="🗣️ Language", value=language, inline=True)
+
+            # Respond with chosen station
+            await interaction.response.send_message(embed=embed)
+            # After a successful selection, disable everything and edit the original message to show it's closed
+            self.parent_view._on_success_disable()
             try:
-                child.disabled = True
+                await self.parent_view.message.edit(embed=self.parent_view._build_embed(disabled=True), view=self.parent_view)
             except Exception:
                 pass
+            self.parent_view.stop()
 
-    async def on_timeout(self):
-        # mark disabled state and edit the original message to show it's expired
-        self._disabled_flag = True
-        for child in list(self.children):
-            try:
-                child.disabled = True
-            except Exception:
-                pass
+    class _ResultView(discord.ui.View):
+        def __init__(self, cog: "RadioBrowser", user_id: int, all_results: List[dict], page: int = 0, timeout: int = 120):
+            super().__init__(timeout=timeout)
+            self.cog = cog
+            self.user_id = user_id
+            self.all_results = all_results
+            self.page = page
+            self.page_size = RadioBrowser.PAGE_SIZE
+            self.message: Optional[discord.Message] = None
+            self.max_page = max(0, math.ceil(len(all_results) / self.page_size) - 1)
+            self._disabled_flag = False
+            self._refresh_children()
 
-        if self.message:
-            try:
-                await self.message.edit(embed=self._build_embed(disabled=True), view=self)
-            except Exception:
-                pass
-        self.stop()
+        def _page_slice(self):
+            start = self.page * self.page_size
+            end = start + self.page_size
+            return start, min(end, len(self.all_results))
 
+        def _build_select_options(self) -> List[discord.SelectOption]:
+            start, end = self._page_slice()
+            options: List[discord.SelectOption] = []
+            for idx in range(start, end):
+                station = self.all_results[idx]
+                label = station.get("name") or f"Station {idx+1}"
+                description = station.get("country") or station.get("language") or ""
+                options.append(discord.SelectOption(label=label[:100], description=(description[:100] if description else None), value=str(idx)))
+                if len(options) >= RadioBrowser.SELECT_LIMIT:
+                    break
+            return options
+
+        def _refresh_children(self):
+            # clear existing interactive children
+            for item in list(self.children):
+                self.remove_item(item)
+
+            options = self._build_select_options()
+            if options:
+                select = RadioBrowser._RadioSelect(self, options)
+                select.disabled = self._disabled_flag
+                self.add_item(select)
+
+            if self.max_page > 0:
+                prev_btn = discord.ui.Button(label="Previous", style=discord.ButtonStyle.secondary, disabled=self._disabled_flag)
+                next_btn = discord.ui.Button(label="Next", style=discord.ButtonStyle.secondary, disabled=self._disabled_flag)
+
+                async def prev_callback(interaction: discord.Interaction):
+                    if self.is_finished():
+                        await interaction.response.send_message("This view has expired.", ephemeral=True)
+                        return
+                    if interaction.user.id != self.user_id:
+                        await interaction.response.send_message("Only the command author can navigate pages.", ephemeral=True)
+                        return
+                    self.page = max(0, self.page - 1)
+                    self._refresh_children()
+                    embed = self._build_embed()
+                    await interaction.response.edit_message(embed=embed, view=self)
+
+                async def next_callback(interaction: discord.Interaction):
+                    if self.is_finished():
+                        await interaction.response.send_message("This view has expired.", ephemeral=True)
+                        return
+                    if interaction.user.id != self.user_id:
+                        await interaction.response.send_message("Only the command author can navigate pages.", ephemeral=True)
+                        return
+                    self.page = min(self.max_page, self.page + 1)
+                    self._refresh_children()
+                    embed = self._build_embed()
+                    await interaction.response.edit_message(embed=embed, view=self)
+
+                prev_btn.callback = prev_callback
+                next_btn.callback = next_callback
+                self.add_item(prev_btn)
+                self.add_item(next_btn)
+
+        def _build_embed(self, disabled: bool = False) -> discord.Embed:
+            start, end = self._page_slice()
+            title = f"Search results — page {self.page+1}/{self.max_page+1}"
+            if disabled:
+                title = f"{title} (expired)"
+            embed = discord.Embed(title=title, color=discord.Color.green())
+            for i in range(start, end):
+                station = self.all_results[i]
+                name = station.get("name", "Unknown")
+                country = station.get("country") or station.get("countrycode") or "Unknown"
+                language = station.get("language", "Unknown")
+                embed.add_field(name=f"{i+1}. {name}", value=f"Country: {country} | Language: {language}", inline=False)
+            footer = "Use the dropdown to pick a station; only you can interact."
+            if disabled:
+                footer = "This view has expired. Re-run the search to get fresh results."
+            embed.set_footer(text=footer)
+            return embed
+
+        def _on_success_disable(self):
+            # Mark disabled, so future refreshes create disabled components
+            self._disabled_flag = True
+            for child in list(self.children):
+                try:
+                    child.disabled = True
+                except Exception:
+                    pass
+
+        async def on_timeout(self):
+            # mark disabled state and edit the original message to show it's expired
+            self._disabled_flag = True
+            for child in list(self.children):
+                try:
+                    child.disabled = True
+                except Exception:
+                    pass
+
+            if self.message:
+                try:
+                    await self.message.edit(embed=self._build_embed(disabled=True), view=self)
+                except Exception:
+                    pass
+            self.stop()
 
     # ----------------------------
     # Search command (with dropdowns)
