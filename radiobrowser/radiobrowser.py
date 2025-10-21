@@ -1,9 +1,10 @@
 import aiohttp
 import asyncio
 import logging
+import math
 import random
 import time
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Optional, Dict, List, Any
 
 from redbot.core import commands
 import discord
@@ -13,19 +14,20 @@ logger = logging.getLogger(__name__)
 
 class RadioBrowser(commands.Cog):
     """
-    Search and fetch radio stations from Radio Browser.
+    Radio Browser search with dropdowns and paged results.
     Commands:
       • [p]radio search [name|country|tag|language] <query>
-      • [p]radio pick <number>
       • [p]radio random
     """
 
-    # Primary host plus fallback public servers. Using multiple servers improves reliability.
     DEFAULT_SERVERS = [
         "https://all.api.radio-browser.info/json",
         "https://de2.api.radio-browser.info/json",
         "https://fi1.api.radio-browser.info/json",
     ]
+
+    PAGE_SIZE = 10  # items per page
+    SELECT_LIMIT = 25  # Discord select max options
 
     def __init__(self, bot):
         self.bot = bot
@@ -34,26 +36,17 @@ class RadioBrowser(commands.Cog):
         self.server_list = list(self.DEFAULT_SERVERS)
 
     async def cog_load(self):
-        """Initialize HTTP session when the cog loads."""
         headers = {"User-Agent": "RedbotRadioCog/1.0 (+https://github.com/YourRepo)"}
         timeout = aiohttp.ClientTimeout(total=15)
         self.session = aiohttp.ClientSession(headers=headers, timeout=timeout)
 
     async def cog_unload(self):
-        """Close HTTP session when the cog unloads."""
         if self.session and not self.session.closed:
             await self.session.close()
 
-    async def _api_get(self, endpoint: str, params: Optional[Dict[str, Any]] = None
-                      ) -> Tuple[Optional[Any], Optional[str]]:
-        """
-        Try to GET JSON from endpoint on available servers with retries and failover.
-        Returns (data, error_message).
-        """
+    async def _api_get(self, endpoint: str, params: Optional[Dict[str, Any]] = None):
         assert self.session, "HTTP session not initialized"
-
         params = params or {}
-        # Convert Python booleans to lowercase strings, and None->omit
         safe_params: Dict[str, str] = {}
         for k, v in params.items():
             if v is None:
@@ -64,8 +57,6 @@ class RadioBrowser(commands.Cog):
                 safe_params[k] = str(v)
 
         last_err: Optional[str] = None
-
-        # Try each server in order, with up to 2 attempts per server
         for base in self.server_list:
             url = f"{base.rstrip('/')}/{endpoint.lstrip('/')}"
             for attempt in range(1, 3):
@@ -91,11 +82,9 @@ class RadioBrowser(commands.Cog):
                     last_err = f"Network error contacting {url}: {e}"
                     logger.warning("Attempt %s to %s failed: %s", attempt, url, e)
 
-                # small backoff between attempts for same server
                 if attempt < 2:
                     await asyncio.sleep(1)
 
-            # rotate server list: move this server to the back so next time we try others first
             try:
                 self.server_list.append(self.server_list.pop(0))
             except Exception:
@@ -105,18 +94,180 @@ class RadioBrowser(commands.Cog):
 
     @commands.group(name="radio", invoke_without_command=True)
     async def radio(self, ctx: commands.Context):
-        """Group command for Radio Browser integration."""
         await ctx.send_help()
 
+    # ----------------------------
+    # Interactive UI components
+    # ----------------------------
+class _RadioSelect(discord.ui.Select):
+    def __init__(self, parent_view: "RadioBrowser._ResultView", options: List[discord.SelectOption]):
+        super().__init__(placeholder="Select a station...", min_values=1, max_values=1, options=options)
+        self.parent_view = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        # Reject if view already finished (timed out or already picked)
+        if self.parent_view.is_finished():
+            await interaction.response.send_message("This selection has expired.", ephemeral=True)
+            return
+
+        if interaction.user.id != self.parent_view.user_id:
+            await interaction.response.send_message("Only the command author can pick a station.", ephemeral=True)
+            return
+
+        try:
+            idx = int(self.values[0])
+        except Exception:
+            await interaction.response.send_message("Invalid selection.", ephemeral=True)
+            return
+
+        station = self.parent_view.all_results[idx]
+        # store in cog cache
+        self.parent_view.cog._search_cache[self.parent_view.user_id] = self.parent_view.all_results
+
+        title = station.get("name", "Unknown station")
+        stream = station.get("url_resolved") or station.get("url") or "No URL available"
+        country = station.get("country") or station.get("countrycode") or "Unknown"
+        language = station.get("language", "Unknown")
+
+        embed = discord.Embed(title=title, color=discord.Color.blue())
+        embed.add_field(name="🔗 Stream URL", value=stream, inline=False)
+        embed.add_field(name="🌍 Country", value=country, inline=True)
+        embed.add_field(name="🗣️ Language", value=language, inline=True)
+
+        # Respond with chosen station
+        await interaction.response.send_message(embed=embed)
+        # After a successful selection, disable everything and edit the original message to show it's closed
+        self.parent_view._on_success_disable()
+        try:
+            await self.parent_view.message.edit(embed=self.parent_view._build_embed(disabled=True), view=self.parent_view)
+        except Exception:
+            pass
+        self.parent_view.stop()
+
+
+class _ResultView(discord.ui.View):
+    def __init__(self, cog: "RadioBrowser", user_id: int, all_results: List[dict], page: int = 0, timeout: int = 120):
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        self.user_id = user_id
+        self.all_results = all_results
+        self.page = page
+        self.page_size = RadioBrowser.PAGE_SIZE
+        self.message: Optional[discord.Message] = None
+        self.max_page = max(0, math.ceil(len(all_results) / self.page_size) - 1)
+        self._disabled_flag = False
+        self._refresh_children()
+
+    def _page_slice(self):
+        start = self.page * self.page_size
+        end = start + self.page_size
+        return start, min(end, len(self.all_results))
+
+    def _build_select_options(self) -> List[discord.SelectOption]:
+        start, end = self._page_slice()
+        options: List[discord.SelectOption] = []
+        for idx in range(start, end):
+            station = self.all_results[idx]
+            label = station.get("name") or f"Station {idx+1}"
+            description = station.get("country") or station.get("language") or ""
+            options.append(discord.SelectOption(label=label[:100], description=(description[:100] if description else None), value=str(idx)))
+            if len(options) >= RadioBrowser.SELECT_LIMIT:
+                break
+        return options
+
+    def _refresh_children(self):
+        # clear existing interactive children
+        for item in list(self.children):
+            self.remove_item(item)
+
+        options = self._build_select_options()
+        if options:
+            select = RadioBrowser._RadioSelect(self, options)
+            select.disabled = self._disabled_flag
+            self.add_item(select)
+
+        if self.max_page > 0:
+            prev_btn = discord.ui.Button(label="Previous", style=discord.ButtonStyle.secondary, disabled=self._disabled_flag)
+            next_btn = discord.ui.Button(label="Next", style=discord.ButtonStyle.secondary, disabled=self._disabled_flag)
+
+            async def prev_callback(interaction: discord.Interaction):
+                if self.is_finished():
+                    await interaction.response.send_message("This view has expired.", ephemeral=True)
+                    return
+                if interaction.user.id != self.user_id:
+                    await interaction.response.send_message("Only the command author can navigate pages.", ephemeral=True)
+                    return
+                self.page = max(0, self.page - 1)
+                self._refresh_children()
+                embed = self._build_embed()
+                await interaction.response.edit_message(embed=embed, view=self)
+
+            async def next_callback(interaction: discord.Interaction):
+                if self.is_finished():
+                    await interaction.response.send_message("This view has expired.", ephemeral=True)
+                    return
+                if interaction.user.id != self.user_id:
+                    await interaction.response.send_message("Only the command author can navigate pages.", ephemeral=True)
+                    return
+                self.page = min(self.max_page, self.page + 1)
+                self._refresh_children()
+                embed = self._build_embed()
+                await interaction.response.edit_message(embed=embed, view=self)
+
+            prev_btn.callback = prev_callback
+            next_btn.callback = next_callback
+            self.add_item(prev_btn)
+            self.add_item(next_btn)
+
+    def _build_embed(self, disabled: bool = False) -> discord.Embed:
+        start, end = self._page_slice()
+        title = f"Search results — page {self.page+1}/{self.max_page+1}"
+        if disabled:
+            title = f"{title} (expired)"
+        embed = discord.Embed(title=title, color=discord.Color.green())
+        for i in range(start, end):
+            station = self.all_results[i]
+            name = station.get("name", "Unknown")
+            country = station.get("country") or station.get("countrycode") or "Unknown"
+            language = station.get("language", "Unknown")
+            embed.add_field(name=f"{i+1}. {name}", value=f"Country: {country} | Language: {language}", inline=False)
+        footer = "Use the dropdown to pick a station; only you can interact."
+        if disabled:
+            footer = "This view has expired. Re-run the search to get fresh results."
+        embed.set_footer(text=footer)
+        return embed
+
+    def _on_success_disable(self):
+        # Mark disabled, so future refreshes create disabled components
+        self._disabled_flag = True
+        for child in list(self.children):
+            try:
+                child.disabled = True
+            except Exception:
+                pass
+
+    async def on_timeout(self):
+        # mark disabled state and edit the original message to show it's expired
+        self._disabled_flag = True
+        for child in list(self.children):
+            try:
+                child.disabled = True
+            except Exception:
+                pass
+
+        if self.message:
+            try:
+                await self.message.edit(embed=self._build_embed(disabled=True), view=self)
+            except Exception:
+                pass
+        self.stop()
+
+
+    # ----------------------------
+    # Search command (with dropdowns)
+    # ----------------------------
     @radio.command(name="search")
     async def radio_search(self, ctx: commands.Context, *args):
-        """
-        Search stations by name (default), country, tag or language.
-        Examples:
-          • [p]radio search Beatles
-          • [p]radio search country Germany
-          • [p]radio search tag rock
-        """
         if not args:
             return await ctx.send("Please provide something to search for.")
 
@@ -126,7 +277,9 @@ class RadioBrowser(commands.Cog):
         else:
             field, query = "name", " ".join(args)
 
-        params = {field: query, "limit": 10, "hidebroken": True}
+        # request more items so user can page through them; keep reasonable upper bound
+        limit = 50
+        params = {field: query, "limit": limit, "hidebroken": True, "rand": int(time.time() * 1000)}
         data, error = await self._api_get("stations/search", params)
 
         if error:
@@ -134,50 +287,22 @@ class RadioBrowser(commands.Cog):
         if not data:
             return await ctx.send(f"No stations found for **{field}: {query}**.")
 
+        # cache full results for the user
         self._search_cache[ctx.author.id] = data
-        embed = discord.Embed(
-            title=f"Results — {field.title()}: {query}",
-            color=discord.Color.random(),
-        )
-        for idx, station in enumerate(data, start=1):
-            name = station.get("name", "Unknown")
-            # prefer countrycode; older fields may be inconsistent across servers
-            country = station.get("country") or station.get("countrycode") or "Unknown"
-            language = station.get("language", "Unknown")
-            embed.add_field(
-                name=f"{idx}. {name}",
-                value=f"Country: {country} | Language: {language}",
-                inline=False,
-            )
-        embed.set_footer(text="Type [p]radio pick <number> to get the stream URL")
-        await ctx.send(embed=embed)
 
-    @radio.command(name="pick")
-    async def radio_pick(self, ctx: commands.Context, number: int):
-        """
-        Pick one station from your last search results by its index.
-        """
-        cache = self._search_cache.get(ctx.author.id)
-        if not cache:
-            return await ctx.send("You have no recent search. Use `[p]radio search <query>` first.")
-        if not (1 <= number <= len(cache)):
-            return await ctx.send(f"Pick a number between 1 and {len(cache)}.")
+        # build and send paged embed + interactive view
+        view = RadioBrowser._ResultView(self, ctx.author.id, data, page=0, timeout=120)
+        embed = view._build_embed()
+        message = await ctx.send(embed=embed, view=view)
+        view.message = message
 
-        station = cache[number - 1]
-        stream = station.get("url_resolved") or station.get("url") or "No URL available"
-        embed = discord.Embed(
-            title=station.get("name", "Unknown station"),
-            color=discord.Color.random(),
-        )
-        embed.add_field(name="🔗 Stream URL", value=stream, inline=False)
-        embed.add_field(name="🌍 Country", value=station.get("country") or station.get("countrycode") or "Unknown", inline=True)
-        embed.add_field(name="🗣️ Language", value=station.get("language", "Unknown"), inline=True)
-        await ctx.send(embed=embed)
-
+    # ----------------------------
+    # Random command left intact
+    # ----------------------------
     @radio.command(name="random")
     async def radio_random(self, ctx: commands.Context):
         """
-        Fetch a random station and post the raw stream URL in the embed.
+        Fetch a random station and post the raw stream URL.
         """
         # 1) Try the dedicated random endpoint first
         data, error = await self._api_get("stations/random", {"limit": 1, "rand": int(time.time() * 1000)})
@@ -200,16 +325,11 @@ class RadioBrowser(commands.Cog):
         country = station.get("country") or station.get("countrycode") or "Unknown"
         language = station.get("language", "Unknown")
 
-        embed = discord.Embed(
-            title="🎲 Random Radio Station",
-            color=discord.Color.random(),
-        )
-        # Put the raw URL as plain text so it's visible and copyable
+        embed = discord.Embed(title="🎲 Random Radio Station", color=discord.Color.purple())
         embed.add_field(name=title, value=stream, inline=False)
         embed.add_field(name="🌍 Country", value=country, inline=True)
         embed.add_field(name="🗣️ Language", value=language, inline=True)
 
-        # Send embed and also the raw URL as a separate message to ensure visibility across clients
         await ctx.send(embed=embed)
         if stream and stream != "No URL available":
             await ctx.send(f"Stream URL: {stream}")
