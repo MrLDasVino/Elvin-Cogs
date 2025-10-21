@@ -177,14 +177,14 @@ class RadioBrowser(commands.Cog):
     @radio.command(name="random")
     async def radio_random(self, ctx: commands.Context):
         """
-        Fetch a random station with robust fallbacks and cache-busting to avoid identical results.
+        Fetch a random station and post the raw stream URL in the embed.
         """
         # 1) Try the dedicated random endpoint first
         data, error = await self._api_get("stations/random", {"limit": 1, "rand": int(time.time() * 1000)})
-        # 2) If that fails or returns 404, try search with random ordering and a larger limit
+        # 2) If that fails, try search with random ordering
         if error:
             data, error = await self._api_get("stations/search", {"limit": 50, "order": "random", "hidebroken": True, "rand": random.randint(1, 1_000_000)})
-        # 3) Final fallback: fetch a small batch and pick locally
+        # 3) Final fallback: fetch a batch and pick locally
         station = None
         if not error and data:
             station = data[0]
@@ -204,7 +204,12 @@ class RadioBrowser(commands.Cog):
             title="🎲 Random Radio Station",
             color=discord.Color.random(),
         )
-        embed.add_field(name=title, value=f"[Listen here]({stream})", inline=False)
+        # Put the raw URL as plain text so it's visible and copyable
+        embed.add_field(name=title, value=stream, inline=False)
         embed.add_field(name="🌍 Country", value=country, inline=True)
         embed.add_field(name="🗣️ Language", value=language, inline=True)
+
+        # Send embed and also the raw URL as a separate message to ensure visibility across clients
         await ctx.send(embed=embed)
+        if stream and stream != "No URL available":
+            await ctx.send(f"Stream URL: {stream}")
