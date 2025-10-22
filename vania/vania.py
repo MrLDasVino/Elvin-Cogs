@@ -83,8 +83,17 @@ class Vania(commands.Cog):
             "xp": 0,
             "level": 1,
             "skills": {},
+            # equipment slots
             "weapon": "vine_whip",
-            "armor": None,
+            "offhand": None,
+            "head": None,
+            "body": None,
+            "legs": None,
+            "arms": None,
+            "cloak": None,
+            "accessory1": None,
+            "accessory2": None,
+            # hp/hearts/inventory
             "hp": 100,
             "max_hp": 100,
             "hearts": 0,
@@ -145,8 +154,10 @@ class Vania(commands.Cog):
         base_max = int(monster.get("max_damage", max(2, int(monster.get("hp", 10) * 0.15))))
         base = random.randint(base_min, base_max)
 
-        armor = self._get_equipment(profile.get("armor"))
-        defense = int(armor.get("defense", 0))
+        # total defense = body + offhand (some offhands may add defense) + head/arms/legs/cloak
+        defense = 0
+        for slot in ("body", "offhand", "head", "arms", "legs", "cloak"):
+            defense += int(self._get_equipment(profile.get(slot)).get("defense", 0))
 
         skills = profile.get("skills", {})
         evasion = int(skills.get("Evasion", 0))
@@ -211,15 +222,26 @@ class Vania(commands.Cog):
         # Prepare monster snapshot (copy so changes don't mutate base data)
         monster_def = random.choice(self.monsters)
         monster = {
+            "id": monster_def.get("id"),
             "name": monster_def.get("name", "Unknown"),
             "hp": int(monster_def.get("hp", 10)),
             "max_hp": int(monster_def.get("hp", 10)),
             "xp_reward": int(monster_def.get("xp_reward", 0)),
-            "heart_reward": int(monster_def.get("heart_reward", 0)),
+            "heart_reward": monster_def.get("heart_reward", 0),
             "min_damage": monster_def.get("min_damage"),
             "max_damage": monster_def.get("max_damage"),
+            "crit_chance": monster_def.get("crit_chance", 0.0),
+            "crit_multiplier": monster_def.get("crit_multiplier", 1.0),
             "image": monster_def.get("image"),
         }
+
+        # Support probabilistic heart_reward object or integer
+        def extract_heart_reward(hr):
+            if isinstance(hr, dict):
+                if random.random() <= float(hr.get("chance", 1.0)):
+                    return int(hr.get("amount", 0))
+                return 0
+            return int(hr or 0)
 
         log_lines: List[str] = []
         player_hp = profile.get("hp", profile.get("max_hp", 100))
@@ -254,7 +276,7 @@ class Vania(commands.Cog):
             # Victory
             weapon = self._get_equipment(profile.get("weapon"))
             xp_gain = int(monster.get("xp_reward", 0) * float(weapon.get("xp_mod", 1.0)))
-            hearts_awarded = int(monster.get("heart_reward", 0))
+            hearts_awarded = extract_heart_reward(monster.get("heart_reward", 0))
             profile["xp"] = profile.get("xp", 0) + xp_gain
             if hearts_awarded:
                 profile["hearts"] = profile.get("hearts", 0) + hearts_awarded
@@ -295,9 +317,34 @@ class Vania(commands.Cog):
 
         await ctx.send(embed=embed)
 
+    @commands.cooldown(1, 3600, commands.BucketType.user)
+    @vania.command(name="pray")
+    async def pray(self, ctx: commands.Context):
+        """
+        Pray at the altar to receive up to 5 Hearts. 1 hour cooldown per user.
+        Grants a random amount between 1 and 5 Hearts (inclusive).
+        """
+        profiles = self._load_profiles()
+        uid = str(ctx.author.id)
+        profile = profiles.get(uid, self._default_profile())
+
+        gained = random.randint(1, 5)
+        profile["hearts"] = profile.get("hearts", 0) + gained
+
+        profiles[uid] = profile
+        await self._save_profiles(profiles)
+
+        embed = discord.Embed(
+            title="You prayed at the altar",
+            description=f"You received **{gained}** Heart{'s' if gained != 1 else ''}.",
+            color=discord.Color.teal()
+        )
+        embed.add_field(name="Hearts", value=str(profile.get("hearts", 0)), inline=True)
+        await ctx.send(embed=embed)
+
     @vania.command(name="stats")
     async def stats(self, ctx: commands.Context):
-        """View your hunter’s level, XP, hearts, and equipped gear."""
+        """View your hunter’s level, XP, hearts, equipped gear and slots."""
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid)
@@ -306,21 +353,28 @@ class Vania(commands.Cog):
 
         xp = profile.get("xp", 0)
         level = profile.get("level", xp // 100 + 1)
-        weapon_id = profile.get("weapon", "vine_whip")
-        armor_id = profile.get("armor")
-        weapon = self._get_equipment(weapon_id)
-        armor = self._get_equipment(armor_id)
-        weapon_name = weapon.get("name", "None")
-        armor_name = armor.get("name", "None")
         skills = profile.get("skills", {})
         hearts = profile.get("hearts", 0)
+
+        # Get equip names safely
+        def eqname(slot):
+            return self._get_equipment(profile.get(slot)).get("name", "None") if profile.get(slot) else "None"
 
         embed = discord.Embed(title=f"{ctx.author.display_name}'s Profile", color=discord.Color.dark_blue())
         embed.add_field(name="Level", value=level, inline=True)
         embed.add_field(name="XP", value=xp, inline=True)
         embed.add_field(name="Hearts", value=hearts, inline=True)
-        embed.add_field(name="Weapon", value=weapon_name, inline=True)
-        embed.add_field(name="Armor", value=armor_name, inline=True)
+
+        embed.add_field(name="Weapon", value=eqname("weapon"), inline=True)
+        embed.add_field(name="Offhand", value=eqname("offhand"), inline=True)
+        embed.add_field(name="Head", value=eqname("head"), inline=True)
+        embed.add_field(name="Body", value=eqname("body"), inline=True)
+        embed.add_field(name="Legs", value=eqname("legs"), inline=True)
+        embed.add_field(name="Arms", value=eqname("arms"), inline=True)
+        embed.add_field(name="Cloak", value=eqname("cloak"), inline=True)
+        embed.add_field(name="Accessory 1", value=eqname("accessory1"), inline=True)
+        embed.add_field(name="Accessory 2", value=eqname("accessory2"), inline=True)
+
         embed.add_field(name="HP", value=f"{profile.get('hp',0)}/{profile.get('max_hp',0)}", inline=True)
 
         if skills:
@@ -408,7 +462,9 @@ class Vania(commands.Cog):
             equip_meta = next((e for e in self.equipment if e.get("id") == iid), None)
             it_type = "item"
             if equip_meta:
-                it_type = equip_meta.get("category", "item")
+                # map equipment slot to inventory type for display
+                slot = equip_meta.get("slot") or equip_meta.get("category")
+                it_type = slot if slot else equip_meta.get("category", "item")
             out.append({"id": iid, "name": name, "qty": int(qty), "type": it_type})
         return out
 
@@ -517,28 +573,70 @@ class Vania(commands.Cog):
                 await ctx_or_interaction.send(msg)
             return
 
-        category = equip_meta.get("category")
-        if category == "weapon":
-            profile["weapon"] = item_id
-        elif category == "armor":
-            profile["armor"] = item_id
-        else:
-            if is_interaction:
-                await ctx_or_interaction.response.send_message("Item category not equippable.", ephemeral=True)
+        # Determine slot for this equipment
+        slot = equip_meta.get("slot") or equip_meta.get("category")
+        chosen_slot = None
+        if slot == "accessory":
+            if not profile.get("accessory1"):
+                chosen_slot = "accessory1"
+            elif not profile.get("accessory2"):
+                chosen_slot = "accessory2"
             else:
-                await ctx_or_interaction.send("Item category not equippable.")
-            return
+                chosen_slot = "accessory1"  # default replace; can be improved to prompt
+        else:
+            # Normalize names to allowed slot set
+            mapping = {
+                "weapon": "weapon",
+                "offhand": "offhand",
+                "head": "head",
+                "body": "body",
+                "legs": "legs",
+                "arms": "arms",
+                "cloak": "cloak",
+            }
+            chosen_slot = mapping.get(slot, None)
+            if chosen_slot is None:
+                chosen_slot = "weapon" if equip_meta.get("category") == "weapon" else "body"
 
+        if chosen_slot not in ("weapon","offhand","head","body","legs","arms","cloak","accessory1","accessory2"):
+            chosen_slot = "weapon" if equip_meta.get("category") == "weapon" else "body"
+
+        # If there's an item currently equipped in that slot, move it back to items inventory
+        prev = profile.get(chosen_slot)
+        if prev:
+            items = profile.setdefault("items", {})
+            items[prev] = items.get(prev, 0) + 1
+            profile["items"] = items
+
+        # Remove one unit of the item from inventory if it exists there
+        items = profile.setdefault("items", {})
+        if items.get(item_id, 0) > 0:
+            items[item_id] = items[item_id] - 1
+            if items[item_id] <= 0:
+                items.pop(item_id, None)
+            profile["items"] = items
+        else:
+            # allow equip even if not in inventory (admin granted)
+            pass
+
+        # Equip the new item
+        profile[chosen_slot] = item_id
         profiles[uid] = profile
         await self._save_profiles(profiles)
 
+        # Compute combined stats for report
         weapon = self._get_equipment(profile.get("weapon"))
-        armor = self._get_equipment(profile.get("armor"))
-        xp_mod = weapon.get("xp_mod", 1.0)
-        dmg_mod = weapon.get("damage_mod", 1.0)
-        defense = armor.get("defense", 0)
+        body = self._get_equipment(profile.get("body"))
+        offhand = self._get_equipment(profile.get("offhand"))
+        # total defense from main defensive slots
+        defense = 0
+        for s in ("body", "offhand", "head", "arms", "legs", "cloak"):
+            defense += int(self._get_equipment(profile.get(s)).get("defense", 0))
 
-        msg = f"You have equipped **{equip_meta.get('name', item_id)}** as your {category}. (XP×{xp_mod}, DMG×{dmg_mod}, DEF {defense})"
+        xp_mod = float(weapon.get("xp_mod", 1.0)) if weapon else 1.0
+        dmg_mod = float(weapon.get("damage_mod", 1.0)) if weapon else 1.0
+
+        msg = f"You equipped **{equip_meta.get('name', item_id)}** into **{chosen_slot}**. (XP×{xp_mod}, DMG×{dmg_mod}, DEF {defense})"
         if is_interaction:
             await ctx_or_interaction.response.send_message(msg)
         else:
@@ -778,7 +876,11 @@ class InventoryView(discord.ui.View):
         if not page:
             await interaction.response.send_message("No item to equip on this page.", ephemeral=True)
             return
-        equippable = next((it for it in page if it.get("type") in ("weapon", "armor")), None)
+        # find first equippable item on page (slot names included in type)
+        equippable = next((it for it in page if it.get("type") in ("weapon", "offhand", "head", "body", "legs", "arms", "cloak", "accessory")), None)
+        if not equippable:
+            # also accept generic 'armor' or 'item' if equipment metadata exists
+            equippable = next((it for it in page if any(e.get("id") == it.get("id") for e in self.cog.equipment)), None)
         if not equippable:
             await interaction.response.send_message("No equippable item on this page to equip.", ephemeral=True)
             return
