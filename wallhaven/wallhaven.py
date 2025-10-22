@@ -80,12 +80,13 @@ class SearchModal(ui.Modal, title="Wallhaven Search"):
                 return
             view = ImageNavView(self.cog, self.ctx, filtered)
             embed = _make_embed(filtered[0], title_prefix=f"Search: {self.query.value}")
-            await interaction.followup.send(embed=embed, view=view)
+            msg = await interaction.followup.send(embed=embed, view=view)
+            view.message = msg
         except commands.CommandError as e:
             await interaction.followup.send(f"API error: {e}", ephemeral=True)
 
 
-class CategoryModal(ui.Modal, title="Wallhaven Category Search"):
+class CategoryModal(ui.Modal, title="Wallhaven Category"):
     category = ui.TextInput(label="Category (general anime people all)", style=discord.TextStyle.short, required=True, max_length=20)
 
     def __init__(self, cog, ctx):
@@ -102,22 +103,8 @@ class CategoryModal(ui.Modal, title="Wallhaven Category Search"):
         await self.cog.random(self.ctx, category=cat)
 
 
-class EmptyModal(ui.Modal, title="Confirm"):
-    note = ui.TextInput(label="Note (optional)", style=discord.TextStyle.paragraph, required=False, max_length=300)
-
-    def __init__(self, callback=None):
-        super().__init__()
-        self._callback = callback
-
-    async def on_submit(self, interaction: discord.Interaction):
-        if self._callback:
-            await self._callback(interaction, self.note.value)
-        else:
-            await interaction.response.send_message("Confirmed.", ephemeral=True)
-
-
 class ImageNavView(ui.View):
-    def __init__(self, cog, ctx, results: List[Dict[str, Any]], *, timeout: int = 120):
+    def __init__(self, cog, ctx, results: List[Dict[str, Any]], *, timeout: int = 60):
         super().__init__(timeout=timeout)
         self.cog = cog
         self.ctx = ctx
@@ -178,9 +165,176 @@ class ImageNavView(ui.View):
         embed = _make_embed(wall)
         await interaction.response.edit_message(embed=embed, view=self)
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, "message") and self.message:
+                await self.message.edit(view=self)
+        except Exception:
+            logger.debug("Failed to edit message on ImageNavView timeout", exc_info=True)
+
+
+class WallhavenMainView(ui.View):
+    def __init__(self, cog: "WallhavenCog", ctx: commands.Context, *, timeout: int = 60):
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        self.ctx = ctx
+
+    @ui.button(label="Random", style=discord.ButtonStyle.primary)
+    async def random_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        await self.cog.random(self.ctx)
+
+    @ui.button(label="Search", style=discord.ButtonStyle.secondary)
+    async def search_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
+            return
+        modal = SearchModal(self.cog, self.ctx)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Category", style=discord.ButtonStyle.secondary)
+    async def category_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
+            return
+        modal = CategoryModal(self.cog, self.ctx)
+        await interaction.response.send_modal(modal)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, "message") and self.message:
+                await self.message.edit(content="Controls expired", view=self)
+        except Exception:
+            logger.debug("Failed to edit message on WallhavenMainView timeout", exc_info=True)
+
+
+class WallhavenSetView(ui.View):
+    def __init__(self, cog: "WallhavenCog", ctx: commands.Context, *, timeout: int = 60):
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        self.ctx = ctx
+
+    @ui.button(label="Apikey", style=discord.ButtonStyle.secondary)
+    async def apikey_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not await self._check_owner(interaction):
+            return
+
+        class APIKeyModal(ui.Modal, title="Set Wallhaven API Key"):
+            key = ui.TextInput(label="API Key (leave empty to clear)", required=False, style=discord.TextStyle.short, max_length=200)
+
+            async def on_submit(mod_inter: discord.Interaction):
+                await interaction.response.defer()
+                keyval = self.key.value.strip() or None
+                await self.view.cog._set_apikey(self.view.ctx, keyval)
+                await mod_inter.followup.send("API key updated.", ephemeral=True)
+
+        modal = APIKeyModal()
+        modal.view = self
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Categories", style=discord.ButtonStyle.secondary)
+    async def categories_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not await self._check_owner(interaction):
+            return
+
+        class CategoriesModal(ui.Modal, title="Set Default Categories"):
+            choice = ui.TextInput(label="Choice (general anime people all)", required=True, style=discord.TextStyle.short, max_length=20)
+
+            async def on_submit(mod_inter: discord.Interaction):
+                await interaction.response.defer()
+                await self.view.cog._set_default_categories(self.view.ctx, self.choice.value.strip())
+                await mod_inter.followup.send("Default categories updated.", ephemeral=True)
+
+        modal = CategoriesModal()
+        modal.view = self
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="MaxResults", style=discord.ButtonStyle.secondary)
+    async def maxresults_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not await self._check_owner(interaction):
+            return
+
+        class MaxResultsModal(ui.Modal, title="Set Max Search Results"):
+            amount = ui.TextInput(label="Amount (1-48)", required=True, style=discord.TextStyle.short, max_length=3)
+
+            async def on_submit(mod_inter: discord.Interaction):
+                await interaction.response.defer()
+                try:
+                    val = int(self.amount.value.strip())
+                except ValueError:
+                    await mod_inter.followup.send("Please provide a valid integer.", ephemeral=True)
+                    return
+                await self.view.cog._set_max_results(self.view.ctx, val)
+                await mod_inter.followup.send("Max results updated.", ephemeral=True)
+
+        modal = MaxResultsModal()
+        modal.view = self
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Purity", style=discord.ButtonStyle.secondary)
+    async def purity_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not await self._check_owner(interaction):
+            return
+
+        class PurityModal(ui.Modal, title="Set Purity"):
+            choice = ui.TextInput(
+                label="Purity (sfw/sketchy/nsfw or 100/110/111)",
+                required=True,
+                style=discord.TextStyle.short,
+                max_length=10,
+                placeholder="e.g. sfw or 110"
+            )
+
+            async def on_submit(mod_inter: discord.Interaction):
+                await interaction.response.defer()
+                await self.view.cog._set_purity(self.view.ctx, self.choice.value.strip())
+                await mod_inter.followup.send("Purity updated.", ephemeral=True)
+
+        modal = PurityModal()
+        modal.view = self
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="NSFW Toggle", style=discord.ButtonStyle.danger)
+    async def nsfw_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not await self._check_owner_or_guild_manage(interaction):
+            return
+        current = await self.cog.config.guild(self.ctx.guild).nsfw_enabled()
+        await self.cog.config.guild(self.ctx.guild).nsfw_enabled.set(not current)
+        await interaction.response.send_message(f"NSFW posting set to {'enabled' if not current else 'disabled'} for this guild.", ephemeral=True)
+
+    async def _check_owner(self, interaction: discord.Interaction) -> bool:
+        if not await self.cog.bot.is_owner(interaction.user):
+            await interaction.response.send_message("Only the bot owner can change these settings.", ephemeral=True)
+            return False
+        return True
+
+    async def _check_owner_or_guild_manage(self, interaction: discord.Interaction) -> bool:
+        if await self.cog.bot.is_owner(interaction.user):
+            return True
+        if interaction.user.guild_permissions.manage_guild:
+            return True
+        await interaction.response.send_message("You must be the bot owner or have Manage Server permission to perform this action.", ephemeral=True)
+        return False
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, "message") and self.message:
+                await self.message.edit(content="Settings controls expired", view=self)
+        except Exception:
+            logger.debug("Failed to edit message on WallhavenSetView timeout", exc_info=True)
+
 
 class WallhavenCog(commands.Cog):
-    """Wallhaven wallpaper fetcher with combined interactive commands."""
+    """Wallhaven wallpaper fetcher with combined interactive commands and 60s timeouts."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -273,14 +427,16 @@ class WallhavenCog(commands.Cog):
     async def wallhaven(self, ctx: commands.Context):
         """Open the Wallhaven interactive panel (Random, Search, Category)."""
         view = WallhavenMainView(self, ctx)
-        await ctx.send("Wallhaven: choose an action", view=view)
+        msg = await ctx.send("Wallhaven: choose an action", view=view)
+        view.message = msg
 
     @commands.group(name="wallhavenset", invoke_without_command=True)
     @checks.is_owner()
     async def wallhavenset(self, ctx: commands.Context):
         """Open the Wallhaven settings panel (apikey, categories, maxresults, purity, nsfw)."""
         view = WallhavenSetView(self, ctx)
-        await ctx.send("Wallhaven settings", view=view)
+        msg = await ctx.send("Wallhaven settings", view=view)
+        view.message = msg
 
     @wallhaven.command(name="random", invoke_without_command=True)
     async def random(self, ctx: commands.Context, category: Optional[str] = None):
@@ -305,7 +461,8 @@ class WallhavenCog(commands.Cog):
             return
         view = ImageNavView(self, ctx, allowed)
         embed = _make_embed(allowed[0], title_prefix="Random")
-        await ctx.send(embed=embed, view=view)
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
 
     @wallhaven.command(name="search")
     async def legacy_search(self, ctx: commands.Context, *, query: str):
@@ -331,7 +488,8 @@ class WallhavenCog(commands.Cog):
             return
         view = ImageNavView(self, ctx, filtered)
         embed = _make_embed(filtered[0], title_prefix=f"Search: {query}")
-        await ctx.send(embed=embed, view=view)
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
 
     async def _set_apikey(self, ctx: commands.Context, key: Optional[str]):
         await self.config.guild(ctx.guild).api_key.set(key)
@@ -357,7 +515,6 @@ class WallhavenCog(commands.Cog):
         - sfw -> 100
         - sketchy -> 110
         - nsfw -> 111
-        - all -> 111
         Or directly accept '100', '110', '111'.
         """
         p = purity.strip().lower()
@@ -374,144 +531,6 @@ class WallhavenCog(commands.Cog):
             await ctx.send("Purity set to All (includes NSFW) (111).")
             return
         await ctx.send("Unknown purity option. Use one of: sfw, sketchy, nsfw, or a bitmask like 100, 110, 111.")
-
-
-class WallhavenMainView(ui.View):
-    def __init__(self, cog: WallhavenCog, ctx: commands.Context, *, timeout: int = 120):
-        super().__init__(timeout=timeout)
-        self.cog = cog
-        self.ctx = ctx
-
-    @ui.button(label="Random", style=discord.ButtonStyle.primary)
-    async def random_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
-            return
-        await interaction.response.defer()
-        await self.cog.random(self.ctx)
-
-    @ui.button(label="Search", style=discord.ButtonStyle.secondary)
-    async def search_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
-            return
-        modal = SearchModal(self.cog, self.ctx)
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="Category", style=discord.ButtonStyle.secondary)
-    async def category_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
-            return
-        modal = CategoryModal(self.cog, self.ctx)
-        await interaction.response.send_modal(modal)
-
-
-class WallhavenSetView(ui.View):
-    def __init__(self, cog: WallhavenCog, ctx: commands.Context, *, timeout: int = 120):
-        super().__init__(timeout=timeout)
-        self.cog = cog
-        self.ctx = ctx
-
-    @ui.button(label="Apikey", style=discord.ButtonStyle.secondary)
-    async def apikey_button(self, interaction: discord.Interaction, button: ui.Button):
-        if not await self._check_owner(interaction):
-            return
-        class APIKeyModal(ui.Modal, title="Set Wallhaven API Key"):
-            key = ui.TextInput(label="API Key (leave empty to clear)", required=False, style=discord.TextStyle.short, max_length=200)
-
-            async def on_submit(mod_inter: discord.Interaction):
-                await interaction.response.defer()
-                keyval = self.key.value.strip() or None
-                await self.view.cog._set_apikey(self.view.ctx, keyval)
-                await mod_inter.followup.send("API key updated.", ephemeral=True)
-
-        modal = APIKeyModal()
-        modal.view = self
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="Categories", style=discord.ButtonStyle.secondary)
-    async def categories_button(self, interaction: discord.Interaction, button: ui.Button):
-        if not await self._check_owner(interaction):
-            return
-        class CategoriesModal(ui.Modal, title="Set Default Categories"):
-            choice = ui.TextInput(label="Choice (general anime people all)", required=True, style=discord.TextStyle.short, max_length=20)
-
-            async def on_submit(mod_inter: discord.Interaction):
-                await interaction.response.defer()
-                await self.view.cog._set_default_categories(self.view.ctx, self.choice.value.strip())
-                await mod_inter.followup.send("Default categories updated.", ephemeral=True)
-
-        modal = CategoriesModal()
-        modal.view = self
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="MaxResults", style=discord.ButtonStyle.secondary)
-    async def maxresults_button(self, interaction: discord.Interaction, button: ui.Button):
-        if not await self._check_owner(interaction):
-            return
-        class MaxResultsModal(ui.Modal, title="Set Max Search Results"):
-            amount = ui.TextInput(label="Amount (1-48)", required=True, style=discord.TextStyle.short, max_length=3)
-
-            async def on_submit(mod_inter: discord.Interaction):
-                await interaction.response.defer()
-                try:
-                    val = int(self.amount.value.strip())
-                except ValueError:
-                    await mod_inter.followup.send("Please provide a valid integer.", ephemeral=True)
-                    return
-                await self.view.cog._set_max_results(self.view.ctx, val)
-                await mod_inter.followup.send("Max results updated.", ephemeral=True)
-
-        modal = MaxResultsModal()
-        modal.view = self
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="Purity", style=discord.ButtonStyle.secondary)
-    async def purity_button(self, interaction: discord.Interaction, button: ui.Button):
-        if not await self._check_owner(interaction):
-            return
-    
-        class PurityModal(ui.Modal, title="Set Purity"):
-            choice = ui.TextInput(
-                label="Purity (sfw/sketchy/nsfw or 100/110/111)",
-                required=True,
-                style=discord.TextStyle.short,
-                max_length=10,
-                placeholder="e.g. sfw  OR  110"
-            )
-    
-            async def on_submit(mod_inter: discord.Interaction):
-                await interaction.response.defer()
-                await self.view.cog._set_purity(self.view.ctx, self.choice.value.strip())
-                await mod_inter.followup.send("Purity updated.", ephemeral=True)
-    
-        modal = PurityModal()
-        modal.view = self
-        await interaction.response.send_modal(modal)
-
-    @ui.button(label="NSFW Toggle", style=discord.ButtonStyle.danger)
-    async def nsfw_button(self, interaction: discord.Interaction, button: ui.Button):
-        # allow bot owner or guild manage_guild permission
-        if not await self._check_owner_or_guild_manage(interaction):
-            return
-        current = await self.cog.config.guild(self.ctx.guild).nsfw_enabled()
-        await self.cog.config.guild(self.ctx.guild).nsfw_enabled.set(not current)
-        await interaction.response.send_message(f"NSFW posting set to {'enabled' if not current else 'disabled'} for this guild.", ephemeral=True)
-
-    async def _check_owner(self, interaction: discord.Interaction) -> bool:
-        if not await self.cog.bot.is_owner(interaction.user):
-            await interaction.response.send_message("Only the bot owner can change these settings.", ephemeral=True)
-            return False
-        return True
-
-    async def _check_owner_or_guild_manage(self, interaction: discord.Interaction) -> bool:
-        if await self.cog.bot.is_owner(interaction.user):
-            return True
-        if interaction.user.guild_permissions.manage_guild:
-            return True
-        await interaction.response.send_message("You must be the bot owner or have Manage Server permission to perform this action.", ephemeral=True)
-        return False
 
 
 def setup(bot):
