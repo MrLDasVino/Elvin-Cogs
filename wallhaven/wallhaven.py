@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import random
 from typing import Optional, List, Dict, Any
 
@@ -6,6 +7,8 @@ import aiohttp
 import discord
 from discord import ui, Embed
 from redbot.core import commands, Config, checks
+
+logger = logging.getLogger(__name__)
 
 BASE_API = "https://wallhaven.cc/api/v1"
 
@@ -134,8 +137,8 @@ class WallhavenCog(commands.Cog):
         url = f"{BASE_API}/{endpoint}"
         async with sess.get(url, params=params, timeout=30) as resp:
             text = await resp.text()
-            # log full URL and body for debugging
-            self.bot.logger.warning("Wallhaven API request %s params=%s status=%s body=%s", resp.url, params, resp.status, text)
+            # use module logger for diagnostics
+            logger.warning("Wallhaven API request %s params=%s status=%s body=%s", resp.url, params, resp.status, text)
             if resp.status != 200:
                 raise commands.CommandError(f"API returned {resp.status}: {text}")
             return await resp.json()
@@ -176,8 +179,7 @@ class WallhavenCog(commands.Cog):
                 return []
             return d if isinstance(d, list) else [d]
         except commands.CommandError as exc:
-            # If random endpoint fails (404), attempt site redirect fallback
-            self.bot.logger.warning("Wallhaven /random failed, trying site fallback: %s", exc)
+            logger.warning("Wallhaven /random failed, trying site fallback: %s", exc)
             sess = await self._session()
             async with sess.get("https://wallhaven.cc/random", allow_redirects=False) as r:
                 loc = r.headers.get("Location")
