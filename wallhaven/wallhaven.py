@@ -113,71 +113,75 @@ class ImageNavView(ui.View):
         self.results = results
         self.index = 0
 
-        # Build user-friendly labels for select options
         options = []
         for i, r in enumerate(results[:25]):
-            # Preferred: filename from path/file/thumbs
-            label_name = None
-            path_url = r.get("path") or r.get("file") or (r.get("thumbs") or {}).get("original")
-            if path_url:
-                try:
-                    parsed = urlparse(path_url)
-                    filename = os.path.basename(parsed.path)
-                    if filename:
-                        label_name = filename
-                except Exception:
-                    label_name = None
-
-            # Fallback: short source field
-            if not label_name:
-                src = r.get("source")
-                if src and isinstance(src, str) and src.strip():
-                    label_name = src.strip()
-
-            # Fallback: uploader username
-            if not label_name:
-                uploader = r.get("uploader")
-                if isinstance(uploader, dict):
-                    uname = uploader.get("username")
-                    if uname:
-                        label_name = f"by {uname}"
-
-            # Try a short tag summary if still nothing and tags are present
-            if not label_name:
-                tags = r.get("tags")
-                if isinstance(tags, list) and tags:
-                    try:
-                        # tags may be dicts containing 'name'
-                        tag_names = []
-                        for t in tags[:3]:
-                            if isinstance(t, dict):
-                                tn = t.get("name")
-                                if tn:
-                                    tag_names.append(tn)
-                            elif isinstance(t, str):
-                                tag_names.append(t)
-                        if tag_names:
-                            label_name = ", ".join(tag_names)
-                    except Exception:
-                        label_name = None
-
-            # Final fallback: use id
-            if not label_name:
-                label_name = r.get("id") or f"{i+1}"
-
-            # Sanitize, prefix index for uniqueness, and trim length to safe limit
-            label = f"{label_name}"
-            label = " ".join(str(label).split())
-            # Ensure we see the index first so users can map to value easily
-            label = f"#{i+1} {label}"
-            if len(label) > 95:
-                label = label[:92] + "..."
-
+            label = self._build_label(r, i)
             options.append(discord.SelectOption(label=label, value=str(i)))
 
         self.select = ui.Select(placeholder="Choose image", options=options, min_values=1, max_values=1)
         self.select.callback = self.on_select
         self.add_item(self.select)
+
+    def _build_label(self, wall: Dict[str, Any], index: int) -> str:
+        # Try uploader + tags, then tags, then cleaned filename, then id
+        parts = []
+
+        # uploader username
+        uploader = wall.get("uploader")
+        uname = None
+        if isinstance(uploader, dict):
+            uname = uploader.get("username")
+        if uname:
+            parts.append(str(uname))
+
+        # tags (try to extract up to 3 tag names)
+        tag_names = []
+        tags = wall.get("tags")
+        if isinstance(tags, list) and tags:
+            for t in tags[:3]:
+                if isinstance(t, dict):
+                    tn = t.get("name")
+                    if tn:
+                        tag_names.append(tn)
+                elif isinstance(t, str):
+                    tag_names.append(t)
+        if tag_names:
+            tag_str = ", ".join(tag_names)
+            if uname:
+                # join as "uploader — tags"
+                parts.append("—")
+                parts.append(tag_str)
+            else:
+                parts.append(tag_str)
+
+        # if nothing meaningful yet, try filename cleaned
+        if not parts:
+            path_url = wall.get("path") or wall.get("file") or (wall.get("thumbs") or {}).get("original")
+            if path_url:
+                try:
+                    filename = os.path.basename(urlparse(path_url).path)
+                    # clean common "wallhaven-" prefix and file extension
+                    if filename:
+                        name = filename
+                        if name.lower().startswith("wallhaven-"):
+                            name = name[len("wallhaven-"):]
+                        name = os.path.splitext(name)[0]
+                        if name:
+                            parts.append(name)
+                except Exception:
+                    pass
+
+        # final fallback: id
+        if not parts:
+            parts.append(str(wall.get("id") or index + 1))
+
+        # assemble, sanitize and trim
+        label = " ".join(str(p) for p in parts if p)
+        label = " ".join(label.split())
+        label = f"#{index+1} {label}"
+        if len(label) > 95:
+            label = label[:92] + "..."
+        return label
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return interaction.user.id == self.ctx.author.id
@@ -497,48 +501,6 @@ class WallhavenCog(commands.Cog):
             return True
         current = await self.config.guild(ctx.guild).nsfw_enabled()
         return bool(current)
-
-    # Helper to produce a readable name for a wall
-    def _nice_name_for_wall(self, wall: Dict[str, Any], index: int) -> str:
-        path_url = wall.get("path") or wall.get("file") or (wall.get("thumbs") or {}).get("original")
-        name = None
-        if path_url:
-            try:
-                name = os.path.basename(urlparse(path_url).path)
-            except Exception:
-                name = None
-        if not name:
-            src = wall.get("source")
-            if src and isinstance(src, str):
-                name = src.strip()
-        if not name:
-            uploader = wall.get("uploader")
-            if isinstance(uploader, dict):
-                uname = uploader.get("username")
-                if uname:
-                    name = f"by {uname}"
-        if not name:
-            tags = wall.get("tags")
-            if isinstance(tags, list) and tags:
-                try:
-                    tag_names = []
-                    for t in tags[:3]:
-                        if isinstance(t, dict):
-                            tn = t.get("name")
-                            if tn:
-                                tag_names.append(tn)
-                        elif isinstance(t, str):
-                            tag_names.append(t)
-                    if tag_names:
-                        name = ", ".join(tag_names)
-                except Exception:
-                    name = None
-        if not name:
-            name = wall.get("id", str(index))
-        name = " ".join(str(name).split())
-        if len(name) > 90:
-            name = name[:87] + "..."
-        return f"#{index+1} {name}"
 
     @commands.group(name="wallhaven", invoke_without_command=True)
     async def wallhaven(self, ctx: commands.Context):
