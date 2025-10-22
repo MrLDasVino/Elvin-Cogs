@@ -1,30 +1,25 @@
 [
-  {
-    "id": "vampire_bat",
-    "name": "Vampire Bat",
-    "hp": 20,
-    "min_damage": 3,
-    "max_damage": 6,
-    "xp_reward": 15,
-    "heart_reward": 1,
-    "crit_chance": 0.02,
-    "crit_multiplier": 1.5,
-    "image": "https://i.imgur.com/abc123.png",
-    "tags": ["flying"]
-  },
-  {
-    "id": "skeleton_warrior",
-    "name": "Skeleton Warrior",
-    "hp": 35,
-    "min_damage": 5,
-    "max_damage": 10,
-    "xp_reward": 25,
-    "heart_reward": 2,
-    "crit_chance": 0.03,
-    "crit_multiplier": 1.4,
-    "image": "https://i.imgur.com/def456.png",
-    "tags": ["undead"]
-  }
+  {"id":"rat","name":"Giant Rat","hp":12,"min_damage":2,"max_damage":4,"xp_reward":6,"heart_reward":0,"crit_chance":0.01,"crit_multiplier":1.5,"image":"","tags":["beast","common"]},
+  {"id":"vampire_bat","name":"Vampire Bat","hp":20,"min_damage":3,"max_damage":6,"xp_reward":15,"heart_reward":1,"crit_chance":0.02,"crit_multiplier":1.5,"image":"","tags":["flying","common"]},
+  {"id":"goblin","name":"Goblin Thug","hp":18,"min_damage":4,"max_damage":7,"xp_reward":12,"heart_reward":0,"crit_chance":0.03,"crit_multiplier":1.4,"image":"","tags":["humanoid","common"]},
+  {"id":"skeleton","name":"Skeleton Warrior","hp":35,"min_damage":5,"max_damage":10,"xp_reward":25,"heart_reward":2,"crit_chance":0.03,"crit_multiplier":1.4,"image":"","tags":["undead","common"]},
+  {"id":"wolf","name":"Dire Wolf","hp":30,"min_damage":6,"max_damage":9,"xp_reward":20,"heart_reward":1,"crit_chance":0.04,"crit_multiplier":1.5,"image":"","tags":["beast","common"]},
+  {"id":"witchling","name":"Witchling","hp":22,"min_damage":3,"max_damage":8,"xp_reward":18,"heart_reward":1,"crit_chance":0.02,"crit_multiplier":1.6,"image":"","tags":["magic","common"]},
+  {"id":"spider","name":"Cave Spider","hp":16,"min_damage":2,"max_damage":6,"xp_reward":10,"heart_reward":0,"crit_chance":0.02,"crit_multiplier":1.3,"image":"","tags":["beast","poison"]},
+  {"id":"zombie","name":"Rotting Zombie","hp":40,"min_damage":4,"max_damage":9,"xp_reward":28,"heart_reward":2,"crit_chance":0.01,"crit_multiplier":1.3,"image":"","tags":["undead","tough"]},
+  {"id":"bandit","name":"Highway Bandit","hp":28,"min_damage":6,"max_damage":11,"xp_reward":22,"heart_reward":1,"crit_chance":0.05,"crit_multiplier":1.6,"image":"","tags":["humanoid","aggressive"]},
+  {"id":"stone_golem","name":"Stone Golem","hp":70,"min_damage":8,"max_damage":14,"xp_reward":60,"heart_reward":4,"crit_chance":0.01,"crit_multiplier":1.2,"image":"","tags":["construct","elite"]},
+  {"id":"ghost","name":"Wailing Ghost","hp":30,"min_damage":5,"max_damage":10,"xp_reward":35,"heart_reward":3,"crit_chance":0.04,"crit_multiplier":1.5,"image":"","tags":["undead","ethereal"]},
+  {"id":"swamp_hag","name":"Swamp Hag","hp":45,"min_damage":6,"max_damage":12,"xp_reward":48,"heart_reward":3,"crit_chance":0.03,"crit_multiplier":1.5,"image":"","tags":["magic","elite"]},
+  {"id":"wyvern_whelp","name":"Wyvern Whelp","hp":26,"min_damage":7,"max_damage":12,"xp_reward":30,"heart_reward":2,"crit_chance":0.05,"crit_multiplier":1.6,"image":"","tags":["flying","elite"]},
+  {"id":"ghoul","name":"Crypt Ghoul","hp":34,"min_damage":6,"max_damage":10,"xp_reward":26,"heart_reward":2,"crit_chance":0.03,"crit_multiplier":1.4,"image":"","tags":["undead","poison"]},
+  {"id":"cultist","name":"Dark Cultist","hp":24,"min_damage":5,"max_damage":9,"xp_reward":20,"heart_reward":1,"crit_chance":0.06,"crit_multiplier":1.7,"image":"","tags":["humanoid","magic"]},
+  {"id":"forest_troll","name":"Forest Troll","hp":85,"min_damage":10,"max_damage":18,"xp_reward":100,"heart_reward":6,"crit_chance":0.02,"crit_multiplier":1.4,"image":"","tags":["giant","boss"]},
+  {"id":"harpy","name":"Screeching Harpy","hp":32,"min_damage":5,"max_damage":11,"xp_reward":34,"heart_reward":2,"crit_chance":0.05,"crit_multiplier":1.5,"image":"","tags":["flying","aggro"]},
+  {"id":"hydra_head","name":"Hydra Head","hp":22,"min_damage":6,"max_damage":10,"xp_reward":28,"heart_reward":2,"crit_chance":0.04,"crit_multiplier":1.5,"image":"","tags":["beast","multi"]},
+  {"id":"necromancer","name":"Necromancer Apprentice","hp":38,"min_damage":4,"max_damage":9,"xp_reward":44,"heart_reward":3,"crit_chance":0.03,"crit_multiplier":1.4,"image":"","tags":["humanoid","magic"]},
+  {"id":"fire_elemental","name":"Fire Elemental","hp":60,"min_damage":8,"max_damage":15,"xp_reward":72,"heart_reward":4,"crit_chance":0.04,"crit_multiplier":1.6,"image":"","tags":["elemental","elite"]},
+  {"id":"ice_wraith","name":"Ice Wraith","hp":50,"min_damage":7,"max_damage":13,"xp_reward":65,"heart_reward":4,"crit_chance":0.03,"crit_multiplier":1.5,"image":"","tags":["undead","elemental"]},
+  {"id":"orc_berserker","name":"Orc Berserker","hp":48,"min_damage":9,"max_damage":16,"xp_reward":58,"heart_reward":3,"crit_chance":0.06,"crit_multiplier":1.7,"image":"","tags":["humanoid","brute"]},
+  {"id":"bone_dragon","name":"Bone Drake","hp":120,"min_damage":15,"max_damage":28,"xp_reward":220,"heart_reward":10,"crit_chance":0.05,"crit_multiplier":1.6,"image":"","tags":["dragon","boss"]}
 ]
-
-
