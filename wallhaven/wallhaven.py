@@ -352,12 +352,28 @@ class WallhavenCog(commands.Cog):
         await ctx.send(f"Max search results set to {amount}.")
 
     async def _set_purity(self, ctx: commands.Context, purity: str):
+        """
+        Accepts friendly names or 3-digit bitmasks:
+        - sfw -> 100
+        - sketchy -> 110
+        - nsfw -> 111
+        - all -> 111
+        Or directly accept '100', '110', '111'.
+        """
         p = purity.strip().lower()
-        if p == "sfw":
+        if p in ("sfw", "100"):
             await self.config.guild(ctx.guild).default_purity.set("100")
-            await ctx.send("Purity set to SFW.")
+            await ctx.send("Purity set to SFW (100).")
             return
-        await ctx.send("Unknown purity option. Use 'sfw' to restrict to SFW.")
+        if p in ("sketchy", "sketch", "110"):
+            await self.config.guild(ctx.guild).default_purity.set("110")
+            await ctx.send("Purity set to Sketchy allowed (110).")
+            return
+        if p in ("nsfw", "all", "111"):
+            await self.config.guild(ctx.guild).default_purity.set("111")
+            await ctx.send("Purity set to All (includes NSFW) (111).")
+            return
+        await ctx.send("Unknown purity option. Use one of: sfw, sketchy, nsfw, or a bitmask like 100, 110, 111.")
 
 
 class WallhavenMainView(ui.View):
@@ -455,14 +471,21 @@ class WallhavenSetView(ui.View):
     async def purity_button(self, interaction: discord.Interaction, button: ui.Button):
         if not await self._check_owner(interaction):
             return
-        class PurityModal(ui.Modal, title="Set Purity"):
-            choice = ui.TextInput(label="Choice (sfw)", required=True, style=discord.TextStyle.short, max_length=10)
-
+    
+        class PurityModal(ui.Modal, title="Set Purity (options listed)"):
+            choice = ui.TextInput(
+                label="Purity (sfw / sketchy / nsfw or 100 / 110 / 111)",
+                required=True,
+                style=discord.TextStyle.short,
+                max_length=10,
+                placeholder="e.g. sfw  OR  110  (sketchy allowed)"
+            )
+    
             async def on_submit(mod_inter: discord.Interaction):
                 await interaction.response.defer()
                 await self.view.cog._set_purity(self.view.ctx, self.choice.value.strip())
                 await mod_inter.followup.send("Purity updated.", ephemeral=True)
-
+    
         modal = PurityModal()
         modal.view = self
         await interaction.response.send_modal(modal)
