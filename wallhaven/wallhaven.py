@@ -14,8 +14,8 @@ BASE_API = "https://wallhaven.cc/api/v1"
 
 DEFAULTS = {
     "api_key": None,
-    "default_categories": "111",
-    "default_purity": "100",
+    "default_categories": "111",  # all
+    "default_purity": "100",      # SFW
     "max_search_results": 24,
     "nsfw_enabled": False,
 }
@@ -49,6 +49,72 @@ def _make_embed(wall: Dict[str, Any], title_prefix: str = "Wallhaven"):
         embed.add_field(name="Uploader", value=uploader, inline=True)
     embed.set_footer(text="Source: wallhaven.cc")
     return embed
+
+
+class SearchModal(ui.Modal, title="Wallhaven Search"):
+    query = ui.TextInput(label="Search query", style=discord.TextStyle.short, placeholder="mountains sunset", required=True, max_length=200)
+
+    def __init__(self, cog, ctx):
+        super().__init__()
+        self.cog = cog
+        self.ctx = ctx
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        try:
+            cfg = await self.cog.config.guild(self.ctx.guild).all()
+            categories = cfg.get("default_categories")
+            purity = cfg.get("default_purity", PURITY_SFW)
+            per_page = cfg.get("max_search_results", 24)
+            results = await self.cog._search_api(self.ctx, self.query.value, categories, purity, per_page=per_page)
+            if not results:
+                await interaction.followup.send("No results found.", ephemeral=True)
+                return
+            filtered = []
+            for r in results:
+                if self.cog._is_nsfw_wall(r) and not await self.cog._can_post_nsfw(self.ctx):
+                    continue
+                filtered.append(r)
+            if not filtered:
+                await interaction.followup.send("Search returned only NSFW results which cannot be shown here.", ephemeral=True)
+                return
+            view = ImageNavView(self.cog, self.ctx, filtered)
+            embed = _make_embed(filtered[0], title_prefix=f"Search: {self.query.value}")
+            await interaction.followup.send(embed=embed, view=view)
+        except commands.CommandError as e:
+            await interaction.followup.send(f"API error: {e}", ephemeral=True)
+
+
+class CategoryModal(ui.Modal, title="Wallhaven Category Search"):
+    category = ui.TextInput(label="Category (general anime people all)", style=discord.TextStyle.short, required=True, max_length=20)
+
+    def __init__(self, cog, ctx):
+        super().__init__()
+        self.cog = cog
+        self.ctx = ctx
+
+    async def on_submit(self, interaction: discord.Interaction):
+        cat = self.category.value.strip().lower()
+        if cat not in CATEGORIES_MAP:
+            await interaction.response.send_message("Invalid category. Valid: general anime people all.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        await self.cog.random(self.ctx, category=cat)
+
+
+class EmptyModal(ui.Modal, title="Confirm"):
+    # generic modal for confirmations/notes; one optional text field
+    note = ui.TextInput(label="Note (optional)", style=discord.TextStyle.paragraph, required=False, max_length=300)
+
+    def __init__(self, callback=None):
+        super().__init__()
+        self._callback = callback
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if self._callback:
+            await self._callback(interaction, self.note.value)
+        else:
+            await interaction.response.send_message("Confirmed.", ephemeral=True)
 
 
 class ImageNavView(ui.View):
@@ -115,13 +181,15 @@ class ImageNavView(ui.View):
 
 
 class WallhavenCog(commands.Cog):
-    """Wallhaven wallpaper fetcher with interactive navigation."""
+    """Wallhaven wallpaper fetcher with combined interactive commands."""
 
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=9876543210123456)
         self.config.register_guild(**DEFAULTS)
         self._http: Optional[aiohttp.ClientSession] = None
+        # simple per-guild short cache to avoid hammering the API on repeated clicks
+        self._cache: Dict[int, Dict[str, Any]] = {}  # guild_id -> {"results": [...], "ts": float}
 
     def cog_unload(self):
         if self._http and not self._http.closed:
@@ -167,7 +235,7 @@ class WallhavenCog(commands.Cog):
         guild_conf = await self.config.guild(ctx.guild).all()
         apikey = guild_conf.get("api_key")
         per_page = min(int(guild_conf.get("max_search_results", 24) or 24), 48)
-        params = {
+        search_params = {
             "purity": purity,
             "categories": categories,
             "sorting": "random",
@@ -175,21 +243,10 @@ class WallhavenCog(commands.Cog):
             "page": 1,
         }
         if apikey:
-            params["apikey"] = apikey
-        try:
-            data = await self._call_api("search", params)
-            results = data.get("data", [])
-            return results if isinstance(results, list) else ([results] if results else [])
-        except commands.CommandError as exc:
-            logger.warning("Wallhaven search?sorting=random failed: %s", exc)
-            sess = await self._session()
-            async with sess.get("https://wallhaven.cc/random", allow_redirects=False) as r:
-                loc = r.headers.get("Location")
-                if not loc:
-                    return []
-                wall_id = loc.rstrip("/").split("/")[-1]
-                w = await self._get_wallpaper_by_id(ctx, wall_id)
-                return [w] if w else []
+            search_params["apikey"] = apikey
+        data = await self._call_api("search", search_params)
+        results = data.get("data", [])
+        return results if isinstance(results, list) else ([results] if results else [])
 
     async def _search_api(self, ctx: commands.Context, q: Optional[str], categories: str, purity: str, per_page: int = 24, page: int = 1) -> List[Dict[str, Any]]:
         params = {"purity": purity, "categories": categories, "per_page": per_page, "page": page}
@@ -214,124 +271,233 @@ class WallhavenCog(commands.Cog):
         current = await self.config.guild(ctx.guild).nsfw_enabled()
         return bool(current)
 
+    # Combined interactive wallhaven command
     @commands.group(name="wallhaven", invoke_without_command=True)
-    async def wallhaven(self, ctx: commands.Context, *, query: Optional[str] = None):
-        if query:
-            await ctx.invoke(self.search, query=query)
-        else:
-            await ctx.send_help(ctx.command)
+    async def wallhaven(self, ctx: commands.Context):
+        """Open the Wallhaven interactive panel (Random, Search, Category, NSFW)."""
+        view = WallhavenMainView(self, ctx)
+        await ctx.send("Wallhaven: choose an action", view=view)
 
-    @wallhaven.command(name="random")
+    # Combined owner settings command
+    @commands.group(name="wallhavenset", invoke_without_command=True)
+    @checks.is_owner()
+    async def wallhavenset(self, ctx: commands.Context):
+        """Open the Wallhaven settings panel (apikey, categories, maxresults, purity)."""
+        view = WallhavenSetView(self, ctx)
+        await ctx.send("Wallhaven settings", view=view)
+
+    # Backwards compatibility commands (call-through)
+    @wallhaven.command(name="random", invoke_without_command=True)
     async def random(self, ctx: commands.Context, category: Optional[str] = None):
         cfg = await self.config.guild(ctx.guild).all()
         categories = CATEGORIES_MAP.get((category or "").lower(), cfg.get("default_categories"))
         purity = cfg.get("default_purity", PURITY_SFW)
-        async with ctx.typing():
-            try:
-                results = await self._random_api(ctx, categories, purity)
-            except commands.CommandError as e:
-                await ctx.send(f"API error: {e}")
-                return
-            if not results:
-                await ctx.send("No random wallpapers returned.")
-                return
-            allowed = []
-            for r in results:
-                if self._is_nsfw_wall(r) and not await self._can_post_nsfw(ctx):
-                    continue
-                allowed.append(r)
-            if not allowed:
-                await ctx.send("Random results were NSFW and cannot be shown here. Enable NSFW for this guild or use an NSFW channel.")
-                return
-            view = ImageNavView(self, ctx, allowed)
-            embed = _make_embed(allowed[0], title_prefix="Random")
-            await ctx.send(embed=embed, view=view)
+        try:
+            results = await self._random_api(ctx, categories, purity)
+        except commands.CommandError as e:
+            await ctx.send(f"API error: {e}")
+            return
+        if not results:
+            await ctx.send("No random wallpapers returned.")
+            return
+        allowed = []
+        for r in results:
+            if self._is_nsfw_wall(r) and not await self._can_post_nsfw(ctx):
+                continue
+            allowed.append(r)
+        if not allowed:
+            await ctx.send("Random results were NSFW and cannot be shown here.")
+            return
+        view = ImageNavView(self, ctx, allowed)
+        embed = _make_embed(allowed[0], title_prefix="Random")
+        await ctx.send(embed=embed, view=view)
 
     @wallhaven.command(name="search")
-    async def search(self, ctx: commands.Context, *, query: str):
+    async def legacy_search(self, ctx: commands.Context, *, query: str):
         cfg = await self.config.guild(ctx.guild).all()
         categories = cfg.get("default_categories")
         purity = cfg.get("default_purity", PURITY_SFW)
         per_page = cfg.get("max_search_results", 24)
-        async with ctx.typing():
-            try:
-                results = await self._search_api(ctx, query, categories, purity, per_page=per_page)
-            except commands.CommandError as e:
-                await ctx.send(f"API error: {e}")
-                return
-            if not results:
-                await ctx.send("No results found.")
-                return
-            filtered = []
-            for r in results:
-                if self._is_nsfw_wall(r) and not await self._can_post_nsfw(ctx):
-                    continue
-                filtered.append(r)
-            if not filtered:
-                await ctx.send("Search returned only NSFW results which cannot be shown here. Enable NSFW for this guild or use an NSFW channel.")
-                return
-            view = ImageNavView(self, ctx, filtered)
-            embed = _make_embed(filtered[0], title_prefix=f"Search: {query}")
-            await ctx.send(embed=embed, view=view)
-
-    @wallhaven.command(name="category")
-    async def category(self, ctx: commands.Context, category: str):
-        if category.lower() not in CATEGORIES_MAP:
-            await ctx.send("Invalid category. Valid options: general anime people all.")
+        try:
+            results = await self._search_api(ctx, query, categories, purity, per_page=per_page)
+        except commands.CommandError as e:
+            await ctx.send(f"API error: {e}")
             return
-        await ctx.invoke(self.random, category=category)
-
-    @wallhaven.group(name="nsfw", invoke_without_command=True)
-    @checks.admin_or_permissions(manage_guild=True)
-    async def nsfw(self, ctx: commands.Context):
-        await ctx.send_help(ctx.command)
-
-    @nsfw.command(name="toggle")
-    @checks.admin_or_permissions(manage_guild=True)
-    async def nsfw_toggle(self, ctx: commands.Context):
-        current = await self.config.guild(ctx.guild).nsfw_enabled()
-        await self.config.guild(ctx.guild).nsfw_enabled.set(not current)
-        await ctx.send(f"NSFW posting set to {'enabled' if not current else 'disabled'} for this guild.")
-
-    @commands.group(name="wallhavenset", invoke_without_command=True)
-    @checks.is_owner()
-    async def wallhavenset(self, ctx: commands.Context):
-        await ctx.send_help(ctx.command)
-
-    @wallhavenset.command(name="apikey")
-    @checks.is_owner()
-    async def set_apikey(self, ctx: commands.Context, key: Optional[str] = None):
-        if not key:
-            await self.config.guild(ctx.guild).api_key.set(None)
-            await ctx.send("API key cleared for this guild.")
+        if not results:
+            await ctx.send("No results found.")
             return
+        filtered = []
+        for r in results:
+            if self._is_nsfw_wall(r) and not await self._can_post_nsfw(ctx):
+                continue
+            filtered.append(r)
+        if not filtered:
+            await ctx.send("Search returned only NSFW results which cannot be shown here.")
+            return
+        view = ImageNavView(self, ctx, filtered)
+        embed = _make_embed(filtered[0], title_prefix=f"Search: {query}")
+        await ctx.send(embed=embed, view=view)
+
+    # owner-only settings helper methods used by modals/buttons
+    async def _set_apikey(self, ctx: commands.Context, key: Optional[str]):
         await self.config.guild(ctx.guild).api_key.set(key)
-        await ctx.send("API key saved for this guild.")
+        await ctx.send("API key updated for this guild.")
 
-    @wallhavenset.command(name="purity")
-    @checks.is_owner()
-    async def set_purity(self, ctx: commands.Context, choice: str):
-        c = choice.strip().lower()
-        if c == "sfw":
-            await self.config.guild(ctx.guild).default_purity.set("100")
-            await ctx.send("Purity set to SFW.")
-            return
-        await ctx.send("Unknown purity option. Use 'sfw' to restrict to SFW.")
-
-    @wallhavenset.command(name="categories")
-    @checks.is_owner()
-    async def set_categories(self, ctx: commands.Context, choice: str):
+    async def _set_default_categories(self, ctx: commands.Context, choice: str):
         if choice.lower() not in CATEGORIES_MAP:
             await ctx.send("Invalid categories. Valid: general anime people all.")
             return
         await self.config.guild(ctx.guild).default_categories.set(CATEGORIES_MAP[choice.lower()])
         await ctx.send(f"Default categories set to {choice.lower()}.")
 
-    @wallhavenset.command(name="maxresults")
-    @checks.is_owner()
-    async def set_maxresults(self, ctx: commands.Context, amount: int):
+    async def _set_max_results(self, ctx: commands.Context, amount: int):
         if amount < 1 or amount > 48:
             await ctx.send("Provide a number between 1 and 48.")
             return
         await self.config.guild(ctx.guild).max_search_results.set(amount)
         await ctx.send(f"Max search results set to {amount}.")
+
+    async def _set_purity(self, ctx: commands.Context, purity: str):
+        p = purity.strip().lower()
+        if p == "sfw":
+            await self.config.guild(ctx.guild).default_purity.set("100")
+            await ctx.send("Purity set to SFW.")
+            return
+        await ctx.send("Unknown purity option. Use 'sfw' to restrict to SFW.")
+
+
+# Main view shown when user runs `wallhaven`
+class WallhavenMainView(ui.View):
+    def __init__(self, cog: WallhavenCog, ctx: commands.Context, *, timeout: int = 120):
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        self.ctx = ctx
+
+    @ui.button(label="Random", style=discord.ButtonStyle.primary)
+    async def random_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        await self.cog.random(self.ctx)
+
+    @ui.button(label="Search", style=discord.ButtonStyle.secondary)
+    async def search_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
+            return
+        modal = SearchModal(self.cog, self.ctx)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Category", style=discord.ButtonStyle.secondary)
+    async def category_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
+            return
+        modal = CategoryModal(self.cog, self.ctx)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="NSFW Toggle", style=discord.ButtonStyle.danger)
+    async def nsfw_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
+            return
+        # only allow guild admins to change guild NSFW toggle
+        if not interaction.user.guild_permissions.manage_guild and not await self.cog.bot.is_owner(interaction.user):
+            await interaction.response.send_message("You need Manage Server permission to toggle NSFW here.", ephemeral=True)
+            return
+        current = await self.cog.config.guild(self.ctx.guild).nsfw_enabled()
+        await self.cog.config.guild(self.ctx.guild).nsfw_enabled.set(not current)
+        await interaction.response.send_message(f"NSFW posting set to {'enabled' if not current else 'disabled'} for this guild.", ephemeral=True)
+
+
+# Settings view shown when owner runs `wallhavenset`
+class WallhavenSetView(ui.View):
+    def __init__(self, cog: WallhavenCog, ctx: commands.Context, *, timeout: int = 120):
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        self.ctx = ctx
+
+    @ui.button(label="Apikey", style=discord.ButtonStyle.secondary)
+    async def apikey_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not await self._check_owner(interaction):
+            return
+        # open a modal to set api key (empty to clear)
+        class APIKeyModal(ui.Modal, title="Set Wallhaven API Key"):
+            key = ui.TextInput(label="API Key (leave empty to clear)", required=False, style=discord.TextStyle.short, max_length=200)
+
+            async def on_submit(mod_inter: discord.Interaction):
+                await interaction.response.defer()
+                keyval = self.key.value.strip() or None
+                await self.view.cog._set_apikey(self.view.ctx, keyval)
+                await mod_inter.followup.send("API key updated.", ephemeral=True)
+
+        modal = APIKeyModal()
+        modal.view = self  # provide backref used in on_submit
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Categories", style=discord.ButtonStyle.secondary)
+    async def categories_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not await self._check_owner(interaction):
+            return
+
+        class CategoriesModal(ui.Modal, title="Set Default Categories"):
+            choice = ui.TextInput(label="Choice (general anime people all)", required=True, style=discord.TextStyle.short, max_length=20)
+
+            async def on_submit(mod_inter: discord.Interaction):
+                await interaction.response.defer()
+                await self.view.cog._set_default_categories(self.view.ctx, self.choice.value.strip())
+                await mod_inter.followup.send("Default categories updated.", ephemeral=True)
+
+        modal = CategoriesModal()
+        modal.view = self
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="MaxResults", style=discord.ButtonStyle.secondary)
+    async def maxresults_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not await self._check_owner(interaction):
+            return
+
+        class MaxResultsModal(ui.Modal, title="Set Max Search Results"):
+            amount = ui.TextInput(label="Amount (1-48)", required=True, style=discord.TextStyle.short, max_length=3)
+
+            async def on_submit(mod_inter: discord.Interaction):
+                await interaction.response.defer()
+                try:
+                    val = int(self.amount.value.strip())
+                except ValueError:
+                    await mod_inter.followup.send("Please provide a valid integer.", ephemeral=True)
+                    return
+                await self.view.cog._set_max_results(self.view.ctx, val)
+                await mod_inter.followup.send("Max results updated.", ephemeral=True)
+
+        modal = MaxResultsModal()
+        modal.view = self
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Purity", style=discord.ButtonStyle.secondary)
+    async def purity_button(self, interaction: discord.Interaction, button: ui.Button):
+        if not await self._check_owner(interaction):
+            return
+
+        class PurityModal(ui.Modal, title="Set Purity"):
+            choice = ui.TextInput(label="Choice (sfw)", required=True, style=discord.TextStyle.short, max_length=10)
+
+            async def on_submit(mod_inter: discord.Interaction):
+                await interaction.response.defer()
+                await self.view.cog._set_purity(self.view.ctx, self.choice.value.strip())
+                await mod_inter.followup.send("Purity updated.", ephemeral=True)
+
+        modal = PurityModal()
+        modal.view = self
+        await interaction.response.send_modal(modal)
+
+    async def _check_owner(self, interaction: discord.Interaction) -> bool:
+        if not await self.cog.bot.is_owner(interaction.user):
+            await interaction.response.send_message("Only the bot owner can change these settings.", ephemeral=True)
+            return False
+        return True
+
+
+def setup(bot):
+    bot.add_cog(WallhavenCog(bot))
