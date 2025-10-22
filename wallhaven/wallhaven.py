@@ -137,20 +137,20 @@ class WallhavenCog(commands.Cog):
                 raise commands.CommandError(f"API returned {resp.status}: {text}")
             return await resp.json()
 
-    async def _search_api(self, q: Optional[str], categories: str, purity: str, per_page: int = 24, page: int = 1) -> List[Dict[str, Any]]:
+    async def _search_api(self, ctx: commands.Context, q: Optional[str], categories: str, purity: str, per_page: int = 24, page: int = 1) -> List[Dict[str, Any]]:
         params = {"purity": purity, "categories": categories, "per_page": per_page, "page": page}
         if q:
             params["q"] = q
-        guild_conf = await self.config.guild(self._calling_guild_id()).all()
+        guild_conf = await self.config.guild(ctx.guild).all()
         apikey = guild_conf.get("api_key")
         if apikey:
             params["apikey"] = apikey
         data = await self._call_api("search", params)
         return data.get("data", [])
 
-    async def _random_api(self, categories: str, purity: str) -> List[Dict[str, Any]]:
+    async def _random_api(self, ctx: commands.Context, categories: str, purity: str) -> List[Dict[str, Any]]:
         params = {"purity": purity, "categories": categories}
-        guild_conf = await self.config.guild(self._calling_guild_id()).all()
+        guild_conf = await self.config.guild(ctx.guild).all()
         apikey = guild_conf.get("api_key")
         if apikey:
             params["apikey"] = apikey
@@ -190,7 +190,7 @@ class WallhavenCog(commands.Cog):
         purity = cfg.get("default_purity", PURITY_SFW)
         async with ctx.typing():
             try:
-                results = await self._random_api(categories, purity)
+                results = await self._random_api(ctx, categories, purity)
             except commands.CommandError as e:
                 await ctx.send(f"API error: {e}")
                 return
@@ -218,7 +218,7 @@ class WallhavenCog(commands.Cog):
         per_page = cfg.get("max_search_results", 24)
         async with ctx.typing():
             try:
-                results = await self._search_api(query, categories, purity, per_page=per_page)
+                results = await self._search_api(ctx, query, categories, purity, per_page=per_page)
             except commands.CommandError as e:
                 await ctx.send(f"API error: {e}")
                 return
