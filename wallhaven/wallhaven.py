@@ -58,7 +58,6 @@ class ImageNavView(ui.View):
         self.ctx = ctx
         self.results = results
         self.index = 0
-        # build select options (limit to 25 options for discord)
         options = []
         for i, r in enumerate(results[:25]):
             label = f"#{i+1} {r.get('id')}"
@@ -67,51 +66,52 @@ class ImageNavView(ui.View):
         self.select.callback = self.on_select
         self.add_item(self.select)
 
-    async def interaction_check(self, inter: discord.Interaction) -> bool:
-        return inter.user.id == self.ctx.author.id
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.ctx.author.id
 
-    async def on_select(self, inter: discord.Interaction):
+    async def on_select(self, interaction: discord.Interaction):
         try:
             idx = int(self.select.values[0])
             self.index = idx
             wall = self.results[self.index]
             if self.cog._is_nsfw_wall(wall) and not await self.cog._can_post_nsfw(self.ctx):
-                await inter.response.send_message("NSFW image blocked in this context", ephemeral=True)
+                await interaction.response.send_message("NSFW image blocked in this context", ephemeral=True)
                 return
             embed = _make_embed(wall)
-            await inter.response.edit_message(embed=embed, view=self)
+            await interaction.response.edit_message(embed=embed, view=self)
         except Exception:
-            await inter.response.send_message("Failed to show that image", ephemeral=True)
+            await interaction.response.send_message("Failed to show that image", ephemeral=True)
 
     @ui.button(label="Prev", style=discord.ButtonStyle.secondary)
-    async def prev_button(self, button: ui.Button, inter: discord.Interaction):
+    async def prev_button(self, button: ui.Button, interaction: discord.Interaction):
         self.index = (self.index - 1) % len(self.results)
         wall = self.results[self.index]
         if self.cog._is_nsfw_wall(wall) and not await self.cog._can_post_nsfw(self.ctx):
-            await inter.response.send_message("NSFW image blocked in this context", ephemeral=True)
+            await interaction.response.send_message("NSFW image blocked in this context", ephemeral=True)
             return
         embed = _make_embed(wall)
-        await inter.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(embed=embed, view=self)
 
     @ui.button(label="Next", style=discord.ButtonStyle.primary)
-    async def next_button(self, button: ui.Button, inter: discord.Interaction):
+    async def next_button(self, button: ui.Button, interaction: discord.Interaction):
         self.index = (self.index + 1) % len(self.results)
         wall = self.results[self.index]
         if self.cog._is_nsfw_wall(wall) and not await self.cog._can_post_nsfw(self.ctx):
-            await inter.response.send_message("NSFW image blocked in this context", ephemeral=True)
+            await interaction.response.send_message("NSFW image blocked in this context", ephemeral=True)
             return
         embed = _make_embed(wall)
-        await inter.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(embed=embed, view=self)
 
     @ui.button(label="Random", style=discord.ButtonStyle.success)
-    async def random_button(self, button: ui.Button, inter: discord.Interaction):
+    async def random_button(self, button: ui.Button, interaction: discord.Interaction):
         self.index = random.randrange(len(self.results))
         wall = self.results[self.index]
         if self.cog._is_nsfw_wall(wall) and not await self.cog._can_post_nsfw(self.ctx):
-            await inter.response.send_message("NSFW image blocked in this context", ephemeral=True)
+            await interaction.response.send_message("NSFW image blocked in this context", ephemeral=True)
             return
         embed = _make_embed(wall)
-        await inter.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(embed=embed, view=self)
+
 
 
 class WallhavenCog(commands.Cog):
