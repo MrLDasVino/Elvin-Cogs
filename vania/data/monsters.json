@@ -274,7 +274,7 @@
   {"id":"ruin_lord","name":"Ruin Lord","hp":260,"min_damage":24,"max_damage":44,"xp_reward":700,"heart_reward":30,"crit_chance":0.06,"crit_multiplier":1.8,"image":"","tags":["boss","ancient"]},
   {"id":"abyssal_knight","name":"Abyssal Knight","hp":320,"min_damage":26,"max_damage":48,"xp_reward":900,"heart_reward":34,"crit_chance":0.07,"crit_multiplier":1.9,"image":"","tags":["boss","elite"]},
   {"id":"plasma_seraph","name":"Plasma Seraph","hp":420,"min_damage":30,"max_damage":60,"xp_reward":1400,"heart_reward":60,"crit_chance":0.08,"crit_multiplier":2.0,"image":"","tags":["boss","angelic"]},
-  {"id":"void_reaver","name":"Void Reaver","hp":480,"min_damage":34,"max_damage":68,"xp_reward":1600,"heart_reward":64,"crit_chance":0.09,"crit_multiplier":2.1,"image":"","tags":["final_boss","void"]}
+  {"id":"void_reaver","name":"Void Reaver","hp":480,"min_damage":34,"max_damage":68,"xp_reward":1600,"heart_reward":64,"crit_chance":0.09,"crit_multiplier":2.1,"image":"","tags":["final_boss","void"]},
   {"id":"winged_skeleton","name":"Winged Skeleton","hp":30,"min_damage":4,"max_damage":9,"xp_reward":22,"heart_reward":1,"crit_chance":0.03,"crit_multiplier":1.4,"image":"","tags":["undead","flying"]},
   {"id":"grave_skeleton","name":"Grave Skeleton","hp":38,"min_damage":5,"max_damage":11,"xp_reward":28,"heart_reward":2,"crit_chance":0.03,"crit_multiplier":1.4,"image":"","tags":["undead"]},
   {"id":"blood_imp","name":"Blood Imp","hp":18,"min_damage":3,"max_damage":7,"xp_reward":16,"heart_reward":1,"crit_chance":0.04,"crit_multiplier":1.5,"image":"","tags":["demon","trickster"]},
