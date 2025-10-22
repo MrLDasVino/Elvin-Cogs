@@ -10,7 +10,7 @@ from redbot.core.data_manager import cog_data_path
 
 
 class Vania(commands.Cog):
-    """Belmont’s Legacy: Hunter progression with XP and skills."""
+    """Belmont’s Legacy: Hunter progression with XP, skills, inventory, and raids."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -147,35 +147,35 @@ class Vania(commands.Cog):
     @commands.cooldown(1, 30, commands.BucketType.user)
     @vania.command(name="hunt")
     async def hunt(self, ctx: commands.Context):
-        """Begin a monster hunt using monsters.json and apply gear effects."""
+        """Begin a monster hunt using monsters.json and apply gear effects and heart rewards."""
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid, self._default_profile())
-    
+
         # Pick a random monster and fetch its image URL
         monster = random.choice(self.monsters)
         image_url = monster.get("image")
-    
+
         # Gear stats
         weapon = self._get_equipment(profile.get("weapon"))
         armor = self._get_equipment(profile.get("armor"))
         xp_mod = float(weapon.get("xp_mod", 1.0))
         dmg_mod = float(weapon.get("damage_mod", 1.0))
         defense = int(armor.get("defense", 0))
-    
+
         hearts_awarded = 0
-    
+
         # Battle outcome
         if random.random() <= float(monster.get("win_chance", 0.5)):
             base_xp = int(monster.get("xp_reward", 0))
             xp_gain = int(base_xp * xp_mod)
             profile["xp"] += xp_gain
-    
+
             # Award hearts if defined on monster
             hearts_awarded = int(monster.get("heart_reward", 0))
             if hearts_awarded:
                 profile["hearts"] = profile.get("hearts", 0) + hearts_awarded
-    
+
             description = f"You defeated **{monster['name']}** and gained {xp_gain} XP!"
             if hearts_awarded:
                 description += f" You also received {hearts_awarded} Heart{'s' if hearts_awarded != 1 else ''}."
@@ -186,49 +186,47 @@ class Vania(commands.Cog):
             profile["hp"] = max(0, profile["hp"] - damage)
             description = f"The **{monster['name']}** wounded you for {damage} HP!"
             color = discord.Color.orange()
-    
+
         # Collapse handling
         if profile["hp"] == 0:
             description += "\nYour HP dropped to 0. You collapse and revive at half HP."
             profile["hp"] = profile["max_hp"] // 2
-    
+
         # Level-up logic: every 100 XP = 1 level
         old_level = profile.get("level", 1)
         new_level = profile["xp"] // 100 + 1
         if new_level > old_level:
             levels_gained = new_level - old_level
             profile["level"] = new_level
-            # increase max hp and heal a portion
             profile["max_hp"] = profile.get("max_hp", 100) + 5 * levels_gained
             profile["hp"] = min(profile["hp"] + 10 * levels_gained, profile["max_hp"])
             description += f"\nYou reached level {new_level}! Max HP +{5 * levels_gained}."
-    
+
         profiles[uid] = profile
         await self._save_profiles(profiles)
-    
+
         # Build embed with image
         embed = discord.Embed(title="Monster Hunt", description=description, color=color)
         if image_url:
             embed.set_image(url=image_url)
-    
+
         embed.add_field(name="HP", value=f"{profile['hp']}/{profile['max_hp']}", inline=True)
         embed.add_field(name="XP", value=str(profile["xp"]), inline=True)
         embed.add_field(name="Level", value=str(profile.get("level", 1)), inline=True)
         embed.add_field(name="Hearts", value=str(profile.get("hearts", 0)), inline=True)
-    
-        await ctx.send(embed=embed)
 
+        await ctx.send(embed=embed)
 
     @vania.command(name="stats")
     async def stats(self, ctx: commands.Context):
-        """View your hunter’s level, XP, and equipped whip."""
+        """View your hunter’s level, XP, hearts, and equipped gear."""
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid)
         if not profile:
             return await ctx.send("No profile found. Start hunting with `vania hunt`.")
 
-        xp = profile["xp"]
+        xp = profile.get("xp", 0)
         level = profile.get("level", xp // 100 + 1)
         weapon_id = profile.get("weapon", "vine_whip")
         armor_id = profile.get("armor")
@@ -237,10 +235,12 @@ class Vania(commands.Cog):
         weapon_name = weapon.get("name", "None")
         armor_name = armor.get("name", "None")
         skills = profile.get("skills", {})
+        hearts = profile.get("hearts", 0)
 
         embed = discord.Embed(title=f"{ctx.author.display_name}'s Profile", color=discord.Color.dark_blue())
         embed.add_field(name="Level", value=level, inline=True)
         embed.add_field(name="XP", value=xp, inline=True)
+        embed.add_field(name="Hearts", value=hearts, inline=True)
         embed.add_field(name="Weapon", value=weapon_name, inline=True)
         embed.add_field(name="Armor", value=armor_name, inline=True)
         embed.add_field(name="HP", value=f"{profile.get('hp',0)}/{profile.get('max_hp',0)}", inline=True)
@@ -297,6 +297,8 @@ class Vania(commands.Cog):
         view = InventoryView(self, ctx, pages)
 
         embed = discord.Embed(title=f"{ctx.author.display_name}'s Inventory", color=discord.Color.blurple())
+        hearts = profile.get("hearts", 0)
+        embed.add_field(name="Hearts", value=str(hearts), inline=True)
         if pages and pages[0]:
             page = pages[0]
             embed.description = "\n".join(f"`{i.get('id')}` • **{i.get('name')}** x{i.get('qty')} — {i.get('type','misc')}" for i in page)
@@ -339,7 +341,6 @@ class Vania(commands.Cog):
             pages.append([])
         return pages
 
-    # remove standalone 'use' and 'equip' commands to force use/equip via inventory UI
     # internal performer for use (kept for reuse by InventoryView)
     async def _do_use_item(self, ctx_or_interaction, uid: str, item_id: str, target: Optional[discord.Member]):
         """
@@ -347,14 +348,13 @@ class Vania(commands.Cog):
         The function performs validations, applies effects, updates profile, and sends a reply.
         """
         is_interaction = hasattr(ctx_or_interaction, "response") and isinstance(ctx_or_interaction, discord.Interaction)
-        send_target = ctx_or_interaction if not is_interaction else ctx_or_interaction
 
         profiles = self._load_profiles()
         profile = profiles.get(uid)
         if not profile:
             msg = "No profile found. Start hunting with `vania hunt`."
             if is_interaction:
-                await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
             else:
                 await ctx_or_interaction.send(msg)
             return
@@ -364,7 +364,7 @@ class Vania(commands.Cog):
         if qty <= 0:
             msg = f"You don't have any `{item_id}` to use."
             if is_interaction:
-                await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
             else:
                 await ctx_or_interaction.send(msg)
             return
@@ -375,9 +375,11 @@ class Vania(commands.Cog):
 
         target_uid = uid
         target_member = None
-        if target:
-            target_uid = str(target.id)
-            target_member = target
+        if isinstance(ctx_or_interaction, discord.Interaction) and getattr(ctx_or_interaction, "user", None):
+            # if Interaction and target not provided, it's the interactor
+            pass
+        if isinstance(target_member, discord.Member):
+            target_uid = str(target_member.id)
 
         tprofile = profiles.get(target_uid, self._default_profile())
 
@@ -386,14 +388,14 @@ class Vania(commands.Cog):
             amount = int(meta.get("value", 25))
             old = tprofile.get("hp", tprofile.get("max_hp", 100))
             tprofile["hp"] = min(tprofile.get("max_hp", 100), old + amount)
-            target_name = target_member.display_name if target_member else "you"
+            target_name = "you"
             result_lines.append(f"{name} healed {amount} HP for {target_name}.")
         elif kind == "revive":
             if tprofile.get("hp", 0) > 0:
                 result_lines.append("Target is not down; revive not needed.")
             else:
                 tprofile["hp"] = tprofile.get("max_hp", 100) // 2
-                target_name = target_member.display_name if target_member else "you"
+                target_name = "you"
                 result_lines.append(f"{name} revived {target_name} to {tprofile['hp']} HP.")
         elif kind == "buff":
             buff_name = meta.get("buff_name", "power")
@@ -415,7 +417,7 @@ class Vania(commands.Cog):
 
         msg = "\n".join(result_lines)
         if is_interaction:
-            await ctx_or_interaction.followup.send(msg)
+            await ctx_or_interaction.response.send_message(msg)
         else:
             await ctx_or_interaction.send(msg)
 
@@ -636,6 +638,10 @@ class InventoryView(discord.ui.View):
     async def update_message(self):
         page = self.pages[self.page_index]
         embed = discord.Embed(title=f"{self.ctx.author.display_name}'s Inventory", color=discord.Color.blurple())
+        # show hearts
+        hearts = self.cog._load_profiles().get(str(self.ctx.author.id), {}).get("hearts", 0)
+        embed.add_field(name="Hearts", value=str(hearts), inline=True)
+
         if not page:
             embed.description = "This page is empty."
         else:
