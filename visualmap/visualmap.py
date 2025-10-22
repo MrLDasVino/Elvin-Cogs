@@ -1,6 +1,5 @@
 from redbot.core import commands, Config
 from redbot.core.bot import Red
-from redbot.core.utils.chat_formatting import pagify
 import discord
 import asyncio
 import random
@@ -48,12 +47,10 @@ class VisualMap(commands.Cog):
     async def red_delete_data_for_user(self, **kwargs):
         return
 
-    # Helper to create an empty canvas
     def _create_canvas(self, size, color):
         img = Image.new("RGBA", size, color + (255,))
         return img
 
-    # Tile pattern generator
     def _paint_tiles(self, base_img, tile_size, palette):
         w, h = base_img.size
         draw = ImageDraw.Draw(base_img)
@@ -61,7 +58,6 @@ class VisualMap(commands.Cog):
         tiles_y = h // tile_size + 1
         for tx in range(tiles_x):
             for ty in range(tiles_y):
-                # slightly vary ground color
                 jitter = lambda c: max(0, min(255, c + random.randint(-8, 8)))
                 color = tuple(jitter(c) for c in palette["ground"])
                 x0 = tx * tile_size
@@ -69,19 +65,15 @@ class VisualMap(commands.Cog):
                 x1 = x0 + tile_size
                 y1 = y0 + tile_size
                 draw.rectangle([x0, y0, x1, y1], fill=color)
-        # subtle noise
         base_img = base_img.filter(ImageFilter.GaussianBlur(0.3))
         return base_img
 
-    # Add regions using masks
     def _paint_regions(self, img, palette, seed=None):
         if seed is not None:
             random.seed(seed)
         w, h = img.size
         overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
-
-        # create a few blobs: forests, lakes, mountains
         region_types = [
             ("forest", 0.5),
             ("water", 0.3),
@@ -94,8 +86,6 @@ class VisualMap(commands.Cog):
             cy = random.randint(0, h)
             rx = random.randint(w // 10, w // 4)
             ry = random.randint(h // 12, h // 5)
-            bbox = [cx - rx, cy - ry, cx + rx, cy + ry]
-            # irregular blob by many overlapping ellipses
             n = random.randint(3, 8)
             for i in range(n):
                 jitterx = random.randint(-rx // 3, rx // 3)
@@ -110,18 +100,15 @@ class VisualMap(commands.Cog):
                 ]
                 color = palette.get(rtype, (100, 100, 100))
                 draw.ellipse(ellipse_bbox, fill=color + (220,))
-        # blend overlay
         img = Image.alpha_composite(img.convert("RGBA"), overlay)
         return img
 
-    # Draw simple roads between markers
     def _draw_roads(self, img, points, palette):
         draw = ImageDraw.Draw(img)
         for a, b in zip(points, points[1:]):
             draw.line([a, b], fill=palette["road"], width=6)
         return img
 
-    # Markers: labeled circles
     def _draw_markers(self, img, markers, palette, font):
         draw = ImageDraw.Draw(img)
         for m in markers:
@@ -129,35 +116,28 @@ class VisualMap(commands.Cog):
             r = m.get("size", 14)
             bg = palette.get("marker_bg", (200, 40, 40))
             txtcol = palette.get("marker_text", (255, 255, 255))
-            # circle
             draw.ellipse([x - r, y - r, x + r, y + r], fill=bg + (255,))
-            # label
             text = m.get("label", "")
             if text:
                 w, h = draw.textsize(text, font=font)
                 tx = x + r + 6
                 ty = y - h // 2
-                # background box
                 pad = 4
                 draw.rectangle([tx - pad, ty - pad, tx + w + pad, ty + h + pad], fill=(0, 0, 0, 180))
                 draw.text((tx, ty), text, font=font, fill=txtcol)
         return img
 
-    # Compose full map
     def _compose_map(self, size, tile_size, palette, markers=None, seed=None):
         canvas = self._create_canvas(size, palette["ground"])
         canvas = self._paint_tiles(canvas, tile_size, palette)
         canvas = self._paint_regions(canvas, palette, seed=seed)
-        # optional roads between markers
         if markers and len(markers) >= 2:
             pts = [m["pos"] for m in markers if "pos" in m]
             canvas = self._draw_roads(canvas, pts, palette)
         canvas = self._draw_markers(canvas, markers or [], palette, self.font)
-        # final slight sharpen
         canvas = canvas.convert("RGB")
         return canvas
 
-    # Utility to save to BytesIO asynchronously
     async def _image_to_discord_file(self, pil_image, name="map.png", fmt="PNG"):
         loop = asyncio.get_event_loop()
         bio = BytesIO()
@@ -168,15 +148,13 @@ class VisualMap(commands.Cog):
         discord_file = discord.File(fp=bio, filename=name)
         return discord_file
 
-    # Command group
-    @commands.group()
-    async def map(self, ctx):
-        """Map generation commands"""
+    @commands.group(name="visualmap", invoke_without_command=True)
+    async def visualmap(self, ctx):
+        """Visual map generation commands group"""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    # Create a map and return image
-    @map.command()
+    @visualmap.command(name="create")
     @commands.guild_only()
     async def create(self, ctx, *, options: str = ""):
         """
@@ -190,8 +168,6 @@ class VisualMap(commands.Cog):
         palette = guild_conf.get("palette", DEFAULTS["palette"])
         seed = None
         markers = []
-
-        # quick parser for options
         opt_tokens = [t.strip() for t in options.split() if t.strip()]
         for tok in opt_tokens:
             if tok.startswith("size="):
@@ -221,13 +197,11 @@ class VisualMap(commands.Cog):
                             markers.append({"label": label.strip(), "pos": (int(cx), int(cy))})
                 except Exception:
                     pass
-
         img = self._compose_map(size, tile_size, palette, markers=markers, seed=seed)
         file = await self._image_to_discord_file(img, name="map.png")
         await ctx.send(file=file)
 
-    # Spawn a random encounter marker and return updated map
-    @map.command()
+    @visualmap.command(name="spawn")
     @commands.guild_only()
     async def spawn(self, ctx, label: str = "Encounter"):
         """
@@ -237,7 +211,6 @@ class VisualMap(commands.Cog):
         size = guild_conf.get("canvas_size", DEFAULTS["canvas_size"])
         tile_size = guild_conf.get("tile_size", DEFAULTS["tile_size"])
         palette = guild_conf.get("palette", DEFAULTS["palette"])
-        # pick random pos
         w, h = size
         pos = (random.randint(40, w - 40), random.randint(40, h - 40))
         markers = [{"label": label, "pos": pos, "size": 16}]
@@ -245,8 +218,7 @@ class VisualMap(commands.Cog):
         file = await self._image_to_discord_file(img, name="spawn.png")
         await ctx.send(file=file, content=f"Spawned {label} at {pos}")
 
-    # Show map with specified markers inline JSON-like arg for devs
-    @map.command()
+    @visualmap.command(name="show")
     @commands.guild_only()
     async def show(self, ctx, *, payload: str = ""):
         """
@@ -254,7 +226,6 @@ class VisualMap(commands.Cog):
         Example payload:
         markers=[Town@100,200;Gate@300,400] size=640x480
         """
-        # very small parser focusing on markers and size
         size = DEFAULTS["canvas_size"]
         tile_size = DEFAULTS["tile_size"]
         palette = DEFAULTS["palette"]
@@ -280,12 +251,10 @@ class VisualMap(commands.Cog):
                     size = (int(w), int(h))
                 except Exception:
                     pass
-
         img = self._compose_map(size, tile_size, palette, markers=markers)
         file = await self._image_to_discord_file(img, name="show.png")
         await ctx.send(file=file)
 
-    # Admin config command for adjusting defaults
     @commands.group()
     @commands.is_owner()
     async def vmap(self, ctx):
