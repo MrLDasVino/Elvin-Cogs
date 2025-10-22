@@ -1,0 +1,10 @@
+{
+  "name": "Wallhaven",
+  "author": "Elvin",
+  "version": "1.0.0",
+  "requirements": ["aiohttp", "discord.py"],
+  "short": "Wallhaven wallpapers with interactive navigation",
+  "description": "Fetch wallpapers from Wallhaven (random, search, category) with buttons and a dropdown. Guild-level NSFW toggle and owner config.",
+  "install_msg": "Wallhaven cog loaded. Use [p]wallhaven help for commands.",
+  "tags": ["images", "wallpaper", "wallhaven", "ui"]
+}
