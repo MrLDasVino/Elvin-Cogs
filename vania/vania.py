@@ -622,19 +622,19 @@ class InventoryView(discord.ui.View):
         return True
 
     @discord.ui.button(label="Prev", style=discord.ButtonStyle.secondary, custom_id="vania_inv_prev")
-    async def prev_page(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.page_index = max(0, self.page_index - 1)
         await interaction.response.defer()
         await self.update_message()
 
     @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, custom_id="vania_inv_next")
-    async def next_page(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.page_index = min(len(self.pages) - 1, self.page_index + 1)
         await interaction.response.defer()
         await self.update_message()
 
     @discord.ui.button(label="Use", style=discord.ButtonStyle.primary, custom_id="vania_inv_use")
-    async def use_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def use_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         page = self.pages[self.page_index]
         if not page:
             await interaction.response.send_message("No item to use on this page.", ephemeral=True)
@@ -649,3 +649,4 @@ class InventoryView(discord.ui.View):
         self.pages = pages
         self.page_index = min(self.page_index, max(0, len(self.pages) - 1))
         await self.update_message()
+
