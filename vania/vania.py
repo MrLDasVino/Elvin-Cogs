@@ -263,42 +263,10 @@ class Vania(commands.Cog):
         embed.add_field(name="XP Remaining", value=str(profile["xp"]))
         await ctx.send(embed=embed)
 
-    @vania.command(name="equip")
-    async def equip(self, ctx: commands.Context, item_id: str):
-        """Equip a weapon or armor from equipment.json."""
-        profiles = self._load_profiles()
-        uid = str(ctx.author.id)
-        profile = profiles.get(uid)
-        if not profile:
-            return await ctx.send("Start hunting first with `vania hunt`.")
-
-        item = next((e for e in self.equipment if e.get("id") == item_id), None)
-        if not item:
-            return await ctx.send(f"No equipment found with ID `{item_id}`.")
-
-        category = item.get("category")
-        if category == "weapon":
-            profile["weapon"] = item_id
-        elif category == "armor":
-            profile["armor"] = item_id
-        else:
-            return await ctx.send("Item category not equippable.")
-
-        profiles[uid] = profile
-        await self._save_profiles(profiles)
-
-        weapon = self._get_equipment(profile.get("weapon"))
-        armor = self._get_equipment(profile.get("armor"))
-        xp_mod = weapon.get("xp_mod", 1.0)
-        dmg_mod = weapon.get("damage_mod", 1.0)
-        defense = armor.get("defense", 0)
-
-        await ctx.send(f"You have equipped **{item['name']}** as your {category}. (XP×{xp_mod}, DMG×{dmg_mod}, DEF {defense})")
-
-    # ----------------- Inventory, Use, Heal Implementation -----------------
+    # ----------------- Inventory, Equip (integrated), Heal Implementation -----------------
     @vania.command(name="inventory")
     async def inventory(self, ctx: commands.Context):
-        """List items, relics, and consumables with pagination and quick-use buttons."""
+        """List items, relics, and consumables with pagination and quick-use and equip buttons."""
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid, self._default_profile())
@@ -334,7 +302,12 @@ class Vania(commands.Cog):
         for iid, qty in profile.get("items", {}).items():
             meta = next((it for it in self.items if it.get("id") == iid), {})
             name = meta.get("name", iid)
-            out.append({"id": iid, "name": name, "qty": int(qty), "type": "item"})
+            # if this item is equippable (in equipment.json) mark as equippable
+            equip_meta = next((e for e in self.equipment if e.get("id") == iid), None)
+            it_type = "item"
+            if equip_meta:
+                it_type = equip_meta.get("category", "item")
+            out.append({"id": iid, "name": name, "qty": int(qty), "type": it_type})
         return out
 
     def _paginate_inventory(self, inventory: List[dict], per_page: int = 6) -> List[List[dict]]:
@@ -345,12 +318,8 @@ class Vania(commands.Cog):
             pages.append([])
         return pages
 
-    @vania.command(name="use")
-    async def use(self, ctx: commands.Context, item_id: str, target: Optional[discord.Member] = None):
-        """Use a consumable item from your inventory. Target optional for revive or healing others."""
-        uid = str(ctx.author.id)
-        await self._do_use_item(ctx, uid, item_id, target)
-
+    # remove standalone 'use' and 'equip' commands to force use/equip via inventory UI
+    # internal performer for use (kept for reuse by InventoryView)
     async def _do_use_item(self, ctx_or_interaction, uid: str, item_id: str, target: Optional[discord.Member]):
         """
         ctx_or_interaction may be either Context or Interaction.
@@ -426,6 +395,55 @@ class Vania(commands.Cog):
         msg = "\n".join(result_lines)
         if is_interaction:
             await ctx_or_interaction.followup.send(msg)
+        else:
+            await ctx_or_interaction.send(msg)
+
+    # internal equip performer (used by InventoryView Equip button)
+    async def _do_equip_item(self, ctx_or_interaction, uid: str, item_id: str):
+        is_interaction = hasattr(ctx_or_interaction, "response") and isinstance(ctx_or_interaction, discord.Interaction)
+        profiles = self._load_profiles()
+        profile = profiles.get(uid)
+        if not profile:
+            msg = "No profile found. Start hunting with `vania hunt`."
+            if is_interaction:
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return
+
+        equip_meta = next((e for e in self.equipment if e.get("id") == item_id), None)
+        if not equip_meta:
+            msg = f"`{item_id}` is not equippable."
+            if is_interaction:
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return
+
+        category = equip_meta.get("category")
+        if category == "weapon":
+            profile["weapon"] = item_id
+        elif category == "armor":
+            profile["armor"] = item_id
+        else:
+            if is_interaction:
+                await ctx_or_interaction.response.send_message("Item category not equippable.", ephemeral=True)
+            else:
+                await ctx_or_interaction.send("Item category not equippable.")
+            return
+
+        profiles[uid] = profile
+        await self._save_profiles(profiles)
+
+        weapon = self._get_equipment(profile.get("weapon"))
+        armor = self._get_equipment(profile.get("armor"))
+        xp_mod = weapon.get("xp_mod", 1.0)
+        dmg_mod = weapon.get("damage_mod", 1.0)
+        defense = armor.get("defense", 0)
+
+        msg = f"You have equipped **{equip_meta.get('name', item_id)}** as your {category}. (XP×{xp_mod}, DMG×{dmg_mod}, DEF {defense})"
+        if is_interaction:
+            await ctx_or_interaction.response.send_message(msg)
         else:
             await ctx_or_interaction.send(msg)
 
@@ -608,7 +626,7 @@ class InventoryView(discord.ui.View):
                 typ = item.get("type", "misc")
                 lines.append(f"`{iid}` • **{name}** x{qty} — {typ}")
             embed.description = "\n".join(lines)
-        embed.set_footer(text=f"Page {self.page_index + 1}/{len(self.pages)}  •  Use button applies the first item on page by default")
+        embed.set_footer(text=f"Page {self.page_index + 1}/{len(self.pages)}  •  Use equippables with Equip button, consumables with Use button")
         if self.message:
             try:
                 await self.message.edit(embed=embed, view=self)
@@ -639,8 +657,12 @@ class InventoryView(discord.ui.View):
         if not page:
             await interaction.response.send_message("No item to use on this page.", ephemeral=True)
             return
-        item = page[0]
-        item_id = item.get("id")
+        # find first consumable on page
+        consumable = next((it for it in page if it.get("type") == "consumable"), None)
+        if not consumable:
+            await interaction.response.send_message("No consumable on this page to use. Use Equip for equippable items.", ephemeral=True)
+            return
+        item_id = consumable.get("id")
         await interaction.response.defer()
         await self.cog._do_use_item(interaction, str(interaction.user.id), item_id, target=None)
         profiles = self.cog._load_profiles()
@@ -650,3 +672,23 @@ class InventoryView(discord.ui.View):
         self.page_index = min(self.page_index, max(0, len(self.pages) - 1))
         await self.update_message()
 
+    @discord.ui.button(label="Equip", style=discord.ButtonStyle.success, custom_id="vania_inv_equip")
+    async def equip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        page = self.pages[self.page_index]
+        if not page:
+            await interaction.response.send_message("No item to equip on this page.", ephemeral=True)
+            return
+        # find first equippable item (weapon or armor) on page
+        equippable = next((it for it in page if it.get("type") in ("weapon", "armor")), None)
+        if not equippable:
+            await interaction.response.send_message("No equippable item on this page to equip.", ephemeral=True)
+            return
+        item_id = equippable.get("id")
+        await interaction.response.defer()
+        await self.cog._do_equip_item(interaction, str(interaction.user.id), item_id)
+        profiles = self.cog._load_profiles()
+        inv = self.cog._gather_inventory(profiles.get(str(self.author_id), {}))
+        pages = self.cog._paginate_inventory(inv)
+        self.pages = pages
+        self.page_index = min(self.page_index, max(0, len(self.pages) - 1))
+        await self.update_message()
