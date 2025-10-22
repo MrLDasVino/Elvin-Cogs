@@ -800,7 +800,7 @@ class FortuneGarden(commands.Cog):
         last = data["last_earned"]
         now = datetime.utcnow()
     
-        if last and now - datetime.fromisoformat(last) < timedelta(hours=1):
+        if last and now - datetime.fromisoformat(last) < timedelta(hours=5):
             return
     
         if random.random() < 0.05:
