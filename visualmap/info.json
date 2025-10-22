@@ -1,10 +1,8 @@
 {
   "name": "VisualMap",
-  "author": "Elvin",
+  "author": ["Elvin"],
   "description": "Procedural visual map generator for RP worlds (tiles, masks, markers).",
   "version": "1.0.0",
   "requirements": ["Pillow"],
   "short": "Procedural map generator",
-  "min_python_version": "3.8",
-  "min_red_version": "3.5.0"
 }
