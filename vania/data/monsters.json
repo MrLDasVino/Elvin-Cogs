@@ -3,6 +3,7 @@
     "name": "Vampire Bat",
     "hp": 20,
     "xp_reward": 15,
+    "heart_reward": 1,
     "win_chance": 0.8,
     "image": "https://i.imgur.com/abc123.png"
   },
@@ -10,7 +11,9 @@
     "name": "Skeleton Warrior",
     "hp": 35,
     "xp_reward": 25,
+    "heart_reward": 2,
     "win_chance": 0.6,
     "image": "https://i.imgur.com/def456.png"
   }
 ]
+

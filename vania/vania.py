@@ -151,21 +151,34 @@ class Vania(commands.Cog):
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid, self._default_profile())
-
+    
+        # Pick a random monster and fetch its image URL
         monster = random.choice(self.monsters)
         image_url = monster.get("image")
-
+    
+        # Gear stats
         weapon = self._get_equipment(profile.get("weapon"))
         armor = self._get_equipment(profile.get("armor"))
         xp_mod = float(weapon.get("xp_mod", 1.0))
         dmg_mod = float(weapon.get("damage_mod", 1.0))
         defense = int(armor.get("defense", 0))
-
+    
+        hearts_awarded = 0
+    
+        # Battle outcome
         if random.random() <= float(monster.get("win_chance", 0.5)):
             base_xp = int(monster.get("xp_reward", 0))
             xp_gain = int(base_xp * xp_mod)
             profile["xp"] += xp_gain
+    
+            # Award hearts if defined on monster
+            hearts_awarded = int(monster.get("heart_reward", 0))
+            if hearts_awarded:
+                profile["hearts"] = profile.get("hearts", 0) + hearts_awarded
+    
             description = f"You defeated **{monster['name']}** and gained {xp_gain} XP!"
+            if hearts_awarded:
+                description += f" You also received {hearts_awarded} Heart{'s' if hearts_awarded != 1 else ''}."
             color = discord.Color.green()
         else:
             base_dmg = random.randint(5, 15)
@@ -173,30 +186,38 @@ class Vania(commands.Cog):
             profile["hp"] = max(0, profile["hp"] - damage)
             description = f"The **{monster['name']}** wounded you for {damage} HP!"
             color = discord.Color.orange()
-
+    
+        # Collapse handling
         if profile["hp"] == 0:
             description += "\nYour HP dropped to 0. You collapse and revive at half HP."
             profile["hp"] = profile["max_hp"] // 2
-
+    
+        # Level-up logic: every 100 XP = 1 level
         old_level = profile.get("level", 1)
         new_level = profile["xp"] // 100 + 1
         if new_level > old_level:
             levels_gained = new_level - old_level
             profile["level"] = new_level
+            # increase max hp and heal a portion
             profile["max_hp"] = profile.get("max_hp", 100) + 5 * levels_gained
             profile["hp"] = min(profile["hp"] + 10 * levels_gained, profile["max_hp"])
             description += f"\nYou reached level {new_level}! Max HP +{5 * levels_gained}."
-
+    
         profiles[uid] = profile
         await self._save_profiles(profiles)
-
+    
+        # Build embed with image
         embed = discord.Embed(title="Monster Hunt", description=description, color=color)
         if image_url:
             embed.set_image(url=image_url)
+    
         embed.add_field(name="HP", value=f"{profile['hp']}/{profile['max_hp']}", inline=True)
         embed.add_field(name="XP", value=str(profile["xp"]), inline=True)
         embed.add_field(name="Level", value=str(profile.get("level", 1)), inline=True)
+        embed.add_field(name="Hearts", value=str(profile.get("hearts", 0)), inline=True)
+    
         await ctx.send(embed=embed)
+
 
     @vania.command(name="stats")
     async def stats(self, ctx: commands.Context):
