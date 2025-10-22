@@ -138,9 +138,12 @@ class WallhavenCog(commands.Cog):
         url = f"{BASE_API}/{endpoint}"
         async with sess.get(url, params=params, timeout=30) as resp:
             text = await resp.text()
-            # use module logger for diagnostics
-            logger.warning("Wallhaven API request %s params=%s status=%s body=%s", resp.url, params, resp.status, text)
+            # Log only URL, params and status; do not print the full response body
+            logger.debug("Wallhaven API request %s params=%s status=%s", resp.url, params, resp.status)
             if resp.status != 200:
+                # include a short/truncated body only on errors
+                short = text if len(text) < 400 else text[:400] + " ...[truncated]"
+                logger.warning("Wallhaven API error %s params=%s status=%s body=%s", resp.url, params, resp.status, short)
                 raise commands.CommandError(f"API returned {resp.status}: {text}")
             return await resp.json()
 
