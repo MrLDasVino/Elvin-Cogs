@@ -1,19 +1,30 @@
 [
   {
+    "id": "vampire_bat",
     "name": "Vampire Bat",
     "hp": 20,
+    "min_damage": 3,
+    "max_damage": 6,
     "xp_reward": 15,
     "heart_reward": 1,
-    "win_chance": 0.8,
-    "image": "https://i.imgur.com/abc123.png"
+    "crit_chance": 0.02,
+    "crit_multiplier": 1.5,
+    "image": "https://i.imgur.com/abc123.png",
+    "tags": ["flying"]
   },
   {
+    "id": "skeleton_warrior",
     "name": "Skeleton Warrior",
     "hp": 35,
+    "min_damage": 5,
+    "max_damage": 10,
     "xp_reward": 25,
     "heart_reward": 2,
-    "win_chance": 0.6,
-    "image": "https://i.imgur.com/def456.png"
+    "crit_chance": 0.03,
+    "crit_multiplier": 1.4,
+    "image": "https://i.imgur.com/def456.png",
+    "tags": ["undead"]
   }
 ]
+
 

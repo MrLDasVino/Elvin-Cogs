@@ -2,7 +2,7 @@ import asyncio
 import json
 import random
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import discord
 from redbot.core import commands
@@ -104,6 +104,59 @@ class Vania(commands.Cog):
         filled = int(current / maximum * length)
         return "█" * filled + "─" * (length - filled)
 
+    # ----------------- Combat helpers (turn-based) -----------------
+    def _player_attack(self, profile: dict, monster: dict) -> Tuple[int, bool]:
+        """
+        Compute player's damage against the monster for one attack.
+        Returns (damage, is_crit).
+        Weapon metadata supported: min_damage, max_damage, damage_mod, xp_mod, crit_chance, crit_multiplier.
+        Level and skill scaling applied.
+        """
+        weapon = self._get_equipment(profile.get("weapon"))
+        base_min = int(weapon.get("min_damage", 8))
+        base_max = int(weapon.get("max_damage", 14))
+        base = random.randint(base_min, base_max)
+
+        weapon_mod = float(weapon.get("damage_mod", 1.0))
+
+        lvl = int(profile.get("level", 1))
+        level_scale = 1.0 + 0.05 * max(0, lvl - 1)
+
+        skills = profile.get("skills", {})
+        whip_mastery = int(skills.get("WhipMastery", 0))
+        skill_scale = 1.0 + 0.10 * whip_mastery
+
+        crit_chance = float(weapon.get("crit_chance", 0.05)) + 0.01 * whip_mastery
+        crit_multiplier = float(weapon.get("crit_multiplier", 1.5))
+
+        is_crit = random.random() < crit_chance
+        mult = crit_multiplier if is_crit else 1.0
+
+        dmg = int(base * weapon_mod * level_scale * skill_scale * mult)
+        return max(0, dmg), is_crit
+
+    def _monster_attack(self, profile: dict, monster: dict) -> int:
+        """
+        Compute monster damage against player for one attack.
+        Monster metadata supported: min_damage, max_damage.
+        Armor defense reduces damage; Evasion skill can dodge.
+        """
+        base_min = int(monster.get("min_damage", max(1, int(monster.get("hp", 10) * 0.05))))
+        base_max = int(monster.get("max_damage", max(2, int(monster.get("hp", 10) * 0.15))))
+        base = random.randint(base_min, base_max)
+
+        armor = self._get_equipment(profile.get("armor"))
+        defense = int(armor.get("defense", 0))
+
+        skills = profile.get("skills", {})
+        evasion = int(skills.get("Evasion", 0))
+        dodge_chance = 0.02 * evasion
+        if random.random() < dodge_chance:
+            return 0
+
+        dmg = max(0, base - defense)
+        return dmg
+
     # ----------------- Event listeners for raid participant persistence -----------------
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
@@ -147,71 +200,96 @@ class Vania(commands.Cog):
     @commands.cooldown(1, 30, commands.BucketType.user)
     @vania.command(name="hunt")
     async def hunt(self, ctx: commands.Context):
-        """Begin a monster hunt using monsters.json and apply gear effects and heart rewards."""
+        """
+        Turn-based hunt: player and monster alternate attacks until one falls.
+        Uses weapon and armor stats, skills for scaling, awards XP and Hearts on victory.
+        """
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid, self._default_profile())
 
-        # Pick a random monster and fetch its image URL
-        monster = random.choice(self.monsters)
-        image_url = monster.get("image")
+        # Prepare monster snapshot (copy so changes don't mutate base data)
+        monster_def = random.choice(self.monsters)
+        monster = {
+            "name": monster_def.get("name", "Unknown"),
+            "hp": int(monster_def.get("hp", 10)),
+            "max_hp": int(monster_def.get("hp", 10)),
+            "xp_reward": int(monster_def.get("xp_reward", 0)),
+            "heart_reward": int(monster_def.get("heart_reward", 0)),
+            "min_damage": monster_def.get("min_damage"),
+            "max_damage": monster_def.get("max_damage"),
+            "image": monster_def.get("image"),
+        }
 
-        # Gear stats
-        weapon = self._get_equipment(profile.get("weapon"))
-        armor = self._get_equipment(profile.get("armor"))
-        xp_mod = float(weapon.get("xp_mod", 1.0))
-        dmg_mod = float(weapon.get("damage_mod", 1.0))
-        defense = int(armor.get("defense", 0))
+        log_lines: List[str] = []
+        player_hp = profile.get("hp", profile.get("max_hp", 100))
+        player_max = profile.get("max_hp", 100)
 
-        hearts_awarded = 0
+        log_lines.append(f"A wild **{monster['name']}** appears (HP: {monster['hp']})!")
 
-        # Battle outcome
-        if random.random() <= float(monster.get("win_chance", 0.5)):
-            base_xp = int(monster.get("xp_reward", 0))
-            xp_gain = int(base_xp * xp_mod)
-            profile["xp"] += xp_gain
+        round_count = 0
+        while player_hp > 0 and monster["hp"] > 0 and round_count < 100:
+            round_count += 1
 
-            # Award hearts if defined on monster
+            # Player attack
+            p_dmg, was_crit = self._player_attack(profile, monster)
+            monster["hp"] = max(0, monster["hp"] - p_dmg)
+            crit_note = " 💥" if was_crit and p_dmg > 0 else ""
+            log_lines.append(f"You strike the **{monster['name']}** for **{p_dmg}** damage{crit_note}. (Enemy {monster['hp']}/{monster['max_hp']})")
+            if monster["hp"] == 0:
+                break
+
+            # Monster attack
+            m_dmg = self._monster_attack(profile, monster)
+            player_hp = max(0, player_hp - m_dmg)
+            if m_dmg == 0:
+                log_lines.append(f"The **{monster['name']}** attacks but you evade it.")
+            else:
+                log_lines.append(f"The **{monster['name']}** hits you for **{m_dmg}** damage. (You {player_hp}/{player_max})")
+            if player_hp == 0:
+                break
+
+        # Outcome processing
+        if monster["hp"] == 0:
+            # Victory
+            weapon = self._get_equipment(profile.get("weapon"))
+            xp_gain = int(monster.get("xp_reward", 0) * float(weapon.get("xp_mod", 1.0)))
             hearts_awarded = int(monster.get("heart_reward", 0))
+            profile["xp"] = profile.get("xp", 0) + xp_gain
             if hearts_awarded:
                 profile["hearts"] = profile.get("hearts", 0) + hearts_awarded
-
-            description = f"You defeated **{monster['name']}** and gained {xp_gain} XP!"
-            if hearts_awarded:
-                description += f" You also received {hearts_awarded} Heart{'s' if hearts_awarded != 1 else ''}."
+                log_lines.append(f"You gained **{xp_gain} XP** and **{hearts_awarded} Heart{'s' if hearts_awarded != 1 else ''}**!")
+            else:
+                log_lines.append(f"You gained **{xp_gain} XP**!")
             color = discord.Color.green()
         else:
-            base_dmg = random.randint(5, 15)
-            damage = max(0, int(base_dmg * dmg_mod) - defense)
-            profile["hp"] = max(0, profile["hp"] - damage)
-            description = f"The **{monster['name']}** wounded you for {damage} HP!"
+            # Defeat
+            log_lines.append("You were defeated and collapse to the ground.")
+            player_hp = player_max // 2
+            profile["hp"] = player_hp
             color = discord.Color.orange()
 
-        # Collapse handling
-        if profile["hp"] == 0:
-            description += "\nYour HP dropped to 0. You collapse and revive at half HP."
-            profile["hp"] = profile["max_hp"] // 2
-
-        # Level-up logic: every 100 XP = 1 level
+        # Level-up logic (after XP applied)
         old_level = profile.get("level", 1)
-        new_level = profile["xp"] // 100 + 1
+        new_level = profile.get("xp", 0) // 100 + 1
         if new_level > old_level:
             levels_gained = new_level - old_level
             profile["level"] = new_level
             profile["max_hp"] = profile.get("max_hp", 100) + 5 * levels_gained
-            profile["hp"] = min(profile["hp"] + 10 * levels_gained, profile["max_hp"])
-            description += f"\nYou reached level {new_level}! Max HP +{5 * levels_gained}."
+            player_hp = min(player_hp + 10 * levels_gained, profile["max_hp"])
+            log_lines.append(f"You reached level {new_level}! Max HP +{5 * levels_gained}.")
 
+        # Save final HP and profile
+        profile["hp"] = player_hp
         profiles[uid] = profile
         await self._save_profiles(profiles)
 
-        # Build embed with image
-        embed = discord.Embed(title="Monster Hunt", description=description, color=color)
-        if image_url:
-            embed.set_image(url=image_url)
-
+        # Build embed
+        embed = discord.Embed(title=f"Hunt vs {monster['name']}", description="\n".join(log_lines), color=color)
+        if monster.get("image"):
+            embed.set_image(url=monster.get("image"))
         embed.add_field(name="HP", value=f"{profile['hp']}/{profile['max_hp']}", inline=True)
-        embed.add_field(name="XP", value=str(profile["xp"]), inline=True)
+        embed.add_field(name="XP", value=str(profile.get("xp", 0)), inline=True)
         embed.add_field(name="Level", value=str(profile.get("level", 1)), inline=True)
         embed.add_field(name="Hearts", value=str(profile.get("hearts", 0)), inline=True)
 
@@ -301,7 +379,9 @@ class Vania(commands.Cog):
         embed.add_field(name="Hearts", value=str(hearts), inline=True)
         if pages and pages[0]:
             page = pages[0]
-            embed.description = "\n".join(f"`{i.get('id')}` • **{i.get('name')}** x{i.get('qty')} — {i.get('type','misc')}" for i in page)
+            embed.description = "\n".join(
+                f"`{i.get('id')}` • **{i.get('name')}** x{i.get('qty')} — {i.get('type','misc')}" for i in page
+            )
         else:
             embed.description = "Inventory empty."
 
@@ -325,7 +405,6 @@ class Vania(commands.Cog):
         for iid, qty in profile.get("items", {}).items():
             meta = next((it for it in self.items if it.get("id") == iid), {})
             name = meta.get("name", iid)
-            # if this item is equippable (in equipment.json) mark as equippable
             equip_meta = next((e for e in self.equipment if e.get("id") == iid), None)
             it_type = "item"
             if equip_meta:
@@ -375,11 +454,6 @@ class Vania(commands.Cog):
 
         target_uid = uid
         target_member = None
-        if isinstance(ctx_or_interaction, discord.Interaction) and getattr(ctx_or_interaction, "user", None):
-            # if Interaction and target not provided, it's the interactor
-            pass
-        if isinstance(target_member, discord.Member):
-            target_uid = str(target_member.id)
 
         tprofile = profiles.get(target_uid, self._default_profile())
 
@@ -684,7 +758,6 @@ class InventoryView(discord.ui.View):
         if not page:
             await interaction.response.send_message("No item to use on this page.", ephemeral=True)
             return
-        # find first consumable on page
         consumable = next((it for it in page if it.get("type") == "consumable"), None)
         if not consumable:
             await interaction.response.send_message("No consumable on this page to use. Use Equip for equippable items.", ephemeral=True)
@@ -705,7 +778,6 @@ class InventoryView(discord.ui.View):
         if not page:
             await interaction.response.send_message("No item to equip on this page.", ephemeral=True)
             return
-        # find first equippable item (weapon or armor) on page
         equippable = next((it for it in page if it.get("type") in ("weapon", "armor")), None)
         if not equippable:
             await interaction.response.send_message("No equippable item on this page to equip.", ephemeral=True)

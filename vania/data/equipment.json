@@ -3,16 +3,24 @@
     "id": "vine_whip",
     "name": "Vine Whip",
     "category": "weapon",
+    "min_damage": 6,
+    "max_damage": 10,
     "xp_mod": 1.0,
     "damage_mod": 1.0,
+    "crit_chance": 0.05,
+    "crit_multiplier": 1.5,
     "price": 0
   },
   {
     "id": "iron_sword",
     "name": "Iron Sword",
     "category": "weapon",
+    "min_damage": 9,
+    "max_damage": 14,
     "xp_mod": 1.1,
     "damage_mod": 1.2,
+    "crit_chance": 0.06,
+    "crit_multiplier": 1.6,
     "price": 100
   },
   {
@@ -30,3 +38,4 @@
     "price": 200
   }
 ]
+
