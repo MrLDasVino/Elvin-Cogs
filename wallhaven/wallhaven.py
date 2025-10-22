@@ -34,7 +34,7 @@ def _make_embed(wall: Dict[str, Any], title_prefix: str = "Wallhaven"):
     title = f"{title_prefix} {wall.get('id', '')}"
     page_url = wall.get("url") or f"https://wallhaven.cc/w/{wall.get('id')}"
     image = wall.get("path") or wall.get("file") or (wall.get("thumbs") or {}).get("original")
-    resolution = wall.get("resolution") or f"{wall.get('width', '?')}x{wall.get('height', '?')}"
+    resolution = wall.get("resolution") or f"{wall.get('dimension_x', '?')}x{wall.get('dimension_y', '?')}"
     purity = wall.get("purity", "unknown")
     uploader = None
     uploader_data = wall.get("uploader")
@@ -61,7 +61,8 @@ class ImageNavView(ui.View):
         options = []
         for i, r in enumerate(results[:25]):
             label = f"#{i+1} {r.get('id')}"
-            options.append(discord.SelectOption(label=(label if len(label) <= 100 else label[:97] + "..."), value=str(i)))
+            label = label if len(label) <= 100 else label[:97] + "..."
+            options.append(discord.SelectOption(label=label, value=str(i)))
         self.select = ui.Select(placeholder="Choose image", options=options, min_values=1, max_values=1)
         self.select.callback = self.on_select
         self.add_item(self.select)
@@ -113,8 +114,6 @@ class ImageNavView(ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
 
-
-
 class WallhavenCog(commands.Cog):
     """Wallhaven wallpaper fetcher with interactive navigation."""
 
@@ -138,10 +137,9 @@ class WallhavenCog(commands.Cog):
         url = f"{BASE_API}/{endpoint}"
         async with sess.get(url, params=params, timeout=30) as resp:
             text = await resp.text()
-            # Log only URL, params and status; do not print the full response body
+            # minimal debug log; truncate body only on non-200 errors
             logger.debug("Wallhaven API request %s params=%s status=%s", resp.url, params, resp.status)
             if resp.status != 200:
-                # include a short/truncated body only on errors
                 short = text if len(text) < 400 else text[:400] + " ...[truncated]"
                 logger.warning("Wallhaven API error %s params=%s status=%s body=%s", resp.url, params, resp.status, short)
                 raise commands.CommandError(f"API returned {resp.status}: {text}")
@@ -153,7 +151,7 @@ class WallhavenCog(commands.Cog):
         apikey = guild_conf.get("api_key")
         if apikey:
             params["apikey"] = apikey
-        # try /w/{id}
+        # try /w/{id} first
         try:
             data = await self._call_api(f"w/{wall_id}", params)
             return data.get("data")
@@ -170,26 +168,24 @@ class WallhavenCog(commands.Cog):
 
     async def _random_api(self, ctx: commands.Context, categories: str, purity: str) -> List[Dict[str, Any]]:
         """
-        Return a list of wallpapers (one or more). Prefer /random, but fallback to search?sorting=random
+        Prefer search?sorting=random fallback. Try /random once, then search sorting.
         """
-        params = {"purity": purity, "categories": categories}
         guild_conf = await self.config.guild(ctx.guild).all()
         apikey = guild_conf.get("api_key")
+        params = {"purity": purity, "categories": categories}
         if apikey:
             params["apikey"] = apikey
-    
-        # Try the /random API endpoint first
+
+        # Try /random once
         try:
             data = await self._call_api("random", params)
             d = data.get("data")
-            if not d:
-                return []
-            return d if isinstance(d, list) else [d]
+            if d:
+                return d if isinstance(d, list) else [d]
         except commands.CommandError as exc:
             logger.warning("Wallhaven /random failed (%s), falling back to search?sorting=random", exc)
-    
-        # Fallback: use the search endpoint with sorting=random
-        # Use per_page from config (limit to 24 or configured max)
+
+        # Fallback: use search with sorting=random
         per_page = min(int(guild_conf.get("max_search_results", 24) or 24), 48)
         search_params = {
             "purity": purity,
@@ -200,14 +196,14 @@ class WallhavenCog(commands.Cog):
         }
         if apikey:
             search_params["apikey"] = apikey
-    
+
         try:
             data = await self._call_api("search", search_params)
             results = data.get("data", [])
-            return results if isinstance(results, list) else (results and [results]) or []
+            return results if isinstance(results, list) else ([results] if results else [])
         except commands.CommandError as exc:
             logger.warning("Wallhaven search?sorting=random fallback failed: %s", exc)
-            # As a last resort try site redirect method (existing fallback)
+            # last resort: site redirect to extract id, then lookup
             sess = await self._session()
             async with sess.get("https://wallhaven.cc/random", allow_redirects=False) as r:
                 loc = r.headers.get("Location")
@@ -216,7 +212,6 @@ class WallhavenCog(commands.Cog):
                 wall_id = loc.rstrip("/").split("/")[-1]
                 w = await self._get_wallpaper_by_id(ctx, wall_id)
                 return [w] if w else []
-
 
     async def _search_api(self, ctx: commands.Context, q: Optional[str], categories: str, purity: str, per_page: int = 24, page: int = 1) -> List[Dict[str, Any]]:
         params = {"purity": purity, "categories": categories, "per_page": per_page, "page": page}
