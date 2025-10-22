@@ -303,11 +303,26 @@ class WallhavenSetView(ui.View):
 
     @ui.button(label="NSFW Toggle", style=discord.ButtonStyle.danger)
     async def nsfw_button(self, interaction: discord.Interaction, button: ui.Button):
+        # allow bot owner or guild manage_guild permission
         if not await self._check_owner_or_guild_manage(interaction):
             return
+
+        # require a configured API key before allowing NSFW toggling
+        guild_conf = await self.cog.config.guild(self.ctx.guild).all()
+        apikey = guild_conf.get("api_key")
+        if not apikey:
+            await interaction.response.send_message(
+                "You must set a Wallhaven API key first via Apikey in this settings panel before toggling NSFW.",
+                ephemeral=True
+            )
+            return
+
         current = await self.cog.config.guild(self.ctx.guild).nsfw_enabled()
         await self.cog.config.guild(self.ctx.guild).nsfw_enabled.set(not current)
-        await interaction.response.send_message(f"NSFW posting set to {'enabled' if not current else 'disabled'} for this guild.", ephemeral=True)
+        await interaction.response.send_message(
+            f"NSFW posting set to {'enabled' if not current else 'disabled'} for this guild.",
+            ephemeral=True
+        )
 
     async def _check_owner(self, interaction: discord.Interaction) -> bool:
         if not await self.cog.bot.is_owner(interaction.user):
