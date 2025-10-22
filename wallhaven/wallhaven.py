@@ -55,8 +55,9 @@ class ImageNavView(ui.View):
         self.ctx = ctx
         self.results = results
         self.index = 0
+        # build select options (limit to 25 options for discord)
         options = []
-        for i, r in enumerate(results):
+        for i, r in enumerate(results[:25]):
             label = f"#{i+1} {r.get('id')}"
             options.append(discord.SelectOption(label=(label if len(label) <= 100 else label[:97] + "..."), value=str(i)))
         self.select = ui.Select(placeholder="Choose image", options=options, min_values=1, max_values=1)
@@ -133,9 +134,58 @@ class WallhavenCog(commands.Cog):
         url = f"{BASE_API}/{endpoint}"
         async with sess.get(url, params=params, timeout=30) as resp:
             text = await resp.text()
+            # log full URL and body for debugging
+            self.bot.logger.warning("Wallhaven API request %s params=%s status=%s body=%s", resp.url, params, resp.status, text)
             if resp.status != 200:
                 raise commands.CommandError(f"API returned {resp.status}: {text}")
             return await resp.json()
+
+    async def _get_wallpaper_by_id(self, ctx: commands.Context, wall_id: str) -> Optional[Dict[str, Any]]:
+        params = {}
+        guild_conf = await self.config.guild(ctx.guild).all()
+        apikey = guild_conf.get("api_key")
+        if apikey:
+            params["apikey"] = apikey
+        # try /w/{id}
+        try:
+            data = await self._call_api(f"w/{wall_id}", params)
+            return data.get("data")
+        except commands.CommandError:
+            # fallback to search?q=id
+            try:
+                params2 = params.copy()
+                params2.update({"q": wall_id, "per_page": 1})
+                search = await self._call_api("search", params2)
+                results = search.get("data", [])
+                return results[0] if results else None
+            except commands.CommandError:
+                return None
+
+    async def _random_api(self, ctx: commands.Context, categories: str, purity: str) -> List[Dict[str, Any]]:
+        params = {"purity": purity, "categories": categories}
+        guild_conf = await self.config.guild(ctx.guild).all()
+        apikey = guild_conf.get("api_key")
+        if apikey:
+            params["apikey"] = apikey
+
+        # 1) try the API random endpoint
+        try:
+            data = await self._call_api("random", params)
+            d = data.get("data")
+            if not d:
+                return []
+            return d if isinstance(d, list) else [d]
+        except commands.CommandError as exc:
+            # If random endpoint fails (404), attempt site redirect fallback
+            self.bot.logger.warning("Wallhaven /random failed, trying site fallback: %s", exc)
+            sess = await self._session()
+            async with sess.get("https://wallhaven.cc/random", allow_redirects=False) as r:
+                loc = r.headers.get("Location")
+                if not loc:
+                    return []
+                wall_id = loc.rstrip("/").split("/")[-1]
+                w = await self._get_wallpaper_by_id(ctx, wall_id)
+                return [w] if w else []
 
     async def _search_api(self, ctx: commands.Context, q: Optional[str], categories: str, purity: str, per_page: int = 24, page: int = 1) -> List[Dict[str, Any]]:
         params = {"purity": purity, "categories": categories, "per_page": per_page, "page": page}
@@ -148,16 +198,6 @@ class WallhavenCog(commands.Cog):
         data = await self._call_api("search", params)
         return data.get("data", [])
 
-    async def _random_api(self, ctx: commands.Context, categories: str, purity: str) -> List[Dict[str, Any]]:
-        params = {"purity": purity, "categories": categories}
-        guild_conf = await self.config.guild(ctx.guild).all()
-        apikey = guild_conf.get("api_key")
-        if apikey:
-            params["apikey"] = apikey
-        data = await self._call_api("random", params)
-        d = data.get("data")
-        return d if isinstance(d, list) else [d]
-
     def _is_nsfw_wall(self, wall: Dict[str, Any]) -> bool:
         purity = str(wall.get("purity", "100"))
         if len(purity) >= 3:
@@ -167,12 +207,8 @@ class WallhavenCog(commands.Cog):
     async def _can_post_nsfw(self, ctx: commands.Context) -> bool:
         if ctx.channel.is_nsfw():
             return True
-        guild_conf = await self.config.guild(ctx.guild).nsfw_enabled()
-        return bool(guild_conf)
-
-    def _calling_guild_id(self) -> int:
-        # default fallback id for config calls outside command context; kept simple
-        return 0
+        current = await self.config.guild(ctx.guild).nsfw_enabled()
+        return bool(current)
 
     @commands.group(name="wallhaven", invoke_without_command=True)
     async def wallhaven(self, ctx: commands.Context, *, query: Optional[str] = None):
