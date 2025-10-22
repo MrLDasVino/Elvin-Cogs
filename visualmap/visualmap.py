@@ -36,14 +36,31 @@ def _to_rgb_tuple(color):
     """Accept list or tuple like [r,g,b] or (r,g,b) and return (r,g,b)."""
     if color is None:
         return (0, 0, 0)
-    if isinstance(color, (list, tuple)):
-        if len(color) >= 3:
-            try:
-                return (int(color[0]), int(color[1]), int(color[2]))
-            except Exception:
-                return (0, 0, 0)
-    # fallback
+    if isinstance(color, (list, tuple)) and len(color) >= 3:
+        try:
+            return (int(color[0]), int(color[1]), int(color[2]))
+        except Exception:
+            return (0, 0, 0)
     return (0, 0, 0)
+
+def _text_size(draw, text, font):
+    """
+    Cross-version helper to get text size.
+    Returns (width, height).
+    """
+    try:
+        # Pillow older versions
+        return draw.textsize(text, font=font)
+    except Exception:
+        try:
+            # Pillow newer versions: textbbox
+            bbox = draw.textbbox((0, 0), text, font=font)
+            return (bbox[2] - bbox[0], bbox[3] - bbox[1])
+        except Exception:
+            try:
+                return font.getsize(text)
+            except Exception:
+                return (0, 0)
 
 class VisualMap(commands.Cog):
     """Procedural visual map generator for RP worlds"""
@@ -70,12 +87,11 @@ class VisualMap(commands.Cog):
     def _paint_tiles(self, base_img, tile_size, palette):
         w, h = base_img.size
         draw = ImageDraw.Draw(base_img)
-        tiles_x = w // tile_size + 1
-        tiles_y = h // tile_size + 1
+        tiles_x = max(1, w // tile_size + 1)
+        tiles_y = max(1, h // tile_size + 1)
         base_ground = _to_rgb_tuple(palette.get("ground", (188, 185, 150)))
         for tx in range(tiles_x):
             for ty in range(tiles_y):
-                # slightly vary ground color
                 jitter = lambda c: max(0, min(255, int(c) + random.randint(-8, 8)))
                 color = tuple(jitter(c) for c in base_ground)
                 x0 = tx * tile_size
@@ -83,7 +99,6 @@ class VisualMap(commands.Cog):
                 x1 = x0 + tile_size
                 y1 = y0 + tile_size
                 draw.rectangle([x0, y0, x1, y1], fill=color)
-        # subtle noise
         base_img = base_img.filter(ImageFilter.GaussianBlur(0.3))
         return base_img
 
@@ -95,7 +110,6 @@ class VisualMap(commands.Cog):
         overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
 
-        # create a few blobs: forests, lakes, mountains
         region_types = [
             ("forest", 0.5),
             ("water", 0.3),
@@ -104,11 +118,10 @@ class VisualMap(commands.Cog):
         count = random.randint(3, 7)
         for _ in range(count):
             rtype = _rand_choice_weighted(region_types)
-            cx = random.randint(0, w)
-            cy = random.randint(0, h)
+            cx = random.randint(0, max(1, w))
+            cy = random.randint(0, max(1, h))
             rx = random.randint(max(10, w // 10), max(20, w // 4))
             ry = random.randint(max(10, h // 12), max(20, h // 5))
-            # irregular blob by many overlapping ellipses
             n = random.randint(3, 8)
             for i in range(n):
                 jitterx = random.randint(-rx // 3, rx // 3)
@@ -123,7 +136,6 @@ class VisualMap(commands.Cog):
                 ]
                 color_rgb = _to_rgb_tuple(palette.get(rtype, (100, 100, 100)))
                 draw.ellipse(ellipse_bbox, fill=color_rgb + (220,))
-        # blend overlay
         img = Image.alpha_composite(img.convert("RGBA"), overlay)
         return img
 
@@ -139,19 +151,18 @@ class VisualMap(commands.Cog):
     def _draw_markers(self, img, markers, palette, font):
         draw = ImageDraw.Draw(img)
         for m in markers:
+            if "pos" not in m:
+                continue
             x, y = m["pos"]
             r = m.get("size", 14)
             bg = _to_rgb_tuple(palette.get("marker_bg", (200, 40, 40)))
             txtcol = _to_rgb_tuple(palette.get("marker_text", (255, 255, 255)))
-            # circle
             draw.ellipse([x - r, y - r, x + r, y + r], fill=bg + (255,))
-            # label
-            text = m.get("label", "")
+            text = str(m.get("label", "")) or ""
             if text:
-                w, h = draw.textsize(text, font=font)
+                w, h = _text_size(draw, text, font)
                 tx = x + r + 6
                 ty = y - h // 2
-                # background box
                 pad = 4
                 draw.rectangle([tx - pad, ty - pad, tx + w + pad, ty + h + pad], fill=(0, 0, 0, 180))
                 draw.text((tx, ty), text, font=font, fill=txtcol)
@@ -162,13 +173,11 @@ class VisualMap(commands.Cog):
         canvas = self._create_canvas(size, palette.get("ground", (188, 185, 150)))
         canvas = self._paint_tiles(canvas, tile_size, palette)
         canvas = self._paint_regions(canvas, palette, seed=seed)
-        # optional roads between markers
         if markers and len(markers) >= 2:
             pts = [m["pos"] for m in markers if "pos" in m]
             if pts:
                 canvas = self._draw_roads(canvas, pts, palette)
         canvas = self._draw_markers(canvas, markers or [], palette, self.font)
-        # final slight sharpen / convert
         canvas = canvas.convert("RGB")
         return canvas
 
@@ -206,7 +215,6 @@ class VisualMap(commands.Cog):
         seed = None
         markers = []
 
-        # quick parser for options
         opt_tokens = [t.strip() for t in options.split() if t.strip()]
         for tok in opt_tokens:
             if tok.startswith("size="):
@@ -252,7 +260,6 @@ class VisualMap(commands.Cog):
         size = guild_conf.get("canvas_size", DEFAULTS["canvas_size"])
         tile_size = guild_conf.get("tile_size", DEFAULTS["tile_size"])
         palette = guild_conf.get("palette", DEFAULTS["palette"])
-        # pick random pos
         w, h = size
         pos = (random.randint(40, max(60, w - 40)), random.randint(40, max(60, h - 40)))
         markers = [{"label": label, "pos": pos, "size": 16}]
@@ -269,7 +276,6 @@ class VisualMap(commands.Cog):
         Example payload:
         markers=[Town@100,200;Gate@300,400] size=640x480
         """
-        # very small parser focusing on markers and size
         size = DEFAULTS["canvas_size"]
         tile_size = DEFAULTS["tile_size"]
         palette = DEFAULTS["palette"]
