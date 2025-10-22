@@ -14,17 +14,17 @@ BASE_API = "https://wallhaven.cc/api/v1"
 
 DEFAULTS = {
     "api_key": None,
-    "default_categories": "111",  # all
-    "default_purity": "100",      # SFW by default
+    "default_categories": "111",
+    "default_purity": "100",
     "max_search_results": 24,
-    "nsfw_enabled": False
+    "nsfw_enabled": False,
 }
 
 CATEGORIES_MAP = {
     "general": "100",
     "anime": "010",
     "people": "001",
-    "all": "111"
+    "all": "111",
 }
 
 PURITY_SFW = "100"
@@ -137,7 +137,6 @@ class WallhavenCog(commands.Cog):
         url = f"{BASE_API}/{endpoint}"
         async with sess.get(url, params=params, timeout=30) as resp:
             text = await resp.text()
-            # minimal debug log; truncate body only on non-200 errors
             logger.debug("Wallhaven API request %s params=%s status=%s", resp.url, params, resp.status)
             if resp.status != 200:
                 short = text if len(text) < 400 else text[:400] + " ...[truncated]"
@@ -151,12 +150,10 @@ class WallhavenCog(commands.Cog):
         apikey = guild_conf.get("api_key")
         if apikey:
             params["apikey"] = apikey
-        # try /w/{id} first
         try:
             data = await self._call_api(f"w/{wall_id}", params)
             return data.get("data")
         except commands.CommandError:
-            # fallback to search?q=id
             try:
                 params2 = params.copy()
                 params2.update({"q": wall_id, "per_page": 1})
@@ -167,27 +164,10 @@ class WallhavenCog(commands.Cog):
                 return None
 
     async def _random_api(self, ctx: commands.Context, categories: str, purity: str) -> List[Dict[str, Any]]:
-        """
-        Prefer search?sorting=random fallback. Try /random once, then search sorting.
-        """
         guild_conf = await self.config.guild(ctx.guild).all()
         apikey = guild_conf.get("api_key")
-        params = {"purity": purity, "categories": categories}
-        if apikey:
-            params["apikey"] = apikey
-
-        # Try /random once
-        try:
-            data = await self._call_api("random", params)
-            d = data.get("data")
-            if d:
-                return d if isinstance(d, list) else [d]
-        except commands.CommandError as exc:
-            logger.warning("Wallhaven /random failed (%s), falling back to search?sorting=random", exc)
-
-        # Fallback: use search with sorting=random
         per_page = min(int(guild_conf.get("max_search_results", 24) or 24), 48)
-        search_params = {
+        params = {
             "purity": purity,
             "categories": categories,
             "sorting": "random",
@@ -195,15 +175,13 @@ class WallhavenCog(commands.Cog):
             "page": 1,
         }
         if apikey:
-            search_params["apikey"] = apikey
-
+            params["apikey"] = apikey
         try:
-            data = await self._call_api("search", search_params)
+            data = await self._call_api("search", params)
             results = data.get("data", [])
             return results if isinstance(results, list) else ([results] if results else [])
         except commands.CommandError as exc:
-            logger.warning("Wallhaven search?sorting=random fallback failed: %s", exc)
-            # last resort: site redirect to extract id, then lookup
+            logger.warning("Wallhaven search?sorting=random failed: %s", exc)
             sess = await self._session()
             async with sess.get("https://wallhaven.cc/random", allow_redirects=False) as r:
                 loc = r.headers.get("Location")
@@ -238,7 +216,6 @@ class WallhavenCog(commands.Cog):
 
     @commands.group(name="wallhaven", invoke_without_command=True)
     async def wallhaven(self, ctx: commands.Context, *, query: Optional[str] = None):
-        """Wallhaven commands. Use subcommands random, search, category, nsfw."""
         if query:
             await ctx.invoke(self.search, query=query)
         else:
@@ -246,7 +223,6 @@ class WallhavenCog(commands.Cog):
 
     @wallhaven.command(name="random")
     async def random(self, ctx: commands.Context, category: Optional[str] = None):
-        """Fetch random wallpapers. Optional category: general anime people all."""
         cfg = await self.config.guild(ctx.guild).all()
         categories = CATEGORIES_MAP.get((category or "").lower(), cfg.get("default_categories"))
         purity = cfg.get("default_purity", PURITY_SFW)
@@ -273,7 +249,6 @@ class WallhavenCog(commands.Cog):
 
     @wallhaven.command(name="search")
     async def search(self, ctx: commands.Context, *, query: str):
-        """Search Wallhaven and present interactive navigation for results."""
         cfg = await self.config.guild(ctx.guild).all()
         categories = cfg.get("default_categories")
         purity = cfg.get("default_purity", PURITY_SFW)
@@ -301,7 +276,6 @@ class WallhavenCog(commands.Cog):
 
     @wallhaven.command(name="category")
     async def category(self, ctx: commands.Context, category: str):
-        """Quick search by category. Valid: general anime people all."""
         if category.lower() not in CATEGORIES_MAP:
             await ctx.send("Invalid category. Valid options: general anime people all.")
             return
@@ -310,13 +284,11 @@ class WallhavenCog(commands.Cog):
     @wallhaven.group(name="nsfw", invoke_without_command=True)
     @checks.admin_or_permissions(manage_guild=True)
     async def nsfw(self, ctx: commands.Context):
-        """NSFW toggle group. Use nsfw toggle to enable or disable posting NSFW results."""
         await ctx.send_help(ctx.command)
 
     @nsfw.command(name="toggle")
     @checks.admin_or_permissions(manage_guild=True)
     async def nsfw_toggle(self, ctx: commands.Context):
-        """Toggle NSFW for this guild."""
         current = await self.config.guild(ctx.guild).nsfw_enabled()
         await self.config.guild(ctx.guild).nsfw_enabled.set(not current)
         await ctx.send(f"NSFW posting set to {'enabled' if not current else 'disabled'} for this guild.")
@@ -324,13 +296,11 @@ class WallhavenCog(commands.Cog):
     @commands.group(name="wallhavenset", invoke_without_command=True)
     @checks.is_owner()
     async def wallhavenset(self, ctx: commands.Context):
-        """Owner-only configuration group."""
         await ctx.send_help(ctx.command)
 
     @wallhavenset.command(name="apikey")
     @checks.is_owner()
     async def set_apikey(self, ctx: commands.Context, key: Optional[str] = None):
-        """Set or clear the Wallhaven API key for this guild."""
         if not key:
             await self.config.guild(ctx.guild).api_key.set(None)
             await ctx.send("API key cleared for this guild.")
@@ -341,7 +311,6 @@ class WallhavenCog(commands.Cog):
     @wallhavenset.command(name="purity")
     @checks.is_owner()
     async def set_purity(self, ctx: commands.Context, choice: str):
-        """Set default purity for the guild. Use 'sfw' to restrict to SFW."""
         c = choice.strip().lower()
         if c == "sfw":
             await self.config.guild(ctx.guild).default_purity.set("100")
@@ -352,7 +321,6 @@ class WallhavenCog(commands.Cog):
     @wallhavenset.command(name="categories")
     @checks.is_owner()
     async def set_categories(self, ctx: commands.Context, choice: str):
-        """Set default categories for the guild."""
         if choice.lower() not in CATEGORIES_MAP:
             await ctx.send("Invalid categories. Valid: general anime people all.")
             return
@@ -362,7 +330,6 @@ class WallhavenCog(commands.Cog):
     @wallhavenset.command(name="maxresults")
     @checks.is_owner()
     async def set_maxresults(self, ctx: commands.Context, amount: int):
-        """Set max results per search (1-48)."""
         if amount < 1 or amount > 48:
             await ctx.send("Provide a number between 1 and 48.")
             return
