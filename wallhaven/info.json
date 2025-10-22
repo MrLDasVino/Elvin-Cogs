@@ -5,6 +5,6 @@
   "requirements": ["aiohttp", "discord.py"],
   "short": "Wallhaven wallpapers with interactive navigation",
   "description": "Fetch wallpapers from Wallhaven (random, search, category) with buttons and a dropdown. Guild-level NSFW toggle and owner config.",
-  "install_msg": "Wallhaven cog loaded. Use [p]wallhaven help for commands.",
+  "install_msg": "Thank you for installing! Use [p]wallhaven to use or [p]wallhavenset for configuration, If you enjoy my cogs and wish to support me then please consider donating via [Ko-Fi](https://ko-fi.com/dasvino)!",
   "tags": ["images", "wallpaper", "wallhaven", "ui"]
 }
