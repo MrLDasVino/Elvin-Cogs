@@ -36,7 +36,6 @@ class Vania(commands.Cog):
             if not f.exists():
                 f.write_text(json.dumps({}))
             else:
-                # if existing file invalid, back it up and reinitialize
                 try:
                     json.loads(f.read_text())
                 except Exception:
@@ -89,7 +88,9 @@ class Vania(commands.Cog):
             "hp": 100,
             "max_hp": 100,
             "hearts": 0,
-            "relics": []
+            "relics": [],
+            "consumables": {},
+            "items": {}
         }
 
     def _get_equipment(self, equip_id: Optional[str]) -> dict:
@@ -109,7 +110,6 @@ class Vania(commands.Cog):
         if user.bot:
             return
         raids = self._load_raids()
-        # find matching raid by message id and channel
         for boss_id, data in list(raids.items()):
             if data.get("message_id") == reaction.message.id and data.get("channel_id") == reaction.message.channel.id:
                 if str(reaction.emoji) != "✅":
@@ -152,18 +152,15 @@ class Vania(commands.Cog):
         uid = str(ctx.author.id)
         profile = profiles.get(uid, self._default_profile())
 
-        # Pick a random monster and fetch its image URL
         monster = random.choice(self.monsters)
         image_url = monster.get("image")
 
-        # Gear stats
         weapon = self._get_equipment(profile.get("weapon"))
         armor = self._get_equipment(profile.get("armor"))
         xp_mod = float(weapon.get("xp_mod", 1.0))
         dmg_mod = float(weapon.get("damage_mod", 1.0))
         defense = int(armor.get("defense", 0))
 
-        # Battle outcome
         if random.random() <= float(monster.get("win_chance", 0.5)):
             base_xp = int(monster.get("xp_reward", 0))
             xp_gain = int(base_xp * xp_mod)
@@ -177,18 +174,15 @@ class Vania(commands.Cog):
             description = f"The **{monster['name']}** wounded you for {damage} HP!"
             color = discord.Color.orange()
 
-        # Collapse handling
         if profile["hp"] == 0:
             description += "\nYour HP dropped to 0. You collapse and revive at half HP."
             profile["hp"] = profile["max_hp"] // 2
 
-        # Level-up logic: every 100 XP = 1 level
         old_level = profile.get("level", 1)
         new_level = profile["xp"] // 100 + 1
         if new_level > old_level:
             levels_gained = new_level - old_level
             profile["level"] = new_level
-            # increase max hp and heal a portion
             profile["max_hp"] = profile.get("max_hp", 100) + 5 * levels_gained
             profile["hp"] = min(profile["hp"] + 10 * levels_gained, profile["max_hp"])
             description += f"\nYou reached level {new_level}! Max HP +{5 * levels_gained}."
@@ -196,7 +190,6 @@ class Vania(commands.Cog):
         profiles[uid] = profile
         await self._save_profiles(profiles)
 
-        # Build embed with image
         embed = discord.Embed(title="Monster Hunt", description=description, color=color)
         if image_url:
             embed.set_image(url=image_url)
@@ -249,14 +242,12 @@ class Vania(commands.Cog):
         if not profile:
             return await ctx.send("Start hunting first with `vania hunt`.")
 
-        # Validate skill against skills_def
         if skill not in self.skills_def:
             valid = ", ".join(sorted(self.skills_def.keys()))
             return await ctx.send(f"Unknown skill `{skill}`. Valid skills: {valid}")
 
         skills = profile.setdefault("skills", {})
         current = skills.get(skill, 0)
-        # Skill cost can come from skills_def or default formula
         defined_cost = self.skills_def.get(skill, {}).get("base_cost")
         cost = int(defined_cost) if defined_cost is not None else (current + 1) * 50
 
@@ -285,7 +276,6 @@ class Vania(commands.Cog):
         if not item:
             return await ctx.send(f"No equipment found with ID `{item_id}`.")
 
-        # Equip by category
         category = item.get("category")
         if category == "weapon":
             profile["weapon"] = item_id
@@ -297,7 +287,6 @@ class Vania(commands.Cog):
         profiles[uid] = profile
         await self._save_profiles(profiles)
 
-        # Show resulting stats succinctly
         weapon = self._get_equipment(profile.get("weapon"))
         armor = self._get_equipment(profile.get("armor"))
         xp_mod = weapon.get("xp_mod", 1.0)
@@ -305,6 +294,167 @@ class Vania(commands.Cog):
         defense = armor.get("defense", 0)
 
         await ctx.send(f"You have equipped **{item['name']}** as your {category}. (XP×{xp_mod}, DMG×{dmg_mod}, DEF {defense})")
+
+    # ----------------- Inventory, Use, Heal Implementation -----------------
+    @vania.command(name="inventory")
+    async def inventory(self, ctx: commands.Context):
+        """List items, relics, and consumables with pagination and quick-use buttons."""
+        profiles = self._load_profiles()
+        uid = str(ctx.author.id)
+        profile = profiles.get(uid, self._default_profile())
+
+        inv = self._gather_inventory(profile)
+        pages = self._paginate_inventory(inv)
+        view = InventoryView(self, ctx, pages)
+
+        embed = discord.Embed(title=f"{ctx.author.display_name}'s Inventory", color=discord.Color.blurple())
+        if pages and pages[0]:
+            page = pages[0]
+            embed.description = "\n".join(f"`{i.get('id')}` • **{i.get('name')}** x{i.get('qty')} — {i.get('type','misc')}" for i in page)
+        else:
+            embed.description = "Inventory empty."
+
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
+        await view.update_message()
+
+    def _gather_inventory(self, profile: dict) -> List[dict]:
+        """
+        Convert stored profile fields into a flat list of items suitable for display.
+        Expected profile keys: 'relics' (list), 'consumables' (dict id->qty), 'items' (dict id->qty)
+        Returns list of dicts with keys: id, name, qty, type.
+        """
+        out: List[dict] = []
+        for relic in profile.get("relics", []):
+            out.append({"id": str(relic), "name": str(relic), "qty": 1, "type": "relic"})
+        for cid, qty in profile.get("consumables", {}).items():
+            meta = next((it for it in self.items if it.get("id") == cid), {})
+            name = meta.get("name", cid)
+            out.append({"id": cid, "name": name, "qty": int(qty), "type": "consumable"})
+        for iid, qty in profile.get("items", {}).items():
+            meta = next((it for it in self.items if it.get("id") == iid), {})
+            name = meta.get("name", iid)
+            out.append({"id": iid, "name": name, "qty": int(qty), "type": "item"})
+        return out
+
+    def _paginate_inventory(self, inventory: List[dict], per_page: int = 6) -> List[List[dict]]:
+        pages: List[List[dict]] = []
+        for i in range(0, len(inventory), per_page):
+            pages.append(inventory[i : i + per_page])
+        if not pages:
+            pages.append([])
+        return pages
+
+    @vania.command(name="use")
+    async def use(self, ctx: commands.Context, item_id: str, target: Optional[discord.Member] = None):
+        """Use a consumable item from your inventory. Target optional for revive or healing others."""
+        uid = str(ctx.author.id)
+        await self._do_use_item(ctx, uid, item_id, target)
+
+    async def _do_use_item(self, ctx_or_interaction, uid: str, item_id: str, target: Optional[discord.Member]):
+        """
+        ctx_or_interaction may be either Context or Interaction.
+        The function performs validations, applies effects, updates profile, and sends a reply.
+        """
+        is_interaction = hasattr(ctx_or_interaction, "response") and isinstance(ctx_or_interaction, discord.Interaction)
+        send_target = ctx_or_interaction if not is_interaction else ctx_or_interaction
+
+        profiles = self._load_profiles()
+        profile = profiles.get(uid)
+        if not profile:
+            msg = "No profile found. Start hunting with `vania hunt`."
+            if is_interaction:
+                await ctx_or_interaction.followup.send(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return
+
+        consumables = profile.get("consumables", {})
+        qty = int(consumables.get(item_id, 0))
+        if qty <= 0:
+            msg = f"You don't have any `{item_id}` to use."
+            if is_interaction:
+                await ctx_or_interaction.followup.send(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return
+
+        meta = next((it for it in self.items if it.get("id") == item_id), {})
+        kind = meta.get("effect", "heal")
+        name = meta.get("name", item_id)
+
+        target_uid = uid
+        target_member = None
+        if target:
+            target_uid = str(target.id)
+            target_member = target
+
+        tprofile = profiles.get(target_uid, self._default_profile())
+
+        result_lines = []
+        if kind == "heal":
+            amount = int(meta.get("value", 25))
+            old = tprofile.get("hp", tprofile.get("max_hp", 100))
+            tprofile["hp"] = min(tprofile.get("max_hp", 100), old + amount)
+            target_name = target_member.display_name if target_member else "you"
+            result_lines.append(f"{name} healed {amount} HP for {target_name}.")
+        elif kind == "revive":
+            if tprofile.get("hp", 0) > 0:
+                result_lines.append("Target is not down; revive not needed.")
+            else:
+                tprofile["hp"] = tprofile.get("max_hp", 100) // 2
+                target_name = target_member.display_name if target_member else "you"
+                result_lines.append(f"{name} revived {target_name} to {tprofile['hp']} HP.")
+        elif kind == "buff":
+            buff_name = meta.get("buff_name", "power")
+            duration = int(meta.get("duration", 300)) if meta.get("duration") else 300
+            tprofile.setdefault("temp_buffs", []).append({"name": buff_name, "expires_in": duration})
+            result_lines.append(f"{name} granted {buff_name} for {duration} seconds.")
+        else:
+            result_lines.append(f"{name} used (no effect implemented).")
+
+        consumables[item_id] = max(0, qty - 1)
+        if consumables[item_id] == 0:
+            consumables.pop(item_id, None)
+        profile["consumables"] = consumables
+
+        profiles[uid] = profile
+        profiles[target_uid] = tprofile
+
+        await self._save_profiles(profiles)
+
+        msg = "\n".join(result_lines)
+        if is_interaction:
+            await ctx_or_interaction.followup.send(msg)
+        else:
+            await ctx_or_interaction.send(msg)
+
+    @commands.cooldown(1, 60, commands.BucketType.user)
+    @vania.command(name="heal")
+    async def heal(self, ctx: commands.Context):
+        """Spend Hearts to heal a portion of your HP. Cooldown applies."""
+        profiles = self._load_profiles()
+        uid = str(ctx.author.id)
+        profile = profiles.get(uid)
+        if not profile:
+            return await ctx.send("No profile found. Start hunting with `vania hunt`.")
+
+        hearts = int(profile.get("hearts", 0))
+        if hearts <= 0:
+            return await ctx.send("You have no Hearts to spend for healing.")
+
+        cost = 1
+        heal_amount = max(10, profile.get("max_hp", 100) // 6)
+
+        if hearts < cost:
+            return await ctx.send(f"You need {cost} Hearts to heal (you have {hearts}).")
+
+        profile["hearts"] = hearts - cost
+        profile["hp"] = min(profile.get("max_hp", 100), profile.get("hp", 0) + heal_amount)
+        profiles[uid] = profile
+        await self._save_profiles(profiles)
+
+        await ctx.send(f"You spent {cost} Heart and healed {heal_amount} HP. Current HP: {profile['hp']}/{profile['max_hp']}")
 
     @vania.group(name="raid", invoke_without_command=True)
     async def raid(self, ctx: commands.Context):
@@ -329,7 +479,7 @@ class Vania(commands.Cog):
         raids[boss_id] = {
             "channel_id": channel.id,
             "message_id": msg.id,
-            "participants": []  # persisted participant IDs (strings)
+            "participants": []
         }
         await self._save_raids(raids)
         await ctx.send(f"Raid vs **{boss['name']}** scheduled in {channel.mention}.")
@@ -351,24 +501,22 @@ class Vania(commands.Cog):
         if channel is None:
             return await ctx.send("Raid channel not found.")
 
-        # Try to fetch message, if missing fallback to participants stored
         msg = None
         try:
             msg = await channel.fetch_message(entry.get("message_id"))
         except Exception:
             msg = None
 
-        # Attempt to read participants from saved file first, fallback to reactions if missing
         participant_ids = set(entry.get("participants", []))
         if not participant_ids and msg:
             reaction = discord.utils.get(msg.reactions, emoji="✅")
             if reaction:
-                participant_ids = {str(u.id) for u in await reaction.users().flatten() if not u.bot}
+                users = [u async for u in reaction.users() if not u.bot]
+                participant_ids = {str(u.id) for u in users}
 
         if not participant_ids:
             return await ctx.send("No participants joined the raid.")
 
-        # Simulate group damage, scaled by profile stats
         boss_max_hp = int(boss.get("hp", 1000))
         boss_hp = boss_max_hp
         reports: List[str] = []
@@ -377,12 +525,10 @@ class Vania(commands.Cog):
         for pid in list(participant_ids):
             user_obj = self.bot.get_user(int(pid))
             name = user_obj.display_name if user_obj else f"User {pid}"
-            # Load or default profile
             prof = profiles.get(pid, self._default_profile())
             lvl = int(prof.get("level", 1))
             weapon = self._get_equipment(prof.get("weapon"))
             weapon_mod = float(weapon.get("damage_mod", 1.0))
-            # Base damage ranges scaled by level and weapon
             base = random.randint(20, 50)
             dmg = int(base * (1 + 0.05 * (lvl - 1)) * weapon_mod)
             boss_hp = max(0, boss_hp - dmg)
@@ -401,9 +547,7 @@ class Vania(commands.Cog):
 
         await channel.send(embed=embed)
 
-        # Win or Loss branch, rewarding by contribution equally for now
         if boss_hp == 0:
-            # Victory: reward participants
             profiles = self._load_profiles()
             reward_lines = []
             for pid in list(participant_ids):
@@ -435,6 +579,73 @@ class Vania(commands.Cog):
                 fail_embed.set_thumbnail(url=image_url)
             await channel.send(embed=fail_embed)
 
-        # Cleanup raid entry
         raids.pop(boss_id, None)
         await self._save_raids(raids)
+
+
+# ----------------- Inventory View (outside class) -----------------
+class InventoryView(discord.ui.View):
+    def __init__(self, cog: Vania, ctx: commands.Context, pages: List[List[dict]]):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.author_id = ctx.author.id
+        self.pages = pages
+        self.page_index = 0
+        self.message: Optional[discord.Message] = None
+
+    async def update_message(self):
+        page = self.pages[self.page_index]
+        embed = discord.Embed(title=f"{self.ctx.author.display_name}'s Inventory", color=discord.Color.blurple())
+        if not page:
+            embed.description = "This page is empty."
+        else:
+            lines = []
+            for item in page:
+                iid = item.get("id", "unknown")
+                name = item.get("name", iid)
+                qty = item.get("qty", 1)
+                typ = item.get("type", "misc")
+                lines.append(f"`{iid}` • **{name}** x{qty} — {typ}")
+            embed.description = "\n".join(lines)
+        embed.set_footer(text=f"Page {self.page_index + 1}/{len(self.pages)}  •  Use button applies the first item on page by default")
+        if self.message:
+            try:
+                await self.message.edit(embed=embed, view=self)
+            except Exception:
+                pass
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("This inventory is not for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Prev", style=discord.ButtonStyle.secondary, custom_id="vania_inv_prev")
+    async def prev_page(self, button: discord.ui.Button, interaction: discord.Interaction):
+        self.page_index = max(0, self.page_index - 1)
+        await interaction.response.defer()
+        await self.update_message()
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, custom_id="vania_inv_next")
+    async def next_page(self, button: discord.ui.Button, interaction: discord.Interaction):
+        self.page_index = min(len(self.pages) - 1, self.page_index + 1)
+        await interaction.response.defer()
+        await self.update_message()
+
+    @discord.ui.button(label="Use", style=discord.ButtonStyle.primary, custom_id="vania_inv_use")
+    async def use_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        page = self.pages[self.page_index]
+        if not page:
+            await interaction.response.send_message("No item to use on this page.", ephemeral=True)
+            return
+        item = page[0]
+        item_id = item.get("id")
+        await interaction.response.defer()
+        await self.cog._do_use_item(interaction, str(interaction.user.id), item_id, target=None)
+        profiles = self.cog._load_profiles()
+        inv = self.cog._gather_inventory(profiles.get(str(self.author_id), {}))
+        pages = self.cog._paginate_inventory(inv)
+        self.pages = pages
+        self.page_index = min(self.page_index, max(0, len(self.pages) - 1))
+        await self.update_message()
