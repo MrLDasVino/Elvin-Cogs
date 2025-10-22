@@ -83,7 +83,7 @@ class ImageNavView(ui.View):
             await interaction.response.send_message("Failed to show that image", ephemeral=True)
 
     @ui.button(label="Prev", style=discord.ButtonStyle.secondary)
-    async def prev_button(self, button: ui.Button, interaction: discord.Interaction):
+    async def prev_button(self, interaction: discord.Interaction, button: ui.Button):
         self.index = (self.index - 1) % len(self.results)
         wall = self.results[self.index]
         if self.cog._is_nsfw_wall(wall) and not await self.cog._can_post_nsfw(self.ctx):
@@ -93,7 +93,7 @@ class ImageNavView(ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     @ui.button(label="Next", style=discord.ButtonStyle.primary)
-    async def next_button(self, button: ui.Button, interaction: discord.Interaction):
+    async def next_button(self, interaction: discord.Interaction, button: ui.Button):
         self.index = (self.index + 1) % len(self.results)
         wall = self.results[self.index]
         if self.cog._is_nsfw_wall(wall) and not await self.cog._can_post_nsfw(self.ctx):
@@ -103,7 +103,7 @@ class ImageNavView(ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     @ui.button(label="Random", style=discord.ButtonStyle.success)
-    async def random_button(self, button: ui.Button, interaction: discord.Interaction):
+    async def random_button(self, interaction: discord.Interaction, button: ui.Button):
         self.index = random.randrange(len(self.results))
         wall = self.results[self.index]
         if self.cog._is_nsfw_wall(wall) and not await self.cog._can_post_nsfw(self.ctx):
@@ -111,6 +111,7 @@ class ImageNavView(ui.View):
             return
         embed = _make_embed(wall)
         await interaction.response.edit_message(embed=embed, view=self)
+
 
 
 
