@@ -1,6 +1,6 @@
 {
   "name": "Wallhaven",
-  "author": "Elvin",
+  "author": ["Elvin"],
   "version": "1.0.0",
   "requirements": ["aiohttp", "discord.py"],
   "short": "Wallhaven wallpapers with interactive navigation",
