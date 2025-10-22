@@ -150,7 +150,7 @@
   {"id":"iron_claw","name":"Iron Claw","category":"weapon","slot":"weapon","min_damage":9,"max_damage":14,"xp_mod":1.02,"damage_mod":1.06,"crit_chance":0.07,"crit_multiplier":1.6,"price":220},
   {"id":"talon_sword","name":"Talon Sword","category":"weapon","slot":"weapon","min_damage":13,"max_damage":20,"xp_mod":1.08,"damage_mod":1.18,"crit_chance":0.08,"crit_multiplier":1.7,"price":640},
   {"id":"iron_plackart","name":"Iron Plackart","category":"armor","slot":"body","defense":10,"price":420},
-  {"id":"visor_crest","name":"Visor Crest","category":"armor","slot":"head","defense":7,"price":300}
+  {"id":"visor_crest","name":"Visor Crest","category":"armor","slot":"head","defense":7,"price":300},
   {"id":"ash_whip","name":"Ash Whip","category":"weapon","slot":"weapon","min_damage":7,"max_damage":11,"xp_mod":1.01,"damage_mod":1.06,"crit_chance":0.05,"crit_multiplier":1.5,"price":45},
   {"id":"iron_cestus","name":"Iron Cestus","category":"weapon","slot":"weapon","min_damage":8,"max_damage":12,"xp_mod":1.02,"damage_mod":1.08,"crit_chance":0.04,"crit_multiplier":1.45,"price":60},
   {"id":"stalk_rapier","name":"Stalk Rapier","category":"weapon","slot":"weapon","min_damage":9,"max_damage":13,"xp_mod":1.03,"damage_mod":1.09,"crit_chance":0.06,"crit_multiplier":1.55,"price":85},
