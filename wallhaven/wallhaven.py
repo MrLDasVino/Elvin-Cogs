@@ -165,13 +165,16 @@ class WallhavenCog(commands.Cog):
                 return None
 
     async def _random_api(self, ctx: commands.Context, categories: str, purity: str) -> List[Dict[str, Any]]:
+        """
+        Return a list of wallpapers (one or more). Prefer /random, but fallback to search?sorting=random
+        """
         params = {"purity": purity, "categories": categories}
         guild_conf = await self.config.guild(ctx.guild).all()
         apikey = guild_conf.get("api_key")
         if apikey:
             params["apikey"] = apikey
-
-        # 1) try the API random endpoint
+    
+        # Try the /random API endpoint first
         try:
             data = await self._call_api("random", params)
             d = data.get("data")
@@ -179,7 +182,28 @@ class WallhavenCog(commands.Cog):
                 return []
             return d if isinstance(d, list) else [d]
         except commands.CommandError as exc:
-            logger.warning("Wallhaven /random failed, trying site fallback: %s", exc)
+            logger.warning("Wallhaven /random failed (%s), falling back to search?sorting=random", exc)
+    
+        # Fallback: use the search endpoint with sorting=random
+        # Use per_page from config (limit to 24 or configured max)
+        per_page = min(int(guild_conf.get("max_search_results", 24) or 24), 48)
+        search_params = {
+            "purity": purity,
+            "categories": categories,
+            "sorting": "random",
+            "per_page": per_page,
+            "page": 1,
+        }
+        if apikey:
+            search_params["apikey"] = apikey
+    
+        try:
+            data = await self._call_api("search", search_params)
+            results = data.get("data", [])
+            return results if isinstance(results, list) else (results and [results]) or []
+        except commands.CommandError as exc:
+            logger.warning("Wallhaven search?sorting=random fallback failed: %s", exc)
+            # As a last resort try site redirect method (existing fallback)
             sess = await self._session()
             async with sess.get("https://wallhaven.cc/random", allow_redirects=False) as r:
                 loc = r.headers.get("Location")
@@ -188,6 +212,7 @@ class WallhavenCog(commands.Cog):
                 wall_id = loc.rstrip("/").split("/")[-1]
                 w = await self._get_wallpaper_by_id(ctx, wall_id)
                 return [w] if w else []
+
 
     async def _search_api(self, ctx: commands.Context, q: Optional[str], categories: str, purity: str, per_page: int = 24, page: int = 1) -> List[Dict[str, Any]]:
         params = {"purity": purity, "categories": categories, "per_page": per_page, "page": page}
