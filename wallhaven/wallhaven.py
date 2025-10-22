@@ -103,7 +103,6 @@ class CategoryModal(ui.Modal, title="Wallhaven Category Search"):
 
 
 class EmptyModal(ui.Modal, title="Confirm"):
-    # generic modal for confirmations/notes; one optional text field
     note = ui.TextInput(label="Note (optional)", style=discord.TextStyle.paragraph, required=False, max_length=300)
 
     def __init__(self, callback=None):
@@ -188,8 +187,7 @@ class WallhavenCog(commands.Cog):
         self.config = Config.get_conf(self, identifier=9876543210123456)
         self.config.register_guild(**DEFAULTS)
         self._http: Optional[aiohttp.ClientSession] = None
-        # simple per-guild short cache to avoid hammering the API on repeated clicks
-        self._cache: Dict[int, Dict[str, Any]] = {}  # guild_id -> {"results": [...], "ts": float}
+        self._cache: Dict[int, Dict[str, Any]] = {}
 
     def cog_unload(self):
         if self._http and not self._http.closed:
@@ -271,22 +269,19 @@ class WallhavenCog(commands.Cog):
         current = await self.config.guild(ctx.guild).nsfw_enabled()
         return bool(current)
 
-    # Combined interactive wallhaven command
     @commands.group(name="wallhaven", invoke_without_command=True)
     async def wallhaven(self, ctx: commands.Context):
-        """Open the Wallhaven interactive panel (Random, Search, Category, NSFW)."""
+        """Open the Wallhaven interactive panel (Random, Search, Category)."""
         view = WallhavenMainView(self, ctx)
         await ctx.send("Wallhaven: choose an action", view=view)
 
-    # Combined owner settings command
     @commands.group(name="wallhavenset", invoke_without_command=True)
     @checks.is_owner()
     async def wallhavenset(self, ctx: commands.Context):
-        """Open the Wallhaven settings panel (apikey, categories, maxresults, purity)."""
+        """Open the Wallhaven settings panel (apikey, categories, maxresults, purity, nsfw)."""
         view = WallhavenSetView(self, ctx)
         await ctx.send("Wallhaven settings", view=view)
 
-    # Backwards compatibility commands (call-through)
     @wallhaven.command(name="random", invoke_without_command=True)
     async def random(self, ctx: commands.Context, category: Optional[str] = None):
         cfg = await self.config.guild(ctx.guild).all()
@@ -338,7 +333,6 @@ class WallhavenCog(commands.Cog):
         embed = _make_embed(filtered[0], title_prefix=f"Search: {query}")
         await ctx.send(embed=embed, view=view)
 
-    # owner-only settings helper methods used by modals/buttons
     async def _set_apikey(self, ctx: commands.Context, key: Optional[str]):
         await self.config.guild(ctx.guild).api_key.set(key)
         await ctx.send("API key updated for this guild.")
@@ -366,7 +360,6 @@ class WallhavenCog(commands.Cog):
         await ctx.send("Unknown purity option. Use 'sfw' to restrict to SFW.")
 
 
-# Main view shown when user runs `wallhaven`
 class WallhavenMainView(ui.View):
     def __init__(self, cog: WallhavenCog, ctx: commands.Context, *, timeout: int = 120):
         super().__init__(timeout=timeout)
@@ -397,21 +390,7 @@ class WallhavenMainView(ui.View):
         modal = CategoryModal(self.cog, self.ctx)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label="NSFW Toggle", style=discord.ButtonStyle.danger)
-    async def nsfw_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("Only the command invoker can use these controls.", ephemeral=True)
-            return
-        # only allow guild admins to change guild NSFW toggle
-        if not interaction.user.guild_permissions.manage_guild and not await self.cog.bot.is_owner(interaction.user):
-            await interaction.response.send_message("You need Manage Server permission to toggle NSFW here.", ephemeral=True)
-            return
-        current = await self.cog.config.guild(self.ctx.guild).nsfw_enabled()
-        await self.cog.config.guild(self.ctx.guild).nsfw_enabled.set(not current)
-        await interaction.response.send_message(f"NSFW posting set to {'enabled' if not current else 'disabled'} for this guild.", ephemeral=True)
 
-
-# Settings view shown when owner runs `wallhavenset`
 class WallhavenSetView(ui.View):
     def __init__(self, cog: WallhavenCog, ctx: commands.Context, *, timeout: int = 120):
         super().__init__(timeout=timeout)
@@ -422,7 +401,6 @@ class WallhavenSetView(ui.View):
     async def apikey_button(self, interaction: discord.Interaction, button: ui.Button):
         if not await self._check_owner(interaction):
             return
-        # open a modal to set api key (empty to clear)
         class APIKeyModal(ui.Modal, title="Set Wallhaven API Key"):
             key = ui.TextInput(label="API Key (leave empty to clear)", required=False, style=discord.TextStyle.short, max_length=200)
 
@@ -433,14 +411,13 @@ class WallhavenSetView(ui.View):
                 await mod_inter.followup.send("API key updated.", ephemeral=True)
 
         modal = APIKeyModal()
-        modal.view = self  # provide backref used in on_submit
+        modal.view = self
         await interaction.response.send_modal(modal)
 
     @ui.button(label="Categories", style=discord.ButtonStyle.secondary)
     async def categories_button(self, interaction: discord.Interaction, button: ui.Button):
         if not await self._check_owner(interaction):
             return
-
         class CategoriesModal(ui.Modal, title="Set Default Categories"):
             choice = ui.TextInput(label="Choice (general anime people all)", required=True, style=discord.TextStyle.short, max_length=20)
 
@@ -457,7 +434,6 @@ class WallhavenSetView(ui.View):
     async def maxresults_button(self, interaction: discord.Interaction, button: ui.Button):
         if not await self._check_owner(interaction):
             return
-
         class MaxResultsModal(ui.Modal, title="Set Max Search Results"):
             amount = ui.TextInput(label="Amount (1-48)", required=True, style=discord.TextStyle.short, max_length=3)
 
@@ -479,7 +455,6 @@ class WallhavenSetView(ui.View):
     async def purity_button(self, interaction: discord.Interaction, button: ui.Button):
         if not await self._check_owner(interaction):
             return
-
         class PurityModal(ui.Modal, title="Set Purity"):
             choice = ui.TextInput(label="Choice (sfw)", required=True, style=discord.TextStyle.short, max_length=10)
 
@@ -492,11 +467,28 @@ class WallhavenSetView(ui.View):
         modal.view = self
         await interaction.response.send_modal(modal)
 
+    @ui.button(label="NSFW Toggle", style=discord.ButtonStyle.danger)
+    async def nsfw_button(self, interaction: discord.Interaction, button: ui.Button):
+        # allow bot owner or guild manage_guild permission
+        if not await self._check_owner_or_guild_manage(interaction):
+            return
+        current = await self.cog.config.guild(self.ctx.guild).nsfw_enabled()
+        await self.cog.config.guild(self.ctx.guild).nsfw_enabled.set(not current)
+        await interaction.response.send_message(f"NSFW posting set to {'enabled' if not current else 'disabled'} for this guild.", ephemeral=True)
+
     async def _check_owner(self, interaction: discord.Interaction) -> bool:
         if not await self.cog.bot.is_owner(interaction.user):
             await interaction.response.send_message("Only the bot owner can change these settings.", ephemeral=True)
             return False
         return True
+
+    async def _check_owner_or_guild_manage(self, interaction: discord.Interaction) -> bool:
+        if await self.cog.bot.is_owner(interaction.user):
+            return True
+        if interaction.user.guild_permissions.manage_guild:
+            return True
+        await interaction.response.send_message("You must be the bot owner or have Manage Server permission to perform this action.", ephemeral=True)
+        return False
 
 
 def setup(bot):
