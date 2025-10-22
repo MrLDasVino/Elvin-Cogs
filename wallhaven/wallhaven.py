@@ -123,8 +123,15 @@ class ImageNavView(ui.View):
         self.add_item(self.select)
 
     def _build_label(self, wall: Dict[str, Any], index: int) -> str:
-        # Try uploader + tags, then tags, then cleaned filename, then id
-        parts = []
+        """
+        Label priority:
+        1. uploader — up to 3 tags (if uploader present)
+        2. up to 3 tags
+        3. cleaned filename (strip 'wallhaven-' and extension)
+        4. fallback: 'wallhaven-<id> — <resolution> <purity>'
+        Always prefix with '#{index+1} ' and limit length to Discord's safe range.
+        """
+        parts: List[str] = []
 
         # uploader username
         uploader = wall.get("uploader")
@@ -135,7 +142,7 @@ class ImageNavView(ui.View):
             parts.append(str(uname))
 
         # tags (try to extract up to 3 tag names)
-        tag_names = []
+        tag_names: List[str] = []
         tags = wall.get("tags")
         if isinstance(tags, list) and tags:
             for t in tags[:3]:
@@ -148,19 +155,17 @@ class ImageNavView(ui.View):
         if tag_names:
             tag_str = ", ".join(tag_names)
             if uname:
-                # join as "uploader — tags"
                 parts.append("—")
                 parts.append(tag_str)
             else:
                 parts.append(tag_str)
 
-        # if nothing meaningful yet, try filename cleaned
+        # cleaned filename fallback
         if not parts:
             path_url = wall.get("path") or wall.get("file") or (wall.get("thumbs") or {}).get("original")
             if path_url:
                 try:
                     filename = os.path.basename(urlparse(path_url).path)
-                    # clean common "wallhaven-" prefix and file extension
                     if filename:
                         name = filename
                         if name.lower().startswith("wallhaven-"):
@@ -171,9 +176,20 @@ class ImageNavView(ui.View):
                 except Exception:
                     pass
 
-        # final fallback: id
+        # final fallback: id + resolution + purity if available
         if not parts:
-            parts.append(str(wall.get("id") or index + 1))
+            wid = wall.get("id") or ""
+            resolution = wall.get("resolution") or f"{wall.get('dimension_x','?')}x{wall.get('dimension_y','?')}"
+            purity = wall.get("purity") or ""
+            fallback = f"wallhaven-{wid}"
+            extra = []
+            if resolution:
+                extra.append(str(resolution))
+            if purity:
+                extra.append(str(purity))
+            if extra:
+                fallback = f"{fallback} — {' '.join(extra)}"
+            parts.append(fallback)
 
         # assemble, sanitize and trim
         label = " ".join(str(p) for p in parts if p)
