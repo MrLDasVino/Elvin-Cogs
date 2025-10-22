@@ -472,13 +472,13 @@ class WallhavenSetView(ui.View):
         if not await self._check_owner(interaction):
             return
     
-        class PurityModal(ui.Modal, title="Set Purity (options listed)"):
+        class PurityModal(ui.Modal, title="Set Purity"):
             choice = ui.TextInput(
-                label="Purity (sfw / sketchy / nsfw or 100 / 110 / 111)",
+                label="Purity (sfw/sketchy/nsfw or 100/110/111)",
                 required=True,
                 style=discord.TextStyle.short,
                 max_length=10,
-                placeholder="e.g. sfw  OR  110  (sketchy allowed)"
+                placeholder="e.g. sfw  OR  110"
             )
     
             async def on_submit(mod_inter: discord.Interaction):
