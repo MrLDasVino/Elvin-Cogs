@@ -1,0 +1,193 @@
+[
+  {"id":"vine_whip","name":"Vine Whip","category":"weapon","min_damage":6,"max_damage":10,"xp_mod":1.0,"damage_mod":1.0,"crit_chance":0.05,"crit_multiplier":1.5,"price":0},
+  {"id":"iron_sword","name":"Iron Sword","category":"weapon","min_damage":9,"max_damage":14,"xp_mod":1.1,"damage_mod":1.2,"crit_chance":0.06,"crit_multiplier":1.6,"price":100},
+  {"id":"leather_armor","name":"Leather Armor","category":"armor","defense":5,"price":50},
+  {"id":"steel_plate","name":"Steel Plate","category":"armor","defense":12,"price":200},
+
+  {"id":"chain_whip","name":"Chain Whip","category":"weapon","min_damage":7,"max_damage":12,"xp_mod":1.05,"damage_mod":1.1,"crit_chance":0.06,"crit_multiplier":1.55,"price":80},
+  {"id":"morning_star","name":"Morning Star","category":"weapon","min_damage":10,"max_damage":16,"xp_mod":1.08,"damage_mod":1.25,"crit_chance":0.05,"crit_multiplier":1.6,"price":150},
+  {"id":"steel_shield","name":"Steel Shield","category":"armor","defense":8,"price":90},
+  {"id":"bronze_helm","name":"Bronze Helm","category":"armor","defense":3,"price":40},
+
+  {"id":"silver_whip","name":"Silver Whip","category":"weapon","min_damage":12,"max_damage":18,"xp_mod":1.15,"damage_mod":1.3,"crit_chance":0.07,"crit_multiplier":1.65,"price":350},
+  {"id":"obsidian_blade","name":"Obsidian Blade","category":"weapon","min_damage":18,"max_damage":26,"xp_mod":1.25,"damage_mod":1.5,"crit_chance":0.08,"crit_multiplier":1.8,"price":900},
+  {"id":"chainmail","name":"Chainmail","category":"armor","defense":9,"price":180},
+  {"id":"iron_greaves","name":"Iron Greaves","category":"armor","defense":6,"price":120},
+
+  {"id":"sacred_whip","name":"Sacred Whip","category":"weapon","min_damage":22,"max_damage":32,"xp_mod":1.35,"damage_mod":1.7,"crit_chance":0.09,"crit_multiplier":1.9,"price":1800},
+  {"id":"dragon_slayer","name":"Dragon Slayer","category":"weapon","min_damage":28,"max_damage":42,"xp_mod":1.45,"damage_mod":2.0,"crit_chance":0.1,"crit_multiplier":2.0,"price":3500},
+  {"id":"steel_plate_full","name":"Full Steel Plate","category":"armor","defense":20,"price":1200},
+  {"id":"mithril_robe","name":"Mithril Robe","category":"armor","defense":10,"price":900},
+
+  {"id":"short_sword","name":"Short Sword","category":"weapon","min_damage":5,"max_damage":9,"xp_mod":1.0,"damage_mod":0.95,"crit_chance":0.04,"crit_multiplier":1.4,"price":30},
+  {"id":"long_sword","name":"Long Sword","category":"weapon","min_damage":11,"max_damage":16,"xp_mod":1.08,"damage_mod":1.15,"crit_chance":0.05,"crit_multiplier":1.5,"price":200},
+  {"id":"buckler","name":"Buckler","category":"armor","defense":2,"price":25},
+  {"id":"hide_armor","name":"Hide Armor","category":"armor","defense":4,"price":45},
+
+  {"id":"rapier","name":"Rapier","category":"weapon","min_damage":8,"max_damage":14,"xp_mod":1.02,"damage_mod":1.05,"crit_chance":0.08,"crit_multiplier":1.7,"price":260},
+  {"id":"katana","name":"Katana","category":"weapon","min_damage":14,"max_damage":20,"xp_mod":1.12,"damage_mod":1.25,"crit_chance":0.09,"crit_multiplier":1.75,"price":600},
+  {"id":"studded_leather","name":"Studded Leather","category":"armor","defense":7,"price":130},
+  {"id":"plate_helm","name":"Plate Helm","category":"armor","defense":5,"price":140},
+
+  {"id":"battle_axe","name":"Battle Axe","category":"weapon","min_damage":15,"max_damage":24,"xp_mod":1.1,"damage_mod":1.35,"crit_chance":0.04,"crit_multiplier":1.45,"price":420},
+  {"id":"greataxe","name":"Great Axe","category":"weapon","min_damage":20,"max_damage":30,"xp_mod":1.18,"damage_mod":1.5,"crit_chance":0.05,"crit_multiplier":1.6,"price":700},
+  {"id":"scale_mail","name":"Scale Mail","category":"armor","defense":11,"price":300},
+  {"id":"tower_shield","name":"Tower Shield","category":"armor","defense":14,"price":480},
+
+  {"id":"dagger","name":"Dagger","category":"weapon","min_damage":4,"max_damage":7,"xp_mod":0.95,"damage_mod":0.9,"crit_chance":0.07,"crit_multiplier":1.6,"price":20},
+  {"id":"throwing_knife","name":"Throwing Knife","category":"weapon","min_damage":6,"max_damage":9,"xp_mod":0.98,"damage_mod":0.95,"crit_chance":0.06,"crit_multiplier":1.5,"price":40},
+  {"id":"cloak","name":"Adventurer's Cloak","category":"armor","defense":2,"price":60},
+  {"id":"bracers","name":"Leather Bracers","category":"armor","defense":1,"price":20},
+
+  {"id":"flame_whip","name":"Flame Whip","category":"weapon","min_damage":14,"max_damage":22,"xp_mod":1.12,"damage_mod":1.3,"crit_chance":0.07,"crit_multiplier":1.7,"price":800},
+  {"id":"ice_rapier","name":"Ice Rapier","category":"weapon","min_damage":12,"max_damage":18,"xp_mod":1.1,"damage_mod":1.2,"crit_chance":0.08,"crit_multiplier":1.7,"price":720},
+  {"id":"fur_armor","name":"Fur Armor","category":"armor","defense":6,"price":160},
+  {"id":"spiked_armor","name":"Spiked Armor","category":"armor","defense":9,"price":360},
+
+  {"id":"holy_sword","name":"Holy Sword","category":"weapon","min_damage":20,"max_damage":28,"xp_mod":1.25,"damage_mod":1.6,"crit_chance":0.08,"crit_multiplier":1.8,"price":1600},
+  {"id":"cursed_blade","name":"Cursed Blade","category":"weapon","min_damage":24,"max_damage":36,"xp_mod":1.3,"damage_mod":1.8,"crit_chance":0.1,"crit_multiplier":2.0,"price":2200},
+  {"id":"sacred_plate","name":"Sacred Plate","category":"armor","defense":18,"price":1500},
+  {"id":"spectral_veil","name":"Spectral Veil","category":"armor","defense":8,"price":1200},
+
+  {"id":"war_hammer","name":"War Hammer","category":"weapon","min_damage":16,"max_damage":26,"xp_mod":1.12,"damage_mod":1.4,"crit_chance":0.04,"crit_multiplier":1.5,"price":500},
+  {"id":"maul","name":"Maul","category":"weapon","min_damage":18,"max_damage":30,"xp_mod":1.15,"damage_mod":1.5,"crit_chance":0.03,"crit_multiplier":1.4,"price":650},
+  {"id":"lamellar","name":"Lamellar Armor","category":"armor","defense":13,"price":520},
+  {"id":"gauntlets","name":"Steel Gauntlets","category":"armor","defense":4,"price":120},
+
+  {"id":"spear","name":"Spear","category":"weapon","min_damage":10,"max_damage":18,"xp_mod":1.05,"damage_mod":1.12,"crit_chance":0.05,"crit_multiplier":1.5,"price":220},
+  {"id":"pike","name":"Pike","category":"weapon","min_damage":14,"max_damage":22,"xp_mod":1.08,"damage_mod":1.18,"crit_chance":0.05,"crit_multiplier":1.55,"price":320},
+  {"id":"brigandine","name":"Brigandine","category":"armor","defense":10,"price":340},
+  {"id":"helm_of_vision","name":"Helm of Vision","category":"armor","defense":6,"price":260},
+
+  {"id":"rapier_steel","name":"Steel Rapier","category":"weapon","min_damage":10,"max_damage":16,"xp_mod":1.06,"damage_mod":1.1,"crit_chance":0.09,"crit_multiplier":1.7,"price":300},
+  {"id":"executioner_axe","name":"Executioner Axe","category":"weapon","min_damage":22,"max_damage":34,"xp_mod":1.2,"damage_mod":1.7,"crit_chance":0.05,"crit_multiplier":1.6,"price":1400},
+  {"id":"reinforced_armor","name":"Reinforced Armor","category":"armor","defense":15,"price":800},
+  {"id":"amulet_guard","name":"Amulet Guard","category":"armor","defense":7,"price":420},
+
+  {"id":"club","name":"Club","category":"weapon","min_damage":7,"max_damage":12,"xp_mod":1.0,"damage_mod":1.0,"crit_chance":0.03,"crit_multiplier":1.3,"price":60},
+  {"id":"chakram","name":"Chakram","category":"weapon","min_damage":9,"max_damage":14,"xp_mod":1.02,"damage_mod":1.05,"crit_chance":0.06,"crit_multiplier":1.5,"price":200},
+  {"id":"leather_cap","name":"Leather Cap","category":"armor","defense":2,"price":30},
+  {"id":"scale_leggings","name":"Scale Leggings","category":"armor","defense":6,"price":200},
+
+  {"id":"crystal_whip","name":"Crystal Whip","category":"weapon","min_damage":16,"max_damage":24,"xp_mod":1.18,"damage_mod":1.4,"crit_chance":0.08,"crit_multiplier":1.75,"price":1100},
+  {"id":"moonblade","name":"Moonblade","category":"weapon","min_damage":20,"max_damage":30,"xp_mod":1.22,"damage_mod":1.55,"crit_chance":0.09,"crit_multiplier":1.85,"price":2000},
+  {"id":"ethereal_armor","name":"Ethereal Armor","category":"armor","defense":14,"price":1300},
+  {"id":"guardian_shield","name":"Guardian Shield","category":"armor","defense":16,"price":1500},
+
+  {"id":"rapier_fantasy","name":"Phantom Rapier","category":"weapon","min_damage":14,"max_damage":22,"xp_mod":1.14,"damage_mod":1.28,"crit_chance":0.1,"crit_multiplier":1.9,"price":1600},
+  {"id":"soul_staff","name":"Soul Staff","category":"weapon","min_damage":8,"max_damage":14,"xp_mod":1.1,"damage_mod":1.15,"crit_chance":0.06,"crit_multiplier":1.6,"price":700},
+  {"id":"robes_of_light","name":"Robes of Light","category":"armor","defense":9,"price":900},
+  {"id":"mantle_of_shadows","name":"Mantle of Shadows","category":"armor","defense":11,"price":1100},
+
+  {"id":"katana_legend","name":"Kageblade","category":"weapon","min_damage":20,"max_damage":28,"xp_mod":1.2,"damage_mod":1.6,"crit_chance":0.12,"crit_multiplier":2.0,"price":2800},
+  {"id":"fists","name":"Brass Knuckles","category":"weapon","min_damage":5,"max_damage":9,"xp_mod":0.98,"damage_mod":0.95,"crit_chance":0.05,"crit_multiplier":1.5,"price":60},
+  {"id":"chain_hauberk","name":"Chain Hauberk","category":"armor","defense":12,"price":480},
+  {"id":"boots_of_swiftness","name":"Boots of Swiftness","category":"armor","defense":3,"price":240},
+
+  {"id":"silver_saber","name":"Silver Saber","category":"weapon","min_damage":17,"max_damage":25,"xp_mod":1.16,"damage_mod":1.38,"crit_chance":0.09,"crit_multiplier":1.75,"price":1200},
+  {"id":"sylph_staff","name":"Sylph Staff","category":"weapon","min_damage":10,"max_damage":18,"xp_mod":1.1,"damage_mod":1.2,"crit_chance":0.07,"crit_multiplier":1.6,"price":820},
+  {"id":"brigandine_cape","name":"Brigandine Cape","category":"armor","defense":8,"price":360},
+  {"id":"gilded_helm","name":"Gilded Helm","category":"armor","defense":9,"price":500},
+
+  {"id":"inferno_whip","name":"Inferno Whip","category":"weapon","min_damage":26,"max_damage":36,"xp_mod":1.35,"damage_mod":1.8,"crit_chance":0.11,"crit_multiplier":2.0,"price":4000},
+  {"id":"frostmourne","name":"Frostbrand","category":"weapon","min_damage":24,"max_damage":34,"xp_mod":1.3,"damage_mod":1.7,"crit_chance":0.1,"crit_multiplier":1.95,"price":3500},
+  {"id":"dragon_scale","name":"Dragon Scale","category":"armor","defense":22,"price":3000},
+  {"id":"shadow_cloak","name":"Shadow Cloak","category":"armor","defense":12,"price":1600},
+
+  {"id":"reed_whip","name":"Reed Whip","category":"weapon","min_damage":6,"max_damage":9,"xp_mod":0.98,"damage_mod":0.95,"crit_chance":0.04,"crit_multiplier":1.4,"price":10},
+  {"id":"bone_club","name":"Bone Club","category":"weapon","min_damage":9,"max_damage":13,"xp_mod":1.0,"damage_mod":1.05,"crit_chance":0.03,"crit_multiplier":1.35,"price":70},
+  {"id":"tunic","name":"Common Tunic","category":"armor","defense":1,"price":5},
+  {"id":"padded_shirt","name":"Padded Shirt","category":"armor","defense":2,"price":15},
+
+  {"id":"jackal_spear","name":"Jackal Spear","category":"weapon","min_damage":11,"max_damage":18,"xp_mod":1.06,"damage_mod":1.12,"crit_chance":0.05,"crit_multiplier":1.5,"price":240},
+  {"id":"serrated_blade","name":"Serrated Blade","category":"weapon","min_damage":15,"max_damage":22,"xp_mod":1.1,"damage_mod":1.3,"crit_chance":0.06,"crit_multiplier":1.6,"price":480},
+  {"id":"merc_jerkin","name":"Mercenary Jerkin","category":"armor","defense":7,"price":220},
+  {"id":"legion_shield","name":"Legion Shield","category":"armor","defense":10,"price":420},
+
+  {"id":"war_bow","name":"War Bow","category":"weapon","min_damage":10,"max_damage":16,"xp_mod":1.04,"damage_mod":1.08,"crit_chance":0.06,"crit_multiplier":1.5,"price":300},
+  {"id":"crossbow","name":"Crossbow","category":"weapon","min_damage":12,"max_damage":18,"xp_mod":1.06,"damage_mod":1.12,"crit_chance":0.07,"crit_multiplier":1.6,"price":420},
+  {"id":"reinforced_greaves","name":"Reinforced Greaves","category":"armor","defense":6,"price":240},
+  {"id":"amulet_of_fortune","name":"Amulet of Fortune","category":"armor","defense":4,"price":800},
+
+  {"id":"soul_blade","name":"Soulblade","category":"weapon","min_damage":30,"max_damage":42,"xp_mod":1.5,"damage_mod":2.0,"crit_chance":0.12,"crit_multiplier":2.2,"price":5000},
+  {"id":"void_cleaver","name":"Void Cleaver","category":"weapon","min_damage":32,"max_damage":48,"xp_mod":1.55,"damage_mod":2.1,"crit_chance":0.13,"crit_multiplier":2.3,"price":7000},
+  {"id":"aegis_plate","name":"Aegis Plate","category":"armor","defense":30,"price":6000},
+  {"id":"angelic_wings","name":"Angelic Wings","category":"armor","defense":18,"price":4500},
+
+  {"id":"thorn_whip","name":"Thorn Whip","category":"weapon","min_damage":8,"max_damage":12,"xp_mod":1.03,"damage_mod":1.08,"crit_chance":0.06,"crit_multiplier":1.5,"price":120},
+  {"id":"sapping_axe","name":"Sapping Axe","category":"weapon","min_damage":12,"max_damage":18,"xp_mod":1.06,"damage_mod":1.2,"crit_chance":0.04,"crit_multiplier":1.45,"price":260},
+  {"id":"iron_mail","name":"Iron Mail","category":"armor","defense":14,"price":640},
+  {"id":"visored_helm","name":"Visored Helm","category":"armor","defense":8,"price":360},
+
+  {"id":"whip_of_soul","name":"Whip of Souls","category":"weapon","min_damage":26,"max_damage":36,"xp_mod":1.4,"damage_mod":1.85,"crit_chance":0.11,"crit_multiplier":2.0,"price":4200},
+  {"id":"starlight_blade","name":"Starlight Blade","category":"weapon","min_damage":28,"max_damage":40,"xp_mod":1.45,"damage_mod":1.95,"crit_chance":0.12,"crit_multiplier":2.05,"price":5200},
+  {"id":"phantom_armor","name":"Phantom Armor","category":"armor","defense":20,"price":2200},
+  {"id":"mirror_mail","name":"Mirror Mail","category":"armor","defense":17,"price":2000},
+
+  {"id":"thorn_dagger","name":"Thorn Dagger","category":"weapon","min_damage":5,"max_damage":9,"xp_mod":0.97,"damage_mod":0.93,"crit_chance":0.08,"crit_multiplier":1.7,"price":75},
+  {"id":"shiv","name":"Shiv","category":"weapon","min_damage":6,"max_damage":10,"xp_mod":0.98,"damage_mod":0.95,"crit_chance":0.07,"crit_multiplier":1.6,"price":90},
+  {"id":"padded_leggings","name":"Padded Leggings","category":"armor","defense":3,"price":40},
+  {"id":"studded_helm","name":"Studded Helm","category":"armor","defense":4,"price":80},
+
+  {"id":"lamp_of_guard","name":"Lamp of Guard","category":"armor","defense":5,"price":260},
+  {"id":"silver_arrow","name":"Silver Arrow","category":"weapon","min_damage":18,"max_damage":26,"xp_mod":1.15,"damage_mod":1.4,"crit_chance":0.08,"crit_multiplier":1.8,"price":520},
+  {"id":"iron_dagger","name":"Iron Dagger","category":"weapon","min_damage":6,"max_damage":10,"xp_mod":0.99,"damage_mod":0.98,"crit_chance":0.05,"crit_multiplier":1.5,"price":40},
+  {"id":"boots_of_fortitude","name":"Boots of Fortitude","category":"armor","defense":5,"price":300},
+
+  {"id":"blood_whip","name":"Blood Whip","category":"weapon","min_damage":18,"max_damage":26,"xp_mod":1.2,"damage_mod":1.45,"crit_chance":0.09,"crit_multiplier":1.85,"price":1400},
+  {"id":"plasma_staff","name":"Plasma Staff","category":"weapon","min_damage":14,"max_damage":22,"xp_mod":1.12,"damage_mod":1.28,"crit_chance":0.08,"crit_multiplier":1.7,"price":1000},
+  {"id":"scale_armor_light","name":"Light Scale Armor","category":"armor","defense":9,"price":420},
+  {"id":"scale_armor_heavy","name":"Heavy Scale Armor","category":"armor","defense":16,"price":980},
+
+  {"id":"void_whip","name":"Void Whip","category":"weapon","min_damage":30,"max_damage":44,"xp_mod":1.5,"damage_mod":2.05,"crit_chance":0.13,"crit_multiplier":2.2,"price":9000},
+  {"id":"meteor_hammer","name":"Meteor Hammer","category":"weapon","min_damage":20,"max_damage":30,"xp_mod":1.2,"damage_mod":1.6,"crit_chance":0.06,"crit_multiplier":1.6,"price":1800},
+  {"id":"mithril_plate","name":"Mithril Plate","category":"armor","defense":24,"price":4800},
+  {"id":"arcane_shroud","name":"Arcane Shroud","category":"armor","defense":14,"price":2600},
+
+  {"id":"short_bow","name":"Short Bow","category":"weapon","min_damage":7,"max_damage":12,"xp_mod":1.0,"damage_mod":1.0,"crit_chance":0.06,"crit_multiplier":1.5,"price":80},
+  {"id":"long_bow","name":"Long Bow","category":"weapon","min_damage":12,"max_damage":18,"xp_mod":1.05,"damage_mod":1.08,"crit_chance":0.07,"crit_multiplier":1.6,"price":300},
+  {"id":"hunter_jerkin","name":"Hunter Jerkin","category":"armor","defense":6,"price":200},
+  {"id":"camouflage_cloak","name":"Camouflage Cloak","category":"armor","defense":5,"price":260},
+
+  {"id":"iron_rapier","name":"Iron Rapier","category":"weapon","min_damage":9,"max_damage":15,"xp_mod":1.04,"damage_mod":1.06,"crit_chance":0.08,"crit_multiplier":1.65,"price":280},
+  {"id":"silver_axe","name":"Silver Axe","category":"weapon","min_damage":16,"max_damage":24,"xp_mod":1.12,"damage_mod":1.35,"crit_chance":0.06,"crit_multiplier":1.6,"price":620},
+  {"id":"studded_boots","name":"Studded Boots","category":"armor","defense":3,"price":140},
+  {"id":"helm_of_valor","name":"Helm of Valor","category":"armor","defense":10,"price":520},
+
+  {"id":"elder_whip","name":"Elder Whip","category":"weapon","min_damage":14,"max_damage":20,"xp_mod":1.12,"damage_mod":1.3,"crit_chance":0.07,"crit_multiplier":1.7,"price":950},
+  {"id":"heartpiercer","name":"Heartpiercer","category":"weapon","min_damage":22,"max_damage":32,"xp_mod":1.24,"damage_mod":1.7,"crit_chance":0.09,"crit_multiplier":1.9,"price":2600},
+  {"id":"armor_of_dawn","name":"Armor of Dawn","category":"armor","defense":26,"price":6200},
+  {"id":"shade_plate","name":"Shade Plate","category":"armor","defense":20,"price":4200},
+
+  {"id":"crimson_dagger","name":"Crimson Dagger","category":"weapon","min_damage":8,"max_damage":12,"xp_mod":1.02,"damage_mod":1.05,"crit_chance":0.09,"crit_multiplier":1.7,"price":180},
+  {"id":"blood_rapier","name":"Blood Rapier","category":"weapon","min_damage":16,"max_damage":24,"xp_mod":1.12,"damage_mod":1.3,"crit_chance":0.11,"crit_multiplier":1.9,"price":1400},
+  {"id":"venom_armor","name":"Venom Armor","category":"armor","defense":12,"price":900},
+  {"id":"poison_shield","name":"Poison Shield","category":"armor","defense":9,"price":700},
+
+  {"id":"glaive","name":"Glaive","category":"weapon","min_damage":18,"max_damage":26,"xp_mod":1.14,"damage_mod":1.38,"crit_chance":0.06,"crit_multiplier":1.6,"price":760},
+  {"id":"halberd","name":"Halberd","category":"weapon","min_damage":20,"max_damage":30,"xp_mod":1.16,"damage_mod":1.45,"crit_chance":0.06,"crit_multiplier":1.65,"price":980},
+  {"id":"battle_plate","name":"Battle Plate","category":"armor","defense":18,"price":1500},
+  {"id":"spirit_helm","name":"Spirit Helm","category":"armor","defense":11,"price":840},
+
+  {"id":"sky_spear","name":"Sky Spear","category":"weapon","min_damage":22,"max_damage":34,"xp_mod":1.2,"damage_mod":1.6,"crit_chance":0.09,"crit_multiplier":1.85,"price":2100},
+  {"id":"sea_sword","name":"Sea Sword","category":"weapon","min_damage":14,"max_damage":22,"xp_mod":1.08,"damage_mod":1.2,"crit_chance":0.07,"crit_multiplier":1.6,"price":920},
+  {"id":"reef_armor","name":"Reef Armor","category":"armor","defense":13,"price":980},
+  {"id":"tide_shield","name":"Tide Shield","category":"armor","defense":10,"price":720},
+
+  {"id":"ember_blade","name":"Ember Blade","category":"weapon","min_damage":16,"max_damage":24,"xp_mod":1.12,"damage_mod":1.34,"crit_chance":0.08,"crit_multiplier":1.7,"price":980},
+  {"id":"glacier_blade","name":"Glacier Blade","category":"weapon","min_damage":18,"max_damage":26,"xp_mod":1.14,"damage_mod":1.38,"crit_chance":0.09,"crit_multiplier":1.75,"price":1200},
+  {"id":"winter_coat","name":"Winter Coat","category":"armor","defense":9,"price":480},
+  {"id":"frost_guard","name":"Frost Guard","category":"armor","defense":12,"price":800},
+
+  {"id":"spirit_whip","name":"Spirit Whip","category":"weapon","min_damage":20,"max_damage":28,"xp_mod":1.2,"damage_mod":1.5,"crit_chance":0.1,"crit_multiplier":1.9,"price":2600},
+  {"id":"soul_reaver","name":"Soul Reaver","category":"weapon","min_damage":26,"max_damage":36,"xp_mod":1.32,"damage_mod":1.8,"crit_chance":0.11,"crit_multiplier":2.0,"price":4200},
+  {"id":"soulplate","name":"Soulplate","category":"armor","defense":22,"price":4200},
+  {"id":"void_shroud","name":"Void Shroud","category":"armor","defense":20,"price":3800},
+
+  {"id":"iron_claw","name":"Iron Claw","category":"weapon","min_damage":9,"max_damage":14,"xp_mod":1.02,"damage_mod":1.06,"crit_chance":0.07,"crit_multiplier":1.6,"price":220},
+  {"id":"talon_sword","name":"Talon Sword","category":"weapon","min_damage":13,"max_damage":20,"xp_mod":1.08,"damage_mod":1.18,"crit_chance":0.08,"crit_multiplier":1.7,"price":640},
+  {"id":"iron_plackart","name":"Iron Plackart","category":"armor","defense":10,"price":420},
+  {"id":"visor_crest","name":"Visor Crest","category":"armor","defense":7,"price":300}
+]
+
+
