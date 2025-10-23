@@ -12,6 +12,70 @@ from redbot.core.data_manager import cog_data_path
 class Vania(commands.Cog):
     """Belmont’s Legacy: Hunter progression with XP, skills, inventory, and raids."""
 
+    # ----------------- World Event Effects -----------------    
+    EVENT_EFFECTS = {
+        "☀️ Day": {
+            "player_damage": 1.10,
+            "monster_damage": 1.0,
+            "player_hp": 1.05,     
+            "monster_hp": 1.0,
+        },
+        "🌙 Night": {
+            "player_damage": 1.0,
+            "monster_damage": 1.20,
+            "player_hp": 0.95,     
+            "monster_hp": 1.10,    
+        },
+        "Clear skies": {
+            "player_damage": 1.0,
+            "monster_damage": 1.0,
+            "player_hp": 1.0,
+            "monster_hp": 1.0,
+        },
+        "Rainstorm": {
+            "player_damage": 0.90,
+            "monster_damage": 1.0,
+            "player_hp": 1.0,
+            "monster_hp": 0.95,    
+        },
+        "Fog": {
+            "player_damage": 1.0,
+            "monster_damage": 0.90,
+            "player_hp": 1.0,
+            "monster_hp": 0.9,
+        },
+        "Thunderstorm": {
+            "player_damage": 1.0,
+            "monster_damage": 1.15,
+            "player_hp": 0.95,
+            "monster_hp": 1.05,
+        },
+        "Snow": {
+            "player_damage": 1.0,
+            "monster_damage": 0.85,
+            "player_hp": 1.05,
+            "monster_hp": 0.9,
+        },
+        "🌑 Blood Moon": {
+            "player_damage": 0.9,
+            "monster_damage": 1.3,
+            "player_hp": 0.9,
+            "monster_hp": 1.2,
+        },
+        "🌞 Solar Eclipse": {
+            "player_damage": 1.2,
+            "monster_damage": 0.8,
+            "player_hp": 1.1,
+            "monster_hp": 0.9,
+        },
+        "🌾 Harvest Festival": {
+            "player_damage": 1.15,
+            "monster_damage": 1.0,
+            "player_hp": 1.2,
+            "monster_hp": 1.0,
+        },
+    }    
+
     def __init__(self, bot):
         self.bot = bot
         self._write_lock = asyncio.Lock()
@@ -30,6 +94,16 @@ class Vania(commands.Cog):
 
         self.raid_file = data_folder / "raids.json"
         self.data_file = data_folder / "profiles.json"
+
+        # Settings file for channel configuration
+        self.settings_file = data_folder / "settings.json"
+        if not self.settings_file.exists():
+            self.settings_file.write_text(json.dumps({}))
+
+        # Current world event state
+        self.current_event = None
+        # Start background loop
+        self.bg_task = self.bot.loop.create_task(self._cycle_events())        
 
         # Ensure files exist and are valid JSON
         for f in (self.raid_file, self.data_file):
@@ -76,6 +150,19 @@ class Vania(commands.Cog):
         async with self._write_lock:
             tmp.write_text(json.dumps(data, indent=2))
             tmp.replace(self.raid_file)
+            
+    # ----------------- Settings helpers -----------------
+    def _load_settings(self) -> dict:
+        try:
+            return json.loads(self.settings_file.read_text())
+        except Exception:
+            return {}
+
+    async def _save_settings(self, data: dict):
+        tmp = self.settings_file.with_suffix(".tmp")
+        async with self._write_lock:
+            tmp.write_text(json.dumps(data, indent=2))
+            tmp.replace(self.settings_file)            
 
     # ----------------- Utilities -----------------
     def _default_profile(self) -> dict:
@@ -171,6 +258,11 @@ class Vania(commands.Cog):
         mult = crit_multiplier if is_crit else 1.0
 
         dmg = int(base * weapon_mod * level_scale * skill_scale * mult)
+        event = getattr(self, "current_event", None)
+        if event:
+            time_mult = self.EVENT_EFFECTS.get(event["time"], {}).get("player_damage", 1.0)
+            weather_mult = self.EVENT_EFFECTS.get(event["weather"], {}).get("player_damage", 1.0)
+            dmg = int(dmg * time_mult * weather_mult)        
         return max(0, dmg), is_crit
 
     def _monster_attack(self, profile: dict, monster: dict) -> int:
@@ -182,6 +274,11 @@ class Vania(commands.Cog):
         base_min = int(monster.get("min_damage", max(1, int(monster.get("hp", 10) * 0.05))))
         base_max = int(monster.get("max_damage", max(2, int(monster.get("hp", 10) * 0.15))))
         base = random.randint(base_min, base_max)
+        event = getattr(self, "current_event", None)
+        if event:
+            time_mult = self.EVENT_EFFECTS.get(event["time"], {}).get("monster_damage", 1.0)
+            weather_mult = self.EVENT_EFFECTS.get(event["weather"], {}).get("monster_damage", 1.0)
+            base = int(base * time_mult * weather_mult)        
 
         # total defense = body + offhand (some offhands may add defense) + head/arms/legs/cloak
         defense = 0
@@ -196,6 +293,34 @@ class Vania(commands.Cog):
 
         dmg = max(0, base - defense)
         return dmg
+        
+    # ----------------- Background world events -----------------
+    async def _cycle_events(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            settings = self._load_settings()
+            for guild_id, conf in settings.items():
+                chan_id = conf.get("channel_id")
+                channel = self.bot.get_channel(chan_id)
+                if not channel:
+                    continue
+
+                # roll random event
+                time_of_day = random.choice(["☀️ Day", "🌙 Night"])
+                weather = random.choice(["Clear skies", "Rainstorm", "Fog", "Thunderstorm", "Snow"])
+                self.current_event = {"time": time_of_day, "weather": weather}
+
+                embed = discord.Embed(
+                    title="World Event Update",
+                    description=f"**{time_of_day}** falls. The weather shifts: **{weather}**.",
+                    color=discord.Color.blue()
+                )
+                try:
+                    await channel.send(embed=embed)
+                except Exception:
+                    pass
+
+            await asyncio.sleep(3 * 60 * 60)  # 3 hours        
 
     # ----------------- Event listeners for raid participant persistence -----------------
     @commands.Cog.listener()
@@ -267,6 +392,13 @@ class Vania(commands.Cog):
             "crit_multiplier": monster_def.get("crit_multiplier", 1.0),
             "image": monster_def.get("image"),
         }
+        # Apply HP buffs/debuffs from world event
+        event = getattr(self, "current_event", None)
+        if event:
+            hp_mult = self.EVENT_EFFECTS.get(event["time"], {}).get("monster_hp", 1.0)
+            hp_mult *= self.EVENT_EFFECTS.get(event["weather"], {}).get("monster_hp", 1.0)
+            monster["hp"] = int(monster["hp"] * hp_mult)
+            monster["max_hp"] = int(monster["max_hp"] * hp_mult)        
 
         # Support probabilistic heart_reward object or integer
         def extract_heart_reward(hr):
@@ -345,8 +477,24 @@ class Vania(commands.Cog):
 
         player_hp = profile.get("hp", profile.get("max_hp", 100))
         player_max = profile.get("max_hp", 100)
+        
+        # Apply player HP buffs/debuffs from world event
+        event = getattr(self, "current_event", None)
+        if event:
+            hp_mult = self.EVENT_EFFECTS.get(event["time"], {}).get("player_hp", 1.0)
+            hp_mult *= self.EVENT_EFFECTS.get(event["weather"], {}).get("player_hp", 1.0)
+            player_max = int(player_max * hp_mult)
+            # scale current HP proportionally
+            player_hp = min(int(player_hp * hp_mult), player_max)        
 
         log_lines.append(f"A wild **{monster['name']}** appears (HP: {monster['hp']})!")
+        
+        # Show current world event flavor in the combat log
+        event = getattr(self, "current_event", None)
+        if event:
+            log_lines.append(
+                f"🌍 Current world state: {event['time']} • {event['weather']} (affecting HP and damage!)"
+            )        
 
         round_count = 0
         while player_hp > 0 and monster["hp"] > 0 and round_count < 100:
@@ -517,10 +665,17 @@ class Vania(commands.Cog):
 
         embed.add_field(name="Rewards", value="\n".join(reward_lines) if reward_lines else "None", inline=False)
 
-        embed.set_footer(text=f"Tip: use `vania heal` to spend Hearts. • Rounds: {round_count}")
+        event = getattr(self, "current_event", None)
+        if event:
+            embed.set_footer(
+                text=f"World Event: {event['time']} • {event['weather']} • Rounds: {round_count}"
+            )
+        else:
+            embed.set_footer(text=f"Rounds: {round_count}")
+
         await ctx.send(embed=embed)
 
-    @commands.cooldown(1, 3600, commands.BucketType.user)
+    @commands.cooldown(1, 1800, commands.BucketType.user)
     @vania.command(name="pray")
     async def pray(self, ctx: commands.Context):
         """
@@ -645,6 +800,15 @@ class Vania(commands.Cog):
             except Exception:
                 pass
             print(f"[vania.stats] error sending embed for {uid}: {exc}")
+            
+    @vania.command(name="channel")
+    @commands.has_permissions(manage_guild=True)
+    async def set_channel(self, ctx: commands.Context, channel: discord.TextChannel):
+        """Set the channel where day/night & weather events will be posted every 3 hours."""
+        settings = self._load_settings()
+        settings[str(ctx.guild.id)] = {"channel_id": channel.id}
+        await self._save_settings(settings)
+        await ctx.send(f"✅ Updates will now post in {channel.mention} every 3 hours.")            
 
     @vania.command(name="train")
     async def train(self, ctx: commands.Context, skill: str):
