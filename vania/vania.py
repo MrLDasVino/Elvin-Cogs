@@ -685,54 +685,62 @@ class Vania(commands.Cog):
 
         # ---------------- Flavor text pools ----------------
         player_hit_flavor = [
-            "A clean strike finds its mark.",
-            "Your whip sings through the air and bites deep.",
-            "You slash in a wide arc, the monster recoils.",
-            "A precise strike lands on a vulnerable spot.",
-            "You follow through with a brutal riposte.",
-            "You thrust forward, your weapon finding purchase."
+            "A clean strike finds its mark, ringing in the silent air.",
+            "Your whip sings through the air and bites deep into its flesh.",
+            "You slash in a wide arc, and the monster recoils, leaving a dark smear.",
+            "A precise strike lands on a vulnerable spot, blood beading like on wrought iron.",
+            "You follow through with a brutal riposte that cuts off its momentum.",
+            "You thrust forward, your weapon finding purchase and tearing a ragged wound.",
+            "A brutal snap of leather — the monster staggers, clutching at torn hide.",
+            "Your blade/whip bites with practiced cruelty; the creature's roar falters."
         ]
         player_crit_flavor = [
-            "A crushing critical! The blow rends armor and bone.",
-            "A devastating hit pierces through its defenses.",
-            "Critical strike! Your weapon cleaves true.",
-            "You strike with uncanny force, the monster staggers."
+            "A crushing critical! The blow rends armor and bone; a cry shatters the night.",
+            "A devastating hit pierces through its defenses, leaving it stunned and bleeding.",
+            "Critical strike! Your weapon cleaves true, spilling a bitter, copper smell.",
+            "You strike with uncanny force; the monster staggers and gurgles, its life unwinding.",
+            "A deathly strike lands with terrible grace; the creature's eyes dim."
         ]
         player_miss_flavor = [
-            "Your attack grazes harmlessly off its hide.",
-            "You overcommit and your strike slides off.",
-            "You swing wide; the monster slips out of reach.",
+            "Your attack grazes harmlessly off its hide, sparks flying from cursed mail.",
+            "You overcommit and your strike slides off; the beast's grin widens.",
+            "You swing wide; the monster slips out of reach and hisses like cold wind.",
+            "Your blow finds only air — something unseen laughs from the rafters."
         ]
 
         monster_hit_flavor = [
-            "A savage blow slams into you.",
-            "The beast's claw rakes across your flesh.",
-            "It lunges and connects with brutal force.",
-            "A vicious strike rattles your bones."
+            "A savage blow slams into you, cold fire blooming under the skin.",
+            "The beast's claw rakes across your flesh, teeth like knives looking to finish the job.",
+            "It lunges and connects with brutal force; the world tilts and smells of iron.",
+            "A vicious strike rattles your bones and leaves a ringing in your ears.",
+            "A raw, animal swipe bites into you, leaving a hot sting that lingers."
         ]
         monster_crit_flavor = [
-            "A bone-crushing hit! Pain explodes across your body.",
-            "The monster finds a weakness and lands a brutal strike.",
-            "A devastating blow sends you reeling."
+            "A bone-crushing hit! Pain explodes across your body as breath slips away.",
+            "The monster finds a weakness and lands a brutal strike that reorders your senses.",
+            "A devastating blow sends you reeling; stars and shadows dance together.",
+            "A monstrous strike rends your defenses; you taste dust and old regrets."
         ]
         monster_miss_flavor = [
-            "You nimbly avoid the monster's strike.",
-            "The monster overreaches and misses.",
-            "You duck and the attack slashes past."
+            "You nimbly avoid the monster's strike, feeling the chill of almost-death pass.",
+            "The monster overreaches and misses, its momentum betraying it.",
+            "You duck and the attack slashes past; a shiver runs down your spine.",
+            "A near miss; the air where it struck smells faintly of rot."
         ]
 
         victory_flavor = [
-            "The creature collapses, its life leaving it in a ragged sigh.",
-            "With a final cry, the monster falls and the night grows quiet.",
-            "You stand victorious as the beast crumples at your feet.",
-            "The last of its strength fades; you have prevailed."
+            "The creature collapses, its life leaving it in a ragged sigh; the air smells faintly of victory and dust.",
+            "With a final cry, the monster falls and the night grows quieter yet somehow hungrier.",
+            "You stand victorious as the beast crumples at your feet, a small triumph against the dark.",
+            "The last of its strength fades; you have prevailed, though the cost is written on your bones.",
+            "Silence follows the death; even the rats seem to bow as the thing dies."
         ]
         defeat_flavor = [
-            "Darkness closes around you as you fall to the dirt.",
-            "You collapse, breath shallow and vision blurred, the hunt lost.",
-            "The monster stands over you as your strength ebbs away.",
-            "Pain and cold take you; this hunt ends in failure."
-        ]
+            "Darkness closes around you as you fall to the dirt; the world narrows to a single, cold point.",
+            "You collapse, breath shallow and vision blurred; the hunt has turned on you at last.",
+            "The monster stands over you as your strength ebbs away, its shadow swallowing the light.",
+            "Pain and cold take you; this hunt ends in failure and the ground drinks your warmth.",
+            "Your hands tremble and the lamp guttering in the throat of night seems to wink out."
 
         def choose_player_hit_text(dmg: int, crit: bool, monster: dict) -> str:
             if dmg <= 0:
@@ -920,10 +928,12 @@ class Vania(commands.Cog):
         Flavored pray command: receive 1–5 Hearts with a short prayer text and rich embed.
         """
         flavor_lines = [
-            "You kneel and whisper to the old gods; the altar answers.",
-            "A warm gust brushes your face as light spills from the altar.",
-            "You offer a quiet plea; a faint chime replies from the stones.",
-            "You close your eyes and, for a moment, feel watched by gentle eyes."
+            "You kneel and whisper to the old gods; the altar answers with a cold, patient wind.",
+            "A warm gust brushes your face as light spills from the altar, as if the past exhales.",
+            "You offer a quiet plea; a faint chime replies from the stones, echoing old bargains.",
+            "You close your eyes and, for a moment, feel watched by something both kind and terrible.",
+            "Candles tremble when your prayer ends; the air tastes faintly of iron and comfort.",
+            "The altar exhales a sigh of relief; a soft warmth loosens the knots in your chest."
         ]
 
         profiles = self._load_profiles()
@@ -1368,14 +1378,16 @@ class Vania(commands.Cog):
         Flavored heal: spend Hearts to heal. Uses full-heal logic when possible and shows a rich embed with flavor.
         """
         heal_flavor = [
-            "You press the Heart to your chest; warmth spreads like a slow sunrise.",
-            "A soft glow surrounds you as the Hearts' power knits flesh and spirit.",
-            "You feel memory and muscle mend beneath the gentle pulse of the Hearts.",
-            "Energy floods your limbs; the wound sews itself closed with a whisper."
+            "You press the Heart to your chest; warmth spreads like a slow sunrise and old aches loosen.",
+            "A soft gold glow surrounds you as the Hearts' power knits flesh and spirit into brittle strength.",
+            "Memory and muscle mend beneath the gentle pulse; scars smooth and breath steadies.",
+            "Energy floods your limbs; the wound sews itself closed with a whisper and the air smells faintly of incense.",
+            "The Heart thrums in your palm; light travels up your veins and the cold recedes from your bones."
         ]
         low_heal_flavor = [
-            "The Hearts offer a small comfort, staving off the worst of your wounds.",
-            "A flicker of life returns to you; not whole, but enough to stand."
+            "The Hearts offer a small comfort, sealing the worst of your wounds and sharpening resolve.",
+            "A faint pulse returns to you; not whole, but steady enough to fight another hour.",
+            "A shard of warmth finds you and stitches a line of courage into aching limbs."
         ]
 
         profiles = self._load_profiles()
