@@ -74,6 +74,14 @@ class Vania(commands.Cog):
             "player_hp": 1.2,
             "monster_hp": 1.0,
         },
+    }  
+
+    STAGE_DEFINITIONS = {
+        "Stage 1 — Graveyard (1–30 HP)": (1, 30),
+        "Stage 2 — Village Outskirts (31–70 HP)": (31, 70),
+        "Stage 3 — Castle Approach (71–150 HP)": (71, 150),
+        "Stage 4 — Inner Halls (151–350 HP)": (151, 350),
+        "Stage 5 — The Sanctum (351+ HP)": (351, 10_000_000),
     }    
 
     def __init__(self, bot):
@@ -171,7 +179,7 @@ class Vania(commands.Cog):
             "level": 1,
             "skills": {},
             # equipment slots
-            "weapon": "vine_whip",
+            "weapon": None,
             "offhand": None,
             "head": None,
             "body": None,
@@ -181,8 +189,8 @@ class Vania(commands.Cog):
             "accessory1": None,
             "accessory2": None,
             # hp/hearts/inventory
-            "hp": 100,
-            "max_hp": 100,
+            "hp": 50,
+            "max_hp": 50,
             "hearts": 0,
             "relics": [],
             "consumables": {},
@@ -238,11 +246,19 @@ class Vania(commands.Cog):
         Level and skill scaling applied.
         """
         weapon = self._get_equipment(profile.get("weapon"))
-        base_min = int(weapon.get("min_damage", 8))
-        base_max = int(weapon.get("max_damage", 14))
-        base = random.randint(base_min, base_max)
-
-        weapon_mod = 1.0
+        # When unarmed (no weapon equipped) use a modest base damage range and an "unarmed" modifier.
+        if not weapon:
+            # base unarmed damage scales lightly with level so punches feel meaningful at higher levels
+            lvl = int(profile.get("level", 1))
+            unarmed_min = 1 + lvl // 2           # small growth per 2 levels
+            unarmed_max = 4 + lvl // 1           # slightly higher ceiling
+            base = random.randint(unarmed_min, unarmed_max)
+            weapon_mod = 0.75                    # unarmed deals slightly less than a basic weapon on average
+        else:
+            base_min = int(weapon.get("min_damage", 8))
+            base_max = int(weapon.get("max_damage", 14))
+            base = random.randint(base_min, base_max)
+            weapon_mod = float(weapon.get("damage_mod", 1.0)) if weapon else 1.0
 
         lvl = int(profile.get("level", 1))
         level_scale = 1.0 + 0.05 * max(0, lvl - 1)
@@ -560,8 +576,7 @@ class Vania(commands.Cog):
     @vania.command(name="hunt")
     async def hunt(self, ctx: commands.Context):
         """
-        Turn-based hunt: player and monster alternate attacks until one falls.
-        Uses weapon and armor stats, skills for scaling, awards XP and Hearts on victory.
+        Turn-based hunt with stage selection: choose a stage (HP-range) and fight a monster sampled from that stage.
         """
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
@@ -571,8 +586,68 @@ class Vania(commands.Cog):
         if int(profile.get("hp", profile.get("max_hp", 100))) <= 0:
             return await ctx.send("You are at 0 HP and cannot hunt. Use `vania heal` or a revive item first.")
 
-        # Prepare monster snapshot (copy so changes don't mutate base data)
-        monster_def = random.choice(self.monsters)
+        # Build select options from STAGE_DEFINITIONS
+        options = []
+        for name, (low, high) in self.STAGE_DEFINITIONS.items():
+            # friendly description: show low-high or low+
+            high_text = f"{high}" if high < 10_000_000 else "+"
+            desc = f"{low}-{high if high < 10_000_000 else '∞'} HP"
+            options.append(discord.SelectOption(label=name, value=name, description=desc[:100]))
+
+        # Temporary select view for stage choice
+        class _StageSelect(discord.ui.Select):
+            def __init__(self, opts):
+                super().__init__(placeholder="Choose a stage to hunt in...", min_values=1, max_values=1, options=opts)
+
+            async def callback(self, interaction: discord.Interaction):
+                if interaction.user.id != ctx.author.id:
+                    await interaction.response.send_message("This selection is not for you.", ephemeral=True)
+                    return
+                await interaction.response.defer()
+                view.selected = self.values[0]
+                view.stop()
+
+        class _StageView(discord.ui.View):
+            def __init__(self, opts, timeout=30):
+                super().__init__(timeout=timeout)
+                self.add_item(_StageSelect(opts))
+                self.selected: Optional[str] = None
+
+            async def on_timeout(self):
+                try:
+                    for c in list(self.children):
+                        c.disabled = True
+                    if msg:
+                        await msg.edit(view=self)
+                except Exception:
+                    pass
+
+        view = _StageView(options)
+        msg = await ctx.send("Choose a stage to hunt in:", view=view)
+        try:
+            await view.wait()
+        except Exception:
+            pass
+
+        if not view.selected:
+            try:
+                await msg.edit(content="Hunt cancelled (no stage selected).", view=view)
+            except Exception:
+                pass
+            return
+
+        stage_name = view.selected
+        low, high = self.STAGE_DEFINITIONS.get(stage_name, (1, 10_000_000))
+
+        # Filter monsters by their base hp in package data (monster_def["hp"])
+        candidates = [m for m in self.monsters if isinstance(m.get("hp"), (int, float)) and low <= int(m.get("hp", 0)) <= high]
+        if not candidates:
+            # fallback to whole pool if none match
+            candidates = self.monsters
+            await ctx.send(f"No monsters configured for **{stage_name}**; sampling from full monster pool.")
+
+        # Sample monster from candidates
+        monster_def = random.choice(candidates)
         monster = {
             "id": monster_def.get("id"),
             "name": monster_def.get("name", "Unknown"),
@@ -586,13 +661,14 @@ class Vania(commands.Cog):
             "crit_multiplier": monster_def.get("crit_multiplier", 1.0),
             "image": monster_def.get("image"),
         }
+
         # Apply HP buffs/debuffs from world event
         event = getattr(self, "current_event", None)
         if event:
             hp_mult = self.EVENT_EFFECTS.get(event["time"], {}).get("monster_hp", 1.0)
             hp_mult *= self.EVENT_EFFECTS.get(event["weather"], {}).get("monster_hp", 1.0)
             monster["hp"] = int(monster["hp"] * hp_mult)
-            monster["max_hp"] = int(monster["max_hp"] * hp_mult)        
+            monster["max_hp"] = int(monster["max_hp"] * hp_mult)
 
         # Support probabilistic heart_reward object or integer
         def extract_heart_reward(hr):
@@ -602,6 +678,7 @@ class Vania(commands.Cog):
                 return 0
             return int(hr or 0)
 
+        # --- from here onward we reuse the original hunt combat code unchanged ---
         log_lines: List[str] = []
 
         # ---------------- Flavor text pools ----------------
@@ -681,34 +758,27 @@ class Vania(commands.Cog):
             # scale current HP proportionally
             player_hp = min(int(player_hp * hp_mult), player_max)        
 
-        log_lines.append(f"A wild **{monster['name']}** appears (HP: {monster['hp']})!")
-        
-        # Show current world event flavor in the combat log
+        # include selected stage in the log header for clarity
+        log_lines.append(f"A wild **{monster['name']}** appears (HP: {monster['hp']})! — {stage_name}")
         event = getattr(self, "current_event", None)
         if event:
             log_lines.append(
                 f"🌍 Current world state: {event['time']} • {event['weather']} (affecting HP and damage!)"
-            )        
+            )
 
         round_count = 0
         while player_hp > 0 and monster["hp"] > 0 and round_count < 100:
             round_count += 1
-
-            # Player attack
             p_dmg, was_crit = self._player_attack(profile, monster)
             monster["hp"] = max(0, monster["hp"] - p_dmg)
-            # player attack with flavor
             crit_note = " 💥" if was_crit and p_dmg > 0 else ""
             hit_text = choose_player_hit_text(p_dmg, was_crit, monster)
             log_lines.append(f"You strike the **{monster['name']}** for **{p_dmg}** damage{crit_note}. {hit_text} (Enemy {monster['hp']}/{monster['max_hp']})")
             if monster["hp"] == 0:
                 break
 
-            # Monster attack
             m_dmg = self._monster_attack(profile, monster)
             player_hp = max(0, player_hp - m_dmg)
-
-            # monster attack with flavor (treat dodge as miss)
             crit_like = False
             try:
                 maxd = int(monster.get("max_damage", 0) or 10)
@@ -716,7 +786,6 @@ class Vania(commands.Cog):
                 maxd = 10
             if m_dmg >= max(1, int(maxd * 0.8)):
                 crit_like = True
-
             mon_text = choose_monster_hit_text(m_dmg, crit_like)
             if m_dmg == 0:
                 log_lines.append(f"The **{monster['name']}** attacks but you evade it. {mon_text}")
@@ -725,14 +794,12 @@ class Vania(commands.Cog):
             if player_hp == 0:
                 break
 
-        # Outcome processing
-        # ensure variables exist for both victory and defeat branches
+        # Outcome processing (same as original)
         found_items: List[str] = []
         xp_gain: int = 0
         hearts_awarded: int = 0
 
         if monster["hp"] == 0:
-            # Victory
             weapon = self._get_equipment(profile.get("weapon"))
             xp_gain = int(monster.get("xp_reward", 0) * float(weapon.get("xp_mod", 1.0)))
             hearts_awarded = extract_heart_reward(monster.get("heart_reward", 0))
@@ -745,30 +812,23 @@ class Vania(commands.Cog):
                     items = profile.setdefault("items", {})
                     items[iid] = items.get(iid, 0) + 1
                     found_items.append(iid)
-
-            # Build log (rewards only applied here)
             if hearts_awarded:
                 profile["hearts"] = profile.get("hearts", 0) + hearts_awarded
                 log_lines.append(f"You gained **{xp_gain} XP** and **{hearts_awarded} Heart{'s' if hearts_awarded != 1 else ''}**!")
             else:
                 log_lines.append(f"You gained **{xp_gain} XP**!")
-
             if found_items:
                 names = []
                 for iid in found_items:
-                    # look in items.json first
                     meta = next((it for it in self.items if it.get("id") == iid), None)
                     if not meta:
-                        # then look in equipment.json
                         meta = next((e for e in self.equipment if e.get("id") == iid), None)
                     display_name = meta.get("name", iid) if meta else iid
                     names.append(display_name)
                 log_lines.append("You found: " + ", ".join(f"**{n}**" for n in names))
-
             log_lines.append(random.choice(victory_flavor) if 'victory_flavor' in locals() else "You stand victorious.")
             color = discord.Color.random()
         else:
-            # Defeat — remain at 0 HP until healed or revived
             flavor = random.choice(defeat_flavor) if 'defeat_flavor' in locals() else "You were defeated."
             log_lines.append(flavor)
             log_lines.append("You were defeated and collapse to the ground.")
@@ -776,45 +836,33 @@ class Vania(commands.Cog):
             profile["hp"] = 0
             color = discord.Color.random()
 
-        # Level-up logic (after XP applied) using scaled XP curve
         old_level = int(profile.get("level", 1))
         new_level = self._level_from_xp(profile.get("xp", 0))
         if new_level > old_level:
             levels_gained = new_level - old_level
             profile["level"] = new_level
             profile["max_hp"] = profile.get("max_hp", 100) + 5 * levels_gained
-            # small HP top-up on level (not a full heal)
             player_hp = min(player_hp + 10 * levels_gained, profile["max_hp"])
             log_lines.append(f"You reached level {new_level}! Max HP +{5 * levels_gained}.")
 
-        # Save final HP and profile
         profile["hp"] = player_hp
         profiles[uid] = profile
         await self._save_profiles(profiles)
 
-        # ---------- Build a richer embed (replacement) ----------
         victory = monster["hp"] == 0
         title = f"You {'defeated' if victory else 'were defeated by'} {monster['name']}"
         embed_color = discord.Color.green() if victory else discord.Color.dark_red()
-
-        # short health bars
         player_bar = self._health_bar(profile.get("hp", 0), profile.get("max_hp", 100), length=12)
         monster_bar = self._health_bar(monster["hp"], monster["max_hp"], length=12)
-
-        # recent combat log (keep final 8 lines)
         recent_log = log_lines[-8:] if len(log_lines) > 8 else log_lines
         combat_text = "\n".join(recent_log)
-
         embed = discord.Embed(title=title, description=f"Round(s) fought: **{round_count}**", color=embed_color)
-
         try:
             embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
         except Exception:
             embed.set_author(name=ctx.author.display_name)
-
         if monster.get("image"):
             embed.set_thumbnail(url=monster.get("image"))
-
         embed.add_field(
             name="Player",
             value=(
@@ -833,10 +881,7 @@ class Vania(commands.Cog):
             ),
             inline=True
         )
-
         embed.add_field(name="Combat Log", value=combat_text or "No actions recorded.", inline=False)
-
-        # rewards / drops
         reward_lines = []
         weapon = self._get_equipment(profile.get("weapon"))
         xp_gain_calc = int(monster.get("xp_reward", 0) * float(weapon.get("xp_mod", 1.0))) if weapon else int(monster.get("xp_reward", 0))
@@ -856,9 +901,7 @@ class Vania(commands.Cog):
                 reward_lines.append("**Found**: " + ", ".join(names))
         else:
             reward_lines.append("None")
-
         embed.add_field(name="Rewards", value="\n".join(reward_lines) if reward_lines else "None", inline=False)
-
         event = getattr(self, "current_event", None)
         if event:
             embed.set_footer(
@@ -866,7 +909,6 @@ class Vania(commands.Cog):
             )
         else:
             embed.set_footer(text=f"Rounds: {round_count}")
-
         await ctx.send(embed=embed)
 
     @commands.cooldown(1, 1800, commands.BucketType.user)
@@ -1493,6 +1535,109 @@ class Vania(commands.Cog):
         finally:
             # restore original context author
             ctx.author = orig_author
+            
+    # ----------------- Admin: reset player/server progress -----------------
+    @vania.command(name="resetprogress")
+    @commands.has_permissions(manage_guild=True)
+    async def reset_progress(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """
+        Admin command to reset progress.
+        - `vania resetprogress @User` resets that user's profile.
+        - `vania resetprogress` resets all saved profiles (server-wide).
+        A confirmation prompt is shown before any destructive action.
+        """
+        # prepare description and target info
+        if member:
+            target_text = f"user **{member.display_name}** (ID {member.id})"
+            scope = "user"
+            target_id = str(member.id)
+        else:
+            target_text = "the entire server (all saved profiles)"
+            scope = "server"
+            target_id = None
+
+        # Confirmation view with two buttons
+        class _ConfirmResetView(discord.ui.View):
+            def __init__(self, timeout: int = 60):
+                super().__init__(timeout=timeout)
+                self.result: Optional[bool] = None
+
+            @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger, custom_id="vania_reset_confirm")
+            async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+                if not interaction.user.guild_permissions.manage_guild:
+                    await interaction.response.send_message("You do not have permission to confirm this action.", ephemeral=True)
+                    return
+                if interaction.user.id != ctx.author.id:
+                    await interaction.response.send_message("Only the command invoker can confirm.", ephemeral=True)
+                    return
+                self.result = True
+                for child in list(self.children):
+                    child.disabled = True
+                await interaction.response.edit_message(content="Confirmed — performing reset...", view=self)
+                self.stop()
+
+            @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, custom_id="vania_reset_cancel")
+            async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+                if interaction.user.id != ctx.author.id:
+                    await interaction.response.send_message("Only the command invoker can cancel.", ephemeral=True)
+                    return
+                self.result = False
+                for child in list(self.children):
+                    child.disabled = True
+                await interaction.response.edit_message(content="Reset cancelled.", view=self)
+                self.stop()
+
+            async def on_timeout(self):
+                try:
+                    for child in list(self.children):
+                        child.disabled = True
+                    if message:
+                        await message.edit(content="Reset timed out — no changes were made.", view=self)
+                except Exception:
+                    pass
+
+        # send confirmation embed/message
+        prompt = (
+            f"WARNING — you are about to reset progress for {target_text}.\n\n"
+            "This action is irreversible. Confirm to proceed, or Cancel to abort."
+        )
+        view = _ConfirmResetView()
+        message = await ctx.send(prompt, view=view)
+
+        # wait for the view to stop (confirm/cancel/timeout)
+        await view.wait()
+
+        if view.result is not True:
+            # cancelled or timed out
+            if view.result is False:
+                await ctx.send("Reset cancelled.")
+            return
+
+        # perform reset
+        profiles = self._load_profiles()
+        if scope == "user":
+            if target_id in profiles:
+                profiles.pop(target_id, None)
+                await self._save_profiles(profiles)
+                await ctx.send(f"✅ Reset progress for {member.mention} ({member.id}).")
+            else:
+                await ctx.send(f"No stored profile found for {member.mention} ({member.id}). Nothing to reset.")
+        else:
+            # server-wide: remove all profiles (destructive). Keep a backup file.
+            try:
+                # backup current profiles to a timestamped file
+                backup_file = self.data_file.with_suffix(f".bak_{int(random.random()*1e9)}")
+                backup_file.write_text(self.data_file.read_text())
+            except Exception:
+                # non-fatal: continue anyway
+                pass
+            # clear profiles dict entirely
+            profiles = {}
+            await self._save_profiles(profiles)
+            await ctx.send("✅ All saved profiles have been reset for this cog. A backup of previous profiles was created where possible.")
+
+        # optional logging to console for audit
+        print(f"[vania.reset_progress] {ctx.author} ({ctx.author.id}) reset {scope} {target_id or 'ALL'} in guild {ctx.guild.id}")            
 
 
     # ----------------- Raid commands (unchanged) -----------------
