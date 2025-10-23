@@ -77,12 +77,12 @@ class Vania(commands.Cog):
     }  
 
     STAGE_DEFINITIONS = {
-        "Stage 1 — Graveyard (1–30 HP)": (1, 30),
-        "Stage 2 — Village Outskirts (31–70 HP)": (31, 70),
-        "Stage 3 — Castle Approach (71–150 HP)": (71, 150),
-        "Stage 4 — Inner Halls (151–350 HP)": (151, 350),
-        "Stage 5 — The Sanctum (351+ HP)": (351, 10_000_000),
-    }    
+        "Graveyard": (1, 25),
+        "Village Outskirts": (26, 65),
+        "Castle Approach": (66, 110),
+        "Inner Halls": (111, 170),
+        "The Sanctum": (171, 10_000_000),
+    }  
 
     def __init__(self, bot):
         self.bot = bot
