@@ -869,11 +869,13 @@ class Vania(commands.Cog):
         percent = int(hp / max_hp * 100) if max_hp > 0 else 0
         embed.add_field(name="Status", value=f"**HP** {hp}/{max_hp} · {hp_bar} · **{percent}%**\n**Level** {level} · **XP** {xp}\n**Hearts** {hearts}", inline=False)
 
-        # Equipment snapshot: show weapon + main defensive slots on one line each
+        # Equipment snapshot: show weapon + all wearable slots 
         weapon_name = eqname("weapon")
         offhand_name = eqname("offhand")
         body_name = eqname("body")
         head_name = eqname("head")
+        legs_name = eqname("legs")
+        arms_name = eqname("arms")
         cloak_name = eqname("cloak")
         accessories = f"{eqname('accessory1')}, {eqname('accessory2')}"
 
@@ -882,6 +884,9 @@ class Vania(commands.Cog):
         embed.add_field(name="Body", value=body_name, inline=True)
 
         embed.add_field(name="Head", value=head_name, inline=True)
+        embed.add_field(name="Legs", value=legs_name, inline=True)
+        embed.add_field(name="Arms", value=arms_name, inline=True)
+
         embed.add_field(name="Cloak", value=cloak_name, inline=True)
         embed.add_field(name="Accessories", value=accessories, inline=True)
 
