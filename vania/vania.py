@@ -379,7 +379,7 @@ class Vania(commands.Cog):
         embed.add_field(name="Rewards", value="\n".join(reward_lines) if reward_lines else "None", inline=False)
 
         embed.set_footer(text=f"Tip: use `vania heal` to spend Hearts. • Rounds: {round_count}")
-         await ctx.send(embed=embed)
+        await ctx.send(embed=embed)
 
     @commands.cooldown(1, 3600, commands.BucketType.user)
     @vania.command(name="pray")
