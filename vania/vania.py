@@ -481,9 +481,15 @@ class Vania(commands.Cog):
     @vania.command(name="pray")
     async def pray(self, ctx: commands.Context):
         """
-        Pray at the altar to receive up to 5 Hearts. 1 hour cooldown per user.
-        Grants a random amount between 1 and 5 Hearts (inclusive).
+        Flavored pray command: receive 1–5 Hearts with a short prayer text and rich embed.
         """
+        flavor_lines = [
+            "You kneel and whisper to the old gods; the altar answers.",
+            "A warm gust brushes your face as light spills from the altar.",
+            "You offer a quiet plea; a faint chime replies from the stones.",
+            "You close your eyes and, for a moment, feel watched by gentle eyes."
+        ]
+
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid, self._default_profile())
@@ -494,54 +500,92 @@ class Vania(commands.Cog):
         profiles[uid] = profile
         await self._save_profiles(profiles)
 
+        # Build rich embed
         embed = discord.Embed(
             title="You prayed at the altar",
-            description=f"You received **{gained}** Heart{'s' if gained != 1 else ''}.",
-            color=discord.Color.random()
+            description=random.choice(flavor_lines),
+            color=discord.Color.gold()
         )
-        embed.add_field(name="Hearts", value=str(profile.get("hearts", 0)), inline=True)
+        try:
+            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
+        except Exception:
+            embed.set_author(name=ctx.author.display_name)
+
+        embed.add_field(name="Hearts Gained", value=f"**{gained}**", inline=True)
+        embed.add_field(name="Total Hearts", value=str(profile.get("hearts", 0)), inline=True)
+        embed.set_footer(text="May these Hearts keep your will unbroken. • Try `vania heal` to spend them.")
         await ctx.send(embed=embed)
 
     @vania.command(name="stats")
     async def stats(self, ctx: commands.Context):
-        """View your hunter’s level, XP, hearts, equipped gear and slots."""
+        """View your hunter’s level, XP, hearts, equipped gear and slots (rich embed)."""
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid)
         if not profile:
             return await ctx.send("No profile found. Start hunting with `vania hunt`.")
 
-        xp = profile.get("xp", 0)
-        level = profile.get("level", xp // 100 + 1)
+        xp = int(profile.get("xp", 0))
+        level = int(profile.get("level", xp // 100 + 1))
         skills = profile.get("skills", {})
-        hearts = profile.get("hearts", 0)
+        hearts = int(profile.get("hearts", 0))
+        hp = int(profile.get("hp", 0))
+        max_hp = int(profile.get("max_hp", 100))
 
-        # Get equip names safely
+        # small helpers
         def eqname(slot):
             return self._get_equipment(profile.get(slot)).get("name", "None") if profile.get(slot) else "None"
 
-        embed = discord.Embed(title=f"{ctx.author.display_name}'s Profile", color=discord.Color.random())
-        embed.add_field(name="Level", value=level, inline=True)
-        embed.add_field(name="XP", value=xp, inline=True)
-        embed.add_field(name="Hearts", value=hearts, inline=True)
+        def eq_icon(slot):
+            return self._get_equipment(profile.get(slot)).get("image") if profile.get(slot) else None
 
-        embed.add_field(name="Weapon", value=eqname("weapon"), inline=True)
-        embed.add_field(name="Offhand", value=eqname("offhand"), inline=True)
-        embed.add_field(name="Head", value=eqname("head"), inline=True)
-        embed.add_field(name="Body", value=eqname("body"), inline=True)
-        embed.add_field(name="Legs", value=eqname("legs"), inline=True)
-        embed.add_field(name="Arms", value=eqname("arms"), inline=True)
-        embed.add_field(name="Cloak", value=eqname("cloak"), inline=True)
-        embed.add_field(name="Accessory 1", value=eqname("accessory1"), inline=True)
-        embed.add_field(name="Accessory 2", value=eqname("accessory2"), inline=True)
+        # Build embed
+        embed = discord.Embed(title=f"{ctx.author.display_name}'s Hunter Sheet", color=discord.Color.blurple())
+        try:
+            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
+        except Exception:
+            embed.set_author(name=ctx.author.display_name)
 
-        embed.add_field(name="HP", value=f"{profile.get('hp',0)}/{profile.get('max_hp',0)}", inline=True)
+        # Top summary (HP bar, level, XP, Hearts)
+        hp_bar = self._health_bar(hp, max_hp, length=18)
+        percent = int(hp / max_hp * 100) if max_hp > 0 else 0
+        embed.add_field(name="Status", value=f"**HP** {hp}/{max_hp} · {hp_bar} · **{percent}%**\n**Level** {level} · **XP** {xp}\n**Hearts** {hearts}", inline=False)
 
+        # Equipment snapshot: show weapon + main defensive slots on one line each
+        weapon_name = eqname("weapon")
+        offhand_name = eqname("offhand")
+        body_name = eqname("body")
+        head_name = eqname("head")
+        cloak_name = eqname("cloak")
+        accessories = f"{eqname('accessory1')}, {eqname('accessory2')}"
+
+        embed.add_field(name="Weapon", value=weapon_name, inline=True)
+        embed.add_field(name="Offhand", value=offhand_name, inline=True)
+        embed.add_field(name="Body", value=body_name, inline=True)
+
+        embed.add_field(name="Head", value=head_name, inline=True)
+        embed.add_field(name="Cloak", value=cloak_name, inline=True)
+        embed.add_field(name="Accessories", value=accessories, inline=True)
+
+        # Optional thumbnail: weapon image if available, else first equipped item image
+        thumb = eq_icon("weapon") or eq_icon("body") or eq_icon("head")
+        if thumb:
+            embed.set_thumbnail(url=thumb)
+
+        # Skills block (compact, sorted by level desc)
         if skills:
-            skill_list = "\n".join(f"{name}: Lv {lvl}" for name, lvl in skills.items())
-            embed.add_field(name="Skills", value=skill_list, inline=False)
+            skill_items = sorted(skills.items(), key=lambda kv: (-int(kv[1]), kv[0]))
+            skill_lines = [f"**{name}** Lv {lvl}" for name, lvl in skill_items]
+            embed.add_field(name="Skills", value="\n".join(skill_lines), inline=False)
 
-        await ctx.send(embed=embed)
+        # Inventory quick counts (relics, consumables, items)
+        relic_count = len(profile.get("relics", []))
+        consumable_count = sum(int(q) for q in profile.get("consumables", {}).values())
+        item_count = sum(int(q) for q in profile.get("items", {}).values())
+        embed.add_field(name="Inventory", value=f"Relics: **{relic_count}** · Consumables: **{consumable_count}** · Items: **{item_count}**", inline=False)
+
+        # Footer with hints
+        embed.set_footer(text="Use `vania inventory` to manage gear and `vania heal` to spend Hearts.")
 
     @vania.command(name="train")
     async def train(self, ctx: commands.Context, skill: str):
@@ -588,17 +632,42 @@ class Vania(commands.Cog):
         pages = self._paginate_inventory(inv)
         view = InventoryView(self, ctx, pages)
 
-        embed = discord.Embed(title=f"{ctx.author.display_name}'s Inventory", color=discord.Color.random())
         hearts = profile.get("hearts", 0)
-        embed.add_field(name="Hearts", value=str(hearts), inline=True)
-        if pages and pages[0]:
-            page = pages[0]
-            embed.description = "\n".join(
-                f"`{i.get('id')}` • **{i.get('name')}** x{i.get('qty')} — {i.get('type','misc')}" for i in page
-            )
-        else:
-            embed.description = "Inventory empty."
+        relic_count = len(profile.get("relics", []))
+        consumable_count = sum(int(q) for q in profile.get("consumables", {}).values())
+        item_count = sum(int(q) for q in profile.get("items", {}).values())
 
+        embed = discord.Embed(title=f"{ctx.author.display_name}'s Inventory", color=discord.Color.dark_teal())
+        try:
+            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
+        except Exception:
+            embed.set_author(name=ctx.author.display_name)
+
+        # Top summary
+        embed.add_field(
+            name="Summary",
+            value=f"**Hearts**: {hearts} · **Relics**: {relic_count} · **Consumables**: {consumable_count} · **Items**: {item_count}",
+            inline=False,
+        )
+
+        # Show page 1 content in a prettier table-like list
+        page = pages[0] if pages else []
+        if not page:
+            embed.add_field(name="Contents", value="Inventory empty.", inline=False)
+        else:
+            lines = []
+            for it in page:
+                iid = it.get("id", "unknown")
+                name = it.get("name", iid)
+                qty = it.get("qty", 1)
+                typ = it.get("type", "misc")
+                # show a small icon hint for type
+                icon = "🔹" if typ in ("weapon","offhand","head","body","legs","arms","cloak","accessory") else ("🧴" if typ=="consumable" else "✦")
+                lines.append(f"{icon} **{name}** (`{iid}`) x{qty} — {typ}")
+            embed.add_field(name=f"Page 1/{len(pages)}", value="\n".join(lines), inline=False)
+
+        # Footer / hint and attach view
+        embed.set_footer(text="Use the buttons to page, Equip items or Use consumables.")
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg
         await view.update_message()
@@ -806,11 +875,19 @@ class Vania(commands.Cog):
     @vania.command(name="heal")
     async def heal(self, ctx: commands.Context):
         """
-        Spend Hearts to heal. If you have enough Hearts, the command will
-        automatically spend the required number to fully heal you to max HP.
-        If you don't have enough Hearts to fully heal, it spends all Hearts
-        and heals proportionally.
+        Flavored heal: spend Hearts to heal. Uses full-heal logic when possible and shows a rich embed with flavor.
         """
+        heal_flavor = [
+            "You press the Heart to your chest; warmth spreads like a slow sunrise.",
+            "A soft glow surrounds you as the Hearts' power knits flesh and spirit.",
+            "You feel memory and muscle mend beneath the gentle pulse of the Hearts.",
+            "Energy floods your limbs; the wound sews itself closed with a whisper."
+        ]
+        low_heal_flavor = [
+            "The Hearts offer a small comfort, staving off the worst of your wounds.",
+            "A flicker of life returns to you; not whole, but enough to stand."
+        ]
+
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid)
@@ -821,7 +898,6 @@ class Vania(commands.Cog):
         if hearts <= 0:
             return await ctx.send("You have no Hearts to spend for healing.")
 
-        # Single-heart heal amount (keeps previous formula)
         per_heart = max(10, profile.get("max_hp", 100) // 6)
         current_hp = int(profile.get("hp", 0))
         max_hp = int(profile.get("max_hp", 100))
@@ -829,27 +905,41 @@ class Vania(commands.Cog):
         if missing <= 0:
             return await ctx.send("You are already at full HP.")
 
-        # Hearts required to fully heal (ceiling division)
         hearts_needed = (missing + per_heart - 1) // per_heart
 
         if hearts >= hearts_needed:
-            # Fully heal
             hearts_spent = hearts_needed
             healed = missing
             profile["hp"] = max_hp
             profile["hearts"] = hearts - hearts_spent
-            msg = f"You spent **{hearts_spent}** Heart{'s' if hearts_spent != 1 else ''} and were fully healed to {profile['hp']}/{max_hp} HP."
+            flavor = random.choice(heal_flavor)
+            title = "Fully Healed"
+            color = discord.Color.green()
         else:
-            # Spend all hearts and heal proportionally
             hearts_spent = hearts
             healed = min(missing, per_heart * hearts_spent)
             profile["hp"] = min(max_hp, current_hp + healed)
             profile["hearts"] = 0
-            msg = f"You spent **{hearts_spent}** Heart{'s' if hearts_spent != 1 else ''} and healed **{healed}** HP. Current HP: {profile['hp']}/{max_hp}"
+            flavor = random.choice(low_heal_flavor)
+            title = "Partially Healed"
+            color = discord.Color.orange()
 
         profiles[uid] = profile
         await self._save_profiles(profiles)
-        await ctx.send(msg)
+
+        embed = discord.Embed(title=title, description=flavor, color=color)
+        try:
+            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
+        except Exception:
+            embed.set_author(name=ctx.author.display_name)
+
+        embed.add_field(name="Hearts Spent", value=f"**{hearts_spent}**", inline=True)
+        embed.add_field(name="HP Healed", value=f"**{healed}**", inline=True)
+        embed.add_field(name="Current HP", value=f"{profile['hp']}/{max_hp}", inline=True)
+        embed.add_field(name="Hearts Remaining", value=str(profile.get("hearts", 0)), inline=True)
+        embed.set_footer(text="Hearts are precious. Use them wisely or save them for revives.")
+        await ctx.send(embed=embed)
+
 
     @vania.group(name="raid", invoke_without_command=True)
     async def raid(self, ctx: commands.Context):
