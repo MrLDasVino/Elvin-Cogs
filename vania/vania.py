@@ -591,10 +591,8 @@ class Vania(commands.Cog):
         # Build select options from STAGE_DEFINITIONS
         options = []
         for name, (low, high) in self.STAGE_DEFINITIONS.items():
-            # friendly description: show low-high or low+
-            high_text = f"{high}" if high < 10_000_000 else "+"
-            desc = f"{low}-{high if high < 10_000_000 else '∞'} HP"
-            options.append(discord.SelectOption(label=name, value=name, description=desc[:100]))
+            # keep option label visible but hide HP range from the dropdown description
+            options.append(discord.SelectOption(label=name, value=name, description=""))
 
         # Temporary select view for stage choice
         class _StageSelect(discord.ui.Select):
@@ -605,8 +603,17 @@ class Vania(commands.Cog):
                 if interaction.user.id != ctx.author.id:
                     await interaction.response.send_message("This selection is not for you.", ephemeral=True)
                     return
+                # acknowledge quickly, record selection, then immediately disable the UI so it cannot be reused
                 await interaction.response.defer()
                 view.selected = self.values[0]
+                # disable all child components so the message shows the expired/locked state
+                try:
+                    for c in list(view.children):
+                        c.disabled = True
+                    if msg:
+                        await msg.edit(content=f"Stage selected: **{view.selected}**", view=view)
+                except Exception:
+                    pass
                 view.stop()
 
         class _StageView(discord.ui.View):
