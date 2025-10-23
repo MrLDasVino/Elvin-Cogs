@@ -285,6 +285,18 @@ class Vania(commands.Cog):
         crit_chance = float(weapon.get("crit_chance", 0.05)) + 0.01 * whip_mastery
         crit_multiplier = float(weapon.get("crit_multiplier", 1.5))
 
+        # --- Player miss / accuracy ---
+        # Base miss chance; reduced by WhipMastery and modified by weapon 'accuracy' (default 1.0).
+        base_miss = 0.05
+        weapon_accuracy = float(weapon.get("accuracy", 1.0))
+        # accuracy >1.0 reduces miss, <1.0 increases it; clamp to [0.0, 0.5]
+        miss_chance = base_miss - 0.01 * whip_mastery + (0.03 * (1.0 - weapon_accuracy))
+        miss_chance = max(0.0, min(0.5, miss_chance))
+
+        # Miss cancels the attack (no crit)
+        if random.random() < miss_chance:
+            return 0, False
+
         is_crit = random.random() < crit_chance
         mult = crit_multiplier if is_crit else 1.0
 
@@ -319,7 +331,13 @@ class Vania(commands.Cog):
         skills = profile.get("skills", {})
         evasion = int(skills.get("Evasion", 0))
         dodge_chance = 0.02 * evasion
-        if random.random() < dodge_chance:
+        # Monster accuracy modifier (monster defs can include 'accuracy' default 1.0)
+        monster_accuracy = float(monster.get("accuracy", 1.0))
+        # base miss for monsters is small; reduced by accuracy >1.0
+        monster_base_miss = 0.04
+        monster_miss_chance = monster_base_miss + (0.03 * (1.0 - monster_accuracy)) - dodge_chance
+        monster_miss_chance = max(0.0, min(0.5, monster_miss_chance))
+        if random.random() < monster_miss_chance:
             return 0
 
         dmg = max(0, base - defense)
