@@ -610,7 +610,7 @@ class Vania(commands.Cog):
                 view.stop()
 
         class _StageView(discord.ui.View):
-            def __init__(self, opts, timeout=30):
+            def __init__(self, opts, timeout: int = 60):
                 super().__init__(timeout=timeout)
                 self.add_item(_StageSelect(opts))
                 self.selected: Optional[str] = None
@@ -922,7 +922,7 @@ class Vania(commands.Cog):
             embed.set_footer(text=f"Rounds: {round_count}")
         await ctx.send(embed=embed)
 
-    @commands.cooldown(1, 1800, commands.BucketType.user)
+    @commands.cooldown(1, 1200, commands.BucketType.user)
     @vania.command(name="pray")
     async def pray(self, ctx: commands.Context):
         """
@@ -1777,13 +1777,22 @@ class Vania(commands.Cog):
 # ----------------- Inventory View (outside class) -----------------
 class InventoryView(discord.ui.View):
     def __init__(self, cog: Vania, ctx: commands.Context, pages: List[List[dict]]):
-        super().__init__(timeout=120)
+        super().__init__(timeout=60)
         self.cog = cog
         self.ctx = ctx
         self.author_id = ctx.author.id
         self.pages = pages
         self.page_index = 0
         self.message: Optional[discord.Message] = None
+
+    async def on_timeout(self):
+        try:
+            for child in list(self.children):
+                child.disabled = True
+            if self.message:
+                await self.message.edit(view=self)
+        except Exception:
+            pass
 
     async def update_message(self):
         page = self.pages[self.page_index]
