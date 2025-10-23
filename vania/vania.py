@@ -794,8 +794,8 @@ class Vania(commands.Cog):
         monster = {
             "id": monster_def.get("id"),
             "name": monster_def.get("name", "Unknown"),
-            "hp": int(monster_def.get("hp", 10) * float(self._load_settings().get("difficulty", 1.0"))),
-            "max_hp": int(monster_def.get("hp", 10) * float(self._load_settings().get("difficulty", 1.0"))),
+            "hp": int(monster_def.get("hp", 10) * float(self._load_settings().get("difficulty", 1.0))),
+            "max_hp": int(monster_def.get("hp", 10) * float(self._load_settings().get("difficulty", 1.0))),
             "xp_reward": int(monster_def.get("xp_reward", 0)),
             "heart_reward": monster_def.get("heart_reward", 0),
             "min_damage": monster_def.get("min_damage"),
