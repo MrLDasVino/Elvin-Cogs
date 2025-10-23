@@ -521,9 +521,12 @@ class Vania(commands.Cog):
         """View your hunter’s level, XP, hearts, equipped gear and slots (rich embed)."""
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
-        profile = profiles.get(uid)
+        profile = profiles.get(uid, None)
         if not profile:
-            return await ctx.send("No profile found. Start hunting with `vania hunt`.")
+            # create a default profile and persist it so stats always shows something
+            profile = self._default_profile()
+            profiles[uid] = profile
+            await self._save_profiles(profiles)
 
         xp = int(profile.get("xp", 0))
         level = int(profile.get("level", xp // 100 + 1))
@@ -572,10 +575,13 @@ class Vania(commands.Cog):
         if thumb:
             embed.set_thumbnail(url=thumb)
 
-        # Skills block (compact, sorted by level desc)
+        # Skills block (compact, sorted by level desc) and truncated to avoid embed overflow
         if skills:
             skill_items = sorted(skills.items(), key=lambda kv: (-int(kv[1]), kv[0]))
+            skill_items = skill_items[:12]  # keep list reasonable to avoid embed overflow
             skill_lines = [f"**{name}** Lv {lvl}" for name, lvl in skill_items]
+            if len(skills) > 12:
+                skill_lines.append(f"...and {len(skills)-12} more")
             embed.add_field(name="Skills", value="\n".join(skill_lines), inline=False)
 
         # Inventory quick counts (relics, consumables, items)
@@ -584,8 +590,17 @@ class Vania(commands.Cog):
         item_count = sum(int(q) for q in profile.get("items", {}).values())
         embed.add_field(name="Inventory", value=f"Relics: **{relic_count}** · Consumables: **{consumable_count}** · Items: **{item_count}**", inline=False)
 
-        # Footer with hints
+        # Footer with hints and safe send fallback
         embed.set_footer(text="Use `vania inventory` to manage gear and `vania heal` to spend Hearts.")
+        try:
+            await ctx.send(embed=embed)
+        except Exception as exc:
+            # fallback: send a short text summary and log the exception to console
+            try:
+                await ctx.send(f"{ctx.author.display_name}'s Profile — Level {level}, XP {xp}, Hearts {hearts}, HP {hp}/{max_hp}")
+            except Exception:
+                pass
+            print(f"[vania.stats] error sending embed for {uid}: {exc}")
 
     @vania.command(name="train")
     async def train(self, ctx: commands.Context, skill: str):
@@ -632,6 +647,7 @@ class Vania(commands.Cog):
         pages = self._paginate_inventory(inv)
         view = InventoryView(self, ctx, pages)
 
+        # Build richer inventory embed
         hearts = profile.get("hearts", 0)
         relic_count = len(profile.get("relics", []))
         consumable_count = sum(int(q) for q in profile.get("consumables", {}).values())
@@ -939,7 +955,6 @@ class Vania(commands.Cog):
         embed.add_field(name="Hearts Remaining", value=str(profile.get("hearts", 0)), inline=True)
         embed.set_footer(text="Hearts are precious. Use them wisely or save them for revives.")
         await ctx.send(embed=embed)
-
 
     @vania.group(name="raid", invoke_without_command=True)
     async def raid(self, ctx: commands.Context):
