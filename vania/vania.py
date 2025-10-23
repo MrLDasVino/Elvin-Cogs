@@ -252,6 +252,9 @@ class Vania(commands.Cog):
     # Base XP for level 1->2 and exponential scale per level
     xp_base: int = 100
     xp_scale: float = 1.5  # much steeper growth
+    
+    # Global tuning knob for monster damage
+    monster_damage_scale: float = 1.50  # 50% more damage    
 
     def _xp_for_level(self, level: int) -> int:
         """
@@ -368,6 +371,10 @@ class Vania(commands.Cog):
             return 0
 
         dmg = max(0, base - defense)
+
+        # Apply global monster damage multiplier
+        dmg = int(dmg * self.monster_damage_scale)
+
         return dmg
         
     # ----------------- Background world events -----------------
