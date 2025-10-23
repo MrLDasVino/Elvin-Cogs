@@ -634,6 +634,75 @@ class Vania(commands.Cog):
         embed = discord.Embed(title="Training Complete", description=f"{skill} upgraded to level {skills[skill]}!", color=discord.Color.random())
         embed.add_field(name="XP Remaining", value=str(profile["xp"]))
         await ctx.send(embed=embed)
+        
+    @vania.command(name="resetcool")
+    @commands.has_permissions(manage_guild=True)
+    async def vania_resetcool(self, ctx: commands.Context, member: discord.Member, *, command_name: str = "all"):
+        """
+        Admin: reset cooldowns for a user (subcommand of vania).
+        Usage:
+          - vania resetcool @User            -> resets all command cooldowns for that user
+          - vania resetcool @User command   -> resets cooldown for a single command (by full or partial name)
+        Requires Manage Guild permission.
+        """
+        if member is None:
+            return await ctx.send("Specify a user to reset cooldowns for.")
+
+        orig_author = ctx.author
+        try:
+            # Temporarily impersonate the target user on the context for reset_cooldown calls
+            ctx.author = member
+
+            reset_list = []
+            failed_list = []
+
+            if command_name.lower() in ("all", "*"):
+                # reset for every command the bot has
+                for cmd in self.bot.commands:
+                    try:
+                        cmd.reset_cooldown(ctx)
+                        reset_list.append(cmd.qualified_name)
+                    except Exception:
+                        failed_list.append(getattr(cmd, "qualified_name", str(cmd)))
+            else:
+                # try to resolve a specific command (partial match supported)
+                target = self.bot.get_command(command_name)
+                if target is None:
+                    # try partial match by name start
+                    candidates = [c for c in self.bot.commands if c.name.startswith(command_name)]
+                    if len(candidates) == 1:
+                        target = candidates[0]
+                    elif len(candidates) > 1:
+                        names = ", ".join(c.qualified_name for c in candidates)
+                        return await ctx.send(f"Multiple commands match `{command_name}`: {names}. Use the full command name.")
+                    else:
+                        return await ctx.send(f"No command found matching `{command_name}`.")
+                try:
+                    target.reset_cooldown(ctx)
+                    reset_list.append(target.qualified_name)
+                except Exception:
+                    failed_list.append(target.qualified_name)
+
+            # Build result embed
+            desc_lines = []
+            if reset_list:
+                desc_lines.append(f"Reset cooldowns for: {', '.join(reset_list)}")
+            if failed_list:
+                desc_lines.append(f"Failed to reset: {', '.join(failed_list)}")
+            if not desc_lines:
+                desc_lines.append("No cooldowns were reset.")
+
+            embed = discord.Embed(title="Cooldowns Reset", description="\n".join(desc_lines), color=discord.Color.blurple())
+            try:
+                embed.set_author(name=member.display_name, icon_url=member.avatar.url)
+            except Exception:
+                embed.set_author(name=member.display_name)
+
+            await ctx.send(embed=embed)
+        finally:
+            # restore original context author
+            ctx.author = orig_author
+        
 
     # ----------------- Inventory, Equip (integrated), Heal Implementation -----------------
     @vania.command(name="inventory")
