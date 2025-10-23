@@ -657,7 +657,21 @@ class Vania(commands.Cog):
             failed_list: List[str] = []
 
             # Gather only commands that belong to this cog
-            cog_cmds = [c for c in self.bot.commands if getattr(c, "cog", None) is self]
+            seen = set()
+            cog_cmds = []
+            for c in (c for c in self.bot.commands if getattr(c, "cog", None) is self):
+                if c.qualified_name not in seen:
+                    seen.add(c.qualified_name)
+                    cog_cmds.append(c)
+                # include subcommands for Group/GroupCog commands
+                try:
+                    children = list(getattr(c, "all_commands", {}).values()) or []
+                except Exception:
+                    children = []
+                for ch in children:
+                    if getattr(ch, "cog", None) is self and ch.qualified_name not in seen:
+                        seen.add(ch.qualified_name)
+                        cog_cmds.append(ch)
 
             if command_name.lower() in ("all", "*"):
                 # reset for every command in this cog
