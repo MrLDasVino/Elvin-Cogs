@@ -1,3 +1,4 @@
+[
 {"id":"bat_swarm","name":"Bat Swarm","hp":10,"min_damage":2,"max_damage":4,"xp_reward":5,"heart_reward":0,"crit_chance":0.01,"crit_multiplier":1.4,"image":"","tags":["flying","common"],"drops":[{"item_id":"vine_whip","drop_chance":0.12},{"item_id":"short_sword","drop_chance":0.04}]},
 {"id":"vampire_bat","name":"Vampire Bat","hp":20,"min_damage":3,"max_damage":6,"xp_reward":15,"heart_reward":1,"crit_chance":0.02,"crit_multiplier":1.5,"image":"","tags":["flying","common"],"drops":[{"item_id":"iron_sword","drop_chance":0.05},{"item_id":"blood_whip","drop_chance":0.02}]},
 {"id":"medusa_head","name":"Medusa Head","hp":18,"min_damage":4,"max_damage":7,"xp_reward":14,"heart_reward":0,"crit_chance":0.03,"crit_multiplier":1.5,"image":"","tags":["flying","magic"],"drops":[{"item_id":"crystal_whip","drop_chance":0.08},{"item_id":"scale_mail","drop_chance":0.04}]},
@@ -378,20 +379,4 @@
 {"id":"veiled_naiad","name":"Veiled Naiad","hp":54,"min_damage":8,"max_damage":14,"xp_reward":80,"heart_reward":4,"crit_chance":0.04,"crit_multiplier":1.5,"image":"","tags":["aquatic","magic"],"drops":[{"item_id":"aether_staff","drop_chance":0.03},{"item_id":"traveler_cloak","drop_chance":0.05}]},
 {"id":"brambleling","name":"Brambleling","hp":16,"min_damage":3,"max_damage":6,"xp_reward":10,"heart_reward":0,"crit_chance":0.01,"crit_multiplier":1.2,"image":"","tags":["plant","small"],"drops":[{"item_id":"thorn_dagger","drop_chance":0.08},{"item_id":"patched_jerkin","drop_chance":0.06}]},
 {"id":"voidsentinel","name":"Void Sentinel","hp":260,"min_damage":24,"max_damage":46,"xp_reward":1200,"heart_reward":44,"crit_chance":0.06,"crit_multiplier":1.9,"image":"","tags":["rift","boss"],"drops":[{"item_id":"void_edge","drop_chance":0.02},{"item_id":"mirror_mail","drop_chance":0.02}]}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+]
