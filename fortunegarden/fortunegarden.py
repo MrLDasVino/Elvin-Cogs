@@ -1001,39 +1001,49 @@ class FortuneGarden(commands.Cog):
     @commands.guild_only()
     @commands.command(
         name="seedopt",
-        help="Opt in or out of receiving fortune seeds. Usage: seedopt off|on|status"
+        help="Manage receiving fortune seeds. Usage: seedopt off|on|status|help"
     )
-    async def seedopt(self, ctx, choice: str = "status"):
+    async def seedopt(self, ctx, choice: str = None):
         """
         seedopt off    -> stop receiving seeds (opt out)
         seedopt on     -> start receiving seeds again (opt in)
         seedopt status -> show current opt state
+        seedopt help   -> show this help / instructions
         """
         member_conf = self.config.member(ctx.author)
         current = await member_conf.opt_out()
-
-        choice = (choice or "status").lower()
-
+    
+        if choice is None:
+            choice = "help"
+        choice = choice.lower()
+    
+        if choice in ("help", "h"):
+            help_text = (
+                "SeedOpt Help\n\n"
+                "• To stop receiving seeds, run: `seedopt off`\n"
+                "  This will opt you out; you will not be awarded seeds from chat.\n\n"
+                "• To start receiving seeds again, run: `seedopt on`\n\n"
+                "• To check your current setting, run: `seedopt status`\n\n"
+                "Notes: Opt-out is stored per-member and can be changed at any time."
+            )
+            return await ctx.send(help_text)
+    
         if choice in ("off", "false", "optout", "out"):
             if current:
-                await ctx.send("✅ You are already opted out of receiving fortune seeds.")
-                return
+                return await ctx.send("✅ You are already opted out of receiving fortune seeds.")
             await member_conf.opt_out.set(True)
-            await ctx.send("🚫 You will no longer receive fortune seeds. Use `seedopt on` to opt back in.")
-            return
-
+            return await ctx.send("🚫 You have opted out. You will no longer receive fortune seeds. Use `seedopt on` to opt back in.")
+    
         if choice in ("on", "true", "optin", "in"):
             if not current:
-                await ctx.send("✅ You are already opted in to receiving fortune seeds.")
-                return
+                return await ctx.send("✅ You are already opted in to receiving fortune seeds.")
             await member_conf.opt_out.set(False)
-            await ctx.send("✅ You will now receive fortune seeds again. Use `seedopt off` to opt out.")
-            return
-
+            return await ctx.send("✅ You have opted in. You will now receive fortune seeds again. Use `seedopt off` to opt out.")
+    
         if choice == "status":
             status = "opted out" if current else "opted in"
-            await ctx.send(f"ℹ️ You are currently **{status}** of receiving fortune seeds.")
-            return
+            return await ctx.send(f"ℹ️ You are currently **{status}** of receiving fortune seeds.")
+    
+        return await ctx.send("⚠️ Invalid option. Use `seedopt help` for instructions.")
 
-        await ctx.send("⚠️ Invalid option. Use `seedopt off`, `seedopt on`, or `seedopt status`.")
         
