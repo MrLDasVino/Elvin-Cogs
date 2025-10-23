@@ -149,9 +149,10 @@ class Vania(commands.Cog):
             "title": "Graves Family",
             "desc": "Grim wardens who embrace duty and the bitter truth of sacrifice.",
             "flavor": "A grave humility settles over you and a readiness to shoulder heavy cost.",
-            "color": discord.Color.dark_theme() if hasattr(discord.Color, "dark_theme") else discord.Color.dark_grey()
+            "color": discord.Color.dark_grey()
         },
     }
+
 
 
     def __init__(self, bot):
@@ -1272,11 +1273,13 @@ class Vania(commands.Cog):
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid, self._default_profile())
+        # safe reference to clan flavor mapping (may be defined at module/class top)
+        meta_map = getattr(self, "CLAN_FLAVOR", {})
     
         current = profile.get("clan")
         if current:
             # show current clan with flavor
-            meta = (CLAN_FLAVOR.get(current) or {})
+            meta = (meta_map.get(current) or {})
             title = meta.get("title", current)
             desc = meta.get("desc", f"You belong to {current}.")
             flavor = meta.get("flavor", "")
@@ -1298,7 +1301,7 @@ class Vania(commands.Cog):
         profiles[uid] = profile
         await self._save_profiles(profiles)
     
-        meta = (CLAN_FLAVOR.get(choice) or {})
+        meta = (meta_map.get(choice) or {})
         title = meta.get("title", choice)
         desc = meta.get("desc", "")
         flavor = meta.get("flavor", "")
