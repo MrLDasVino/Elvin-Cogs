@@ -639,10 +639,10 @@ class Vania(commands.Cog):
     @commands.has_permissions(manage_guild=True)
     async def vania_resetcool(self, ctx: commands.Context, member: discord.Member, *, command_name: str = "all"):
         """
-        Admin: reset cooldowns for a user (subcommand of vania).
+        Admin: reset cooldowns for a user for Vania cog commands only.
         Usage:
-          - vania resetcool @User            -> resets all command cooldowns for that user
-          - vania resetcool @User command   -> resets cooldown for a single command (by full or partial name)
+          - vania resetcool @User            -> resets all vania command cooldowns for that user
+          - vania resetcool @User command   -> resets cooldown for a single vania command (by full or partial name)
         Requires Manage Guild permission.
         """
         if member is None:
@@ -653,68 +653,71 @@ class Vania(commands.Cog):
             # Temporarily impersonate the target user on the context for reset_cooldown calls
             ctx.author = member
 
-            reset_list = []
-            failed_list = []
+            reset_list: List[str] = []
+            failed_list: List[str] = []
+
+            # Gather only commands that belong to this cog
+            cog_cmds = list(self.get_commands())
 
             if command_name.lower() in ("all", "*"):
-                # reset for every command the bot has
-                for cmd in self.bot.commands:
+                # reset for every command in this cog
+                for cmd in cog_cmds:
                     try:
                         cmd.reset_cooldown(ctx)
                         reset_list.append(cmd.qualified_name)
                     except Exception:
                         failed_list.append(getattr(cmd, "qualified_name", str(cmd)))
             else:
-                # try to resolve a specific command (partial match supported)
-                target = self.bot.get_command(command_name)
+                # try to resolve a specific command among this cog's commands (partial match supported)
+                target = None
+                # exact qualified name or name match first
+                for c in cog_cmds:
+                    if c.qualified_name == command_name or c.name == command_name:
+                        target = c
+                        break
+                # partial match by start
                 if target is None:
-                    # try partial match by name start
-                    candidates = [c for c in self.bot.commands if c.name.startswith(command_name)]
+                    candidates = [c for c in cog_cmds if c.name.startswith(command_name) or c.qualified_name.startswith(command_name)]
                     if len(candidates) == 1:
                         target = candidates[0]
                     elif len(candidates) > 1:
                         names = ", ".join(c.qualified_name for c in candidates)
-                        return await ctx.send(f"Multiple commands match `{command_name}`: {names}. Use the full command name.")
+                        return await ctx.send(f"Multiple vania commands match `{command_name}`: {names}. Use the full command name.")
                     else:
-                        return await ctx.send(f"No command found matching `{command_name}`.")
+                        return await ctx.send(f"No vania command found matching `{command_name}`.")
+
                 try:
                     target.reset_cooldown(ctx)
                     reset_list.append(target.qualified_name)
                 except Exception:
                     failed_list.append(target.qualified_name)
 
-            # Build result embed
-            desc_lines = []
+            # Build a single description string and guard embed size
+            desc_lines: List[str] = []
             if reset_list:
                 desc_lines.append(f"Reset cooldowns for: {', '.join(reset_list)}")
             if failed_list:
                 desc_lines.append(f"Failed to reset: {', '.join(failed_list)}")
             if not desc_lines:
                 desc_lines.append("No cooldowns were reset.")
+            full_desc = "\n".join(desc_lines)
 
-            full_desc = "\n".join(desc_lines) or "No cooldowns were reset."
-
-            # try to keep embed content small; if too large, send as split text messages
-            # safe thresholds: keep embed description under ~1800 chars to avoid hitting total embed limit
             if len(full_desc) <= 1800:
-                embed = discord.Embed(title="Cooldowns Reset", description=full_desc, color=discord.Color.blurple())
+                embed = discord.Embed(title="Vania Cooldowns Reset", description=full_desc, color=discord.Color.blurple())
                 try:
-                    embed.set_author(name=member.display_name, icon_url=member.avatar.url)
+                    embed.set_author(name=member.display_name, icon_url=getattr(member.avatar, "url", None))
                 except Exception:
                     embed.set_author(name=member.display_name)
                 await ctx.send(embed=embed)
             else:
-                # when very large, prefer plain-text split messages so Discord doesn't reject the payload
-                header = f"Cooldowns Reset for {member.display_name}"
-                # send a short embed header first
+                # fallback to text splits if result is huge
+                header = f"Vania cooldowns reset for {member.display_name}"
                 try:
-                    header_embed = discord.Embed(title=header, description=f"Output too large for a single embed; sending as text.", color=discord.Color.blurple())
+                    header_embed = discord.Embed(title=header, description="Output too large for a single embed; sending as text.", color=discord.Color.blurple())
                     header_embed.set_author(name=member.display_name)
                     await ctx.send(embed=header_embed)
                 except Exception:
                     await ctx.send(header)
-
-                # split long text into 1900-char chunks and send as plain messages
                 chunk_size = 1900
                 start = 0
                 while start < len(full_desc):
@@ -724,6 +727,7 @@ class Vania(commands.Cog):
         finally:
             # restore original context author
             ctx.author = orig_author
+
         
 
     # ----------------- Inventory, Equip (integrated), Heal Implementation -----------------
