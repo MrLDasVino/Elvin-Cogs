@@ -327,154 +327,146 @@ class Vania(commands.Cog):
         
     # ----------------- Background world events -----------------
     async def _cycle_events(self):
+        """Background loop: post world events on a schedule and exit cleanly when cancelled."""
         try:
             await self.bot.wait_until_ready()
-        # Flavor pools tuned for a Gothic Castlevania mood
-        time_flavor = {
-            "☀️ Day": [
-                "A pale sun climbs above the jagged rooftops; the streets smell of cold soot and memory.",
-                "Dawn creeps across the crumbling spires, light like a blade against shadows."
-            ],
-            "🌙 Night": [
-                "The moon bleeds silver over the castle towers; distant howls stitch the dark.",
-                "A velvet night wraps the land, and every echo seems to hold a warning."
-            ],
-            "🌑 Blood Moon": [
-                "The moon turns bruised and red; creatures of old grow bold and cruel.",
-                "Under the Blood Moon the land tastes of iron and old sins; none sleep easy."
-            ],
-            "🌞 Solar Eclipse": [
-                "A hush falls as the sun is swallowed; shadows move with unnatural intent.",
-                "Daylight falters and the world leans toward a strange, burning calm."
-            ],
-            "🌾 Harvest Festival": [
-                "Lanterns sway and a fragile cheer hangs in the air, but the fields whisper of offerings paid.",
-                "A hollow celebration; laughter and music thinly veil the scent of old bargains."
-            ],
-        }
-
-        weather_flavor = {
-            "Clear skies": [
-                "The sky hangs clear but unforgiving, an empty witness to any wickedness below.",
-                "Stars gaze down like patient judges; the air is brittle and watchful."
-            ],
-            "Rainstorm": [
-                "Rain lashes like a thousand tiny blades; the cobbles gleam with old, forgotten blood.",
-                "A cold downpour drums a funeral march on slate roofs and wilted flags."
-            ],
-            "Fog": [
-                "A thick fog slithers through alleys, swallowing shapes and swallowing sound.",
-                "Veils of mist hide more than they reveal; footsteps could belong to friend or fiend."
-            ],
-            "Thunderstorm": [
-                "Lightning cracks the heavens like a summoned whip; thunder answers with an animal roar.",
-                "Storm and shadow collude, each flash revealing silhouettes of the damned."
-            ],
-            "Snow": [
-                "Snow falls like ash upon the ruins; each flake muffles the groan of old bones.",
-                "A hush of cold white softens even the harshest moans of the night."
-            ],
-            "🌑 Blood Moon": [
-                "A red haze thins across the horizon; scents sharpen and teeth twitch in hunger.",
-                "The sky oozes bloodlight; even the bravest pause as old things rouse."
-            ],
-            "🌞 Solar Eclipse": [
-                "Shadows writhe where light should be; a strange warmth and cold war in the air.",
-                "The sky warps and the world holds its breath, as if something watches from the dark."
-            ],
-            "🌾 Harvest Festival": [
-                "Lanterns hang, faces glow, and yet the fields whisper of tolls exacted long ago.",
-                "Bounty and bargains walk hand in hand; the feast hides small, necessary sacrifices."
-            ],
-        }
-
-        # small mapping for embed color per time/weather for mood
-        color_map = {
-            "☀️ Day": discord.Color.dark_gold(),
-            "🌙 Night": discord.Color.dark_purple(),
-            "Clear skies": discord.Color.blue(),
-            "Rainstorm": discord.Color.dark_blue(),
-            "Fog": discord.Color.greyple(),
-            "Thunderstorm": discord.Color.dark_magenta(),
-            "Snow": discord.Color.light_grey(),
-            "🌑 Blood Moon": discord.Color.dark_red(),
-            "🌞 Solar Eclipse": discord.Color.dark_teal(),
-            "🌾 Harvest Festival": discord.Color.orange()
-        }
-
-        # optional decorative images keyed by weather/time (replace with your own hosted art URLs)
-        art_map = {
-            "☀️ Day": None,
-            "🌙 Night": None,
-            "Clear skies": None,
-            "Rainstorm": None,
-            "Fog": None,
-            "Thunderstorm": None,
-            "Snow": None,
-            "🌑 Blood Moon": None,
-            "🌞 Solar Eclipse": None,
-            "🌾 Harvest Festival": None,
-        }
-
+    
+            # Flavor pools tuned for a Gothic Castlevania mood
+            time_flavor = {
+                "☀️ Day": [
+                    "A pale sun climbs above the jagged rooftops; the streets smell of cold soot and memory.",
+                    "Dawn creeps across the crumbling spires, light like a blade against shadows."
+                ],
+                "🌙 Night": [
+                    "The moon bleeds silver over the castle towers; distant howls stitch the dark.",
+                    "A velvet night wraps the land, and every echo seems to hold a warning."
+                ],
+                "🌑 Blood Moon": [
+                    "The moon turns bruised and red; creatures of old grow bold and cruel.",
+                    "Under the Blood Moon the land tastes of iron and old sins; none sleep easy."
+                ],
+                "🌞 Solar Eclipse": [
+                    "A hush falls as the sun is swallowed; shadows move with unnatural intent.",
+                    "Daylight falters and the world leans toward a strange, burning calm."
+                ],
+                "🌾 Harvest Festival": [
+                    "Lanterns sway and a fragile cheer hangs in the air, but the fields whisper of offerings paid.",
+                    "A hollow celebration; laughter and music thinly veil the scent of old bargains."
+                ],
+            }
+    
+            weather_flavor = {
+                "Clear skies": [
+                    "The sky hangs clear but unforgiving, an empty witness to any wickedness below.",
+                    "Stars gaze down like patient judges; the air is brittle and watchful."
+                ],
+                "Rainstorm": [
+                    "Rain lashes like a thousand tiny blades; the cobbles gleam with old, forgotten blood.",
+                    "A cold downpour drums a funeral march on slate roofs and wilted flags."
+                ],
+                "Fog": [
+                    "A thick fog slithers through alleys, swallowing shapes and swallowing sound.",
+                    "Veils of mist hide more than they reveal; footsteps could belong to friend or fiend."
+                ],
+                "Thunderstorm": [
+                    "Lightning cracks the heavens like a summoned whip; thunder answers with an animal roar.",
+                    "Storm and shadow collude, each flash revealing silhouettes of the damned."
+                ],
+                "Snow": [
+                    "Snow falls like ash upon the ruins; each flake muffles the groan of old bones.",
+                    "A hush of cold white softens even the harshest moans of the night."
+                ],
+                "🌑 Blood Moon": [
+                    "A red haze thins across the horizon; scents sharpen and teeth twitch in hunger.",
+                    "The sky oozes bloodlight; even the bravest pause as old things rouse."
+                ],
+                "🌞 Solar Eclipse": [
+                    "Shadows writhe where light should be; a strange warmth and cold war in the air.",
+                    "The sky warps and the world holds its breath, as if something watches from the dark."
+                ],
+                "🌾 Harvest Festival": [
+                    "Lanterns hang, faces glow, and yet the fields whisper of tolls exacted long ago.",
+                    "Bounty and bargains walk hand in hand; the feast hides small, necessary sacrifices."
+                ],
+            }
+    
+            # small mapping for embed color per time/weather for mood
+            color_map = {
+                "☀️ Day": discord.Color.dark_gold(),
+                "🌙 Night": discord.Color.dark_purple(),
+                "Clear skies": discord.Color.blue(),
+                "Rainstorm": discord.Color.dark_blue(),
+                "Fog": discord.Color.greyple(),
+                "Thunderstorm": discord.Color.dark_magenta(),
+                "Snow": discord.Color.light_grey(),
+                "🌑 Blood Moon": discord.Color.dark_red(),
+                "🌞 Solar Eclipse": discord.Color.dark_teal(),
+                "🌾 Harvest Festival": discord.Color.orange()
+            }
+    
+            # optional decorative images keyed by weather/time (replace with your own hosted art URLs)
+            art_map = {k: None for k in color_map.keys()}
+    
             while not self.bot.is_closed():
-            settings = self._load_settings()
-            for guild_id, conf in settings.items():
-                chan_id = conf.get("channel_id")
-                channel = self.bot.get_channel(chan_id)
-                if not channel:
-                    continue
-
-                # pick time and weather, set current_event
-                time_of_day = random.choice(list(time_flavor.keys()))
-                weather = random.choice(list(weather_flavor.keys()))
-                self.current_event = {"time": time_of_day, "weather": weather}
-
-                # assemble flavor: one time snippet + one weather snippet, plus a mechanical hint line
-                t_snip = random.choice(time_flavor.get(time_of_day, ["The hour turns."]))
-                w_snip = random.choice(weather_flavor.get(weather, ["The air shifts."]))
-                mech_time = self.EVENT_EFFECTS.get(time_of_day, {})
-                mech_weather = self.EVENT_EFFECTS.get(weather, {})
-                # note what is affected (concise)
-                affects = []
-                if mech_time.get("player_damage", 1.0) != 1.0 or mech_weather.get("player_damage", 1.0) != 1.0:
-                    affects.append("player damage")
-                if mech_time.get("monster_damage", 1.0) != 1.0 or mech_weather.get("monster_damage", 1.0) != 1.0:
-                    affects.append("monster damage")
-                if mech_time.get("player_hp", 1.0) != 1.0 or mech_weather.get("player_hp", 1.0) != 1.0:
-                    affects.append("player HP")
-                if mech_time.get("monster_hp", 1.0) != 1.0 or mech_weather.get("monster_hp", 1.0) != 1.0:
-                    affects.append("monster HP")
-                affects_text = " · ".join(affects) if affects else "no mechanical changes"
-
-                # build embed with gothic styling
-                color_choice = color_map.get(weather, discord.Color.dark_grey()) or color_map.get(time_of_day, discord.Color.dark_grey())
-                embed = discord.Embed(
-                    title=f"World Event — {time_of_day} • {weather}",
-                    description=f"{t_snip}\n\n{w_snip}",
-                    color=color_choice
-                )
-
-                # optional artwork
-                art = art_map.get(weather) or art_map.get(time_of_day)
-                if art:
-                    embed.set_image(url=art)
-
-                embed.add_field(name="Castlevania Note", value="Shadows lengthen, monsters stir; prepare your whip and steel.", inline=False)
-                embed.add_field(name="Mechanical Effects", value=affects_text, inline=False)
-                embed.set_footer(text=f"Time: {time_of_day} • Weather: {weather} • Effects: {affects_text}")
-
-                try:
-                    await channel.send(embed=embed)
-                except Exception:
-                    pass
-
-                await asyncio.sleep(3 * 60 * 60)  # 3 hours  
+                settings = self._load_settings()
+                for guild_id, conf in settings.items():
+                    chan_id = conf.get("channel_id")
+                    channel = self.bot.get_channel(chan_id)
+                    if not channel:
+                        continue
+    
+                    # pick time and weather, set current_event
+                    time_of_day = random.choice(list(time_flavor.keys()))
+                    weather = random.choice(list(weather_flavor.keys()))
+                    self.current_event = {"time": time_of_day, "weather": weather}
+    
+                    # assemble flavor: one time snippet + one weather snippet, plus a mechanical hint line
+                    t_snip = random.choice(time_flavor.get(time_of_day, ["The hour turns."]))
+                    w_snip = random.choice(weather_flavor.get(weather, ["The air shifts."]))
+                    mech_time = self.EVENT_EFFECTS.get(time_of_day, {})
+                    mech_weather = self.EVENT_EFFECTS.get(weather, {})
+                    affects = []
+                    if mech_time.get("player_damage", 1.0) != 1.0 or mech_weather.get("player_damage", 1.0) != 1.0:
+                        affects.append("player damage")
+                    if mech_time.get("monster_damage", 1.0) != 1.0 or mech_weather.get("monster_damage", 1.0) != 1.0:
+                        affects.append("monster damage")
+                    if mech_time.get("player_hp", 1.0) != 1.0 or mech_weather.get("player_hp", 1.0) != 1.0:
+                        affects.append("player HP")
+                    if mech_time.get("monster_hp", 1.0) != 1.0 or mech_weather.get("monster_hp", 1.0) != 1.0:
+                        affects.append("monster HP")
+                    affects_text = " · ".join(affects) if affects else "no mechanical changes"
+    
+                    # build embed with gothic styling
+                    color_choice = color_map.get(weather, discord.Color.dark_grey()) or color_map.get(time_of_day, discord.Color.dark_grey())
+                    embed = discord.Embed(
+                        title=f"World Event — {time_of_day} • {weather}",
+                        description=f"{t_snip}\n\n{w_snip}",
+                        color=color_choice
+                    )
+    
+                    # optional artwork
+                    art = art_map.get(weather) or art_map.get(time_of_day)
+                    if art:
+                        embed.set_image(url=art)
+    
+                    embed.add_field(name="Castlevania Note", value="Shadows lengthen, monsters stir; prepare your whip and steel.", inline=False)
+                    embed.add_field(name="Mechanical Effects", value=affects_text, inline=False)
+                    embed.set_footer(text=f"Time: {time_of_day} • Weather: {weather} • Effects: {affects_text}")
+    
+                    try:
+                        await channel.send(embed=embed)
+                    except Exception:
+                        pass
+    
+                # Sleep in one chunk but respond quickly to cancellation
+                await asyncio.sleep(3 * 60 * 60)
         except asyncio.CancelledError:
             # Task was cancelled (cog unload / reload); exit quietly.
             return
         except Exception:
-            # Unexpected error: exit the loop to avoid runaway tasks.
+            # Unexpected error: exit quietly to avoid runaway tasks. Consider logging if you want to inspect.
             return
+
 
     # ----------------- Immediate event poster (reusable) -----------------
     async def _post_event_to_channel(self, channel: discord.TextChannel):
