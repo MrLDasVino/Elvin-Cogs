@@ -107,6 +107,12 @@ class Vania(commands.Cog):
         self.settings_file = data_folder / "settings.json"
         if not self.settings_file.exists():
             self.settings_file.write_text(json.dumps({}))
+            
+        # Ensure a default difficulty multiplier is present in settings
+        settings = self._load_settings()
+        if "difficulty" not in settings:
+            settings["difficulty"] = 1.0
+            asyncio.create_task(self._save_settings(settings))            
 
         # Current world event state
         self.current_event = None
@@ -252,10 +258,7 @@ class Vania(commands.Cog):
     # Base XP for level 1->2 and exponential scale per level
     xp_base: int = 100
     xp_scale: float = 1.5  # much steeper growth
-    
-    # Global tuning knob for monster damage
-    monster_damage_scale: float = 1.50  # 50% more damage    
-
+       
     def _xp_for_level(self, level: int) -> int:
         """
         XP required to advance from `level` to `level + 1`.
@@ -372,8 +375,10 @@ class Vania(commands.Cog):
 
         dmg = max(0, base - defense)
 
-        # Apply global monster damage multiplier
-        dmg = int(dmg * self.monster_damage_scale)
+        # Apply global difficulty multiplier from settings
+        settings = self._load_settings()
+        scale = float(settings.get("difficulty", 1.0))
+        dmg = int(dmg * scale)
 
         return dmg
         
@@ -789,8 +794,8 @@ class Vania(commands.Cog):
         monster = {
             "id": monster_def.get("id"),
             "name": monster_def.get("name", "Unknown"),
-            "hp": int(monster_def.get("hp", 10)),
-            "max_hp": int(monster_def.get("hp", 10)),
+            "hp": int(monster_def.get("hp", 10) * float(self._load_settings().get("difficulty", 1.0"))),
+            "max_hp": int(monster_def.get("hp", 10) * float(self._load_settings().get("difficulty", 1.0"))),
             "xp_reward": int(monster_def.get("xp_reward", 0)),
             "heart_reward": monster_def.get("heart_reward", 0),
             "min_damage": monster_def.get("min_damage"),
@@ -1835,7 +1840,27 @@ class Vania(commands.Cog):
             await self._save_profiles(profiles)
             await ctx.send("✅ All saved profiles have been reset for this cog. A backup was created where possible.")
 
-        print(f"[vania.reset_progress] {ctx.author} ({ctx.author.id}) reset {scope} {target_id or 'ALL'} in guild {ctx.guild.id}")         
+        print(f"[vania.reset_progress] {ctx.author} ({ctx.author.id}) reset {scope} {target_id or 'ALL'} in guild {ctx.guild.id}") 
+
+    @commands.admin_or_permissions(manage_guild=True)
+    @vania.command(name="difficulty")
+    async def set_difficulty(self, ctx: commands.Context, scale: float):
+        """
+        Set global difficulty multiplier for monster damage/HP.
+        Example: !vania difficulty 1.5
+        """
+        if scale <= 0:
+            return await ctx.send("Difficulty multiplier must be greater than 0.")
+
+        settings = self._load_settings()
+        settings["difficulty"] = scale
+        await self._save_settings(settings)
+
+        await ctx.send(
+            f"Global difficulty multiplier set to **{scale:.2f}x**. "
+            "Monsters will now hit harder (and can have more HP if you scale that too)."
+        )
+        
 
 
     # ----------------- Raid commands (unchanged) -----------------
