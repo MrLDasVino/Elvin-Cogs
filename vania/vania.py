@@ -347,6 +347,7 @@ class Vania(commands.Cog):
                 break
 
         # Outcome processing
+        found_items: List[str] = []
         if monster["hp"] == 0:
             # Victory
             weapon = self._get_equipment(profile.get("weapon"))
