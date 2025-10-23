@@ -110,8 +110,12 @@ class Vania(commands.Cog):
 
         # Current world event state
         self.current_event = None
-        # Start background loop
-        self.bg_task = self.bot.loop.create_task(self._cycle_events())        
+
+        # Background task handle (may be None or a running Task).
+        # Create the cycle task only if not present or already finished.
+        self.bg_task: Optional[asyncio.Task] = None
+        if not getattr(self, "bg_task", None) or getattr(self, "bg_task").done():
+            self.bg_task = self.bot.loop.create_task(self._cycle_events())     
 
         # Ensure files exist and are valid JSON
         for f in (self.raid_file, self.data_file):
@@ -124,6 +128,15 @@ class Vania(commands.Cog):
                     backup = f.with_suffix(f".corrupt_{int(random.random()*1e9)}.bak")
                     f.rename(backup)
                     f.write_text(json.dumps({}))
+                    
+    def cog_unload(self):
+        """Cancel background task on cog unload to prevent duplicated loops."""
+        try:
+            task = getattr(self, "bg_task", None)
+            if task and not task.done():
+                task.cancel()
+        except Exception:
+            pass                    
 
     # ----------------- Safe package JSON loader -----------------
     def _safe_load_pkg_json(self, path: Path) -> dict:
@@ -314,7 +327,8 @@ class Vania(commands.Cog):
         
     # ----------------- Background world events -----------------
     async def _cycle_events(self):
-        await self.bot.wait_until_ready()
+        try:
+            await self.bot.wait_until_ready()
         # Flavor pools tuned for a Gothic Castlevania mood
         time_flavor = {
             "☀️ Day": [
@@ -402,7 +416,7 @@ class Vania(commands.Cog):
             "🌾 Harvest Festival": None,
         }
 
-        while not self.bot.is_closed():
+            while not self.bot.is_closed():
             settings = self._load_settings()
             for guild_id, conf in settings.items():
                 chan_id = conf.get("channel_id")
@@ -454,7 +468,13 @@ class Vania(commands.Cog):
                 except Exception:
                     pass
 
-            await asyncio.sleep(3 * 60 * 60)  # 3 hours  
+                await asyncio.sleep(3 * 60 * 60)  # 3 hours  
+        except asyncio.CancelledError:
+            # Task was cancelled (cog unload / reload); exit quietly.
+            return
+        except Exception:
+            # Unexpected error: exit the loop to avoid runaway tasks.
+            return
 
     # ----------------- Immediate event poster (reusable) -----------------
     async def _post_event_to_channel(self, channel: discord.TextChannel):
