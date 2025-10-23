@@ -83,6 +83,76 @@ class Vania(commands.Cog):
         "Inner Halls": (111, 170),
         "The Sanctum": (171, 10_000_000),
     }  
+    
+    CLANS = [
+        "Belmont Clan",
+        "Schneider Clan",
+        "Renard Clan",
+        "Morris Clan",
+        "Lecarde Clan",
+        "Belnades Clan",
+        "Tepes Family",
+        "Baldwin Family",
+        "Graves Family",
+    ]    
+
+    CLAN_FLAVOR = {
+        "Belmont Clan": {
+            "title": "Belmont Clan",
+            "desc": "Descendents of famed hunters; tradition and whipcraft run in your blood.",
+            "flavor": "A cold resolve settles into your shoulders as ancestral purpose hums under your skin.",
+            "color": discord.Color.dark_red()
+        },
+        "Schneider Clan": {
+            "title": "Schneider Clan",
+            "desc": "Tacticians and ironworkers, their discipline tempers raw force into precise strikes.",
+            "flavor": "You feel the weight of careful planning — every swing measured, every step counted.",
+            "color": discord.Color.dark_grey()
+        },
+        "Renard Clan": {
+            "title": "Renard Clan",
+            "desc": "Shadowy scouts and trackers, masters of ambush and cold patience.",
+            "flavor": "A fox’s patience settles into your chest; you wait for the perfect moment to strike.",
+            "color": discord.Color.dark_gold()
+        },
+        "Morris Clan": {
+            "title": "Morris Clan",
+            "desc": "Rugged warriors who favor heavy arms and stubborn defense.",
+            "flavor": "Muscle and stubborn pride answer; your bones feel steadier and older hands steadier still.",
+            "color": discord.Color.dark_blue()
+        },
+        "Lecarde Clan": {
+            "title": "Lecarde Clan",
+            "desc": "Noble-born protectors with refined technique and a taste for relic-lore.",
+            "flavor": "An old courtesy sits in your stance and a scholar’s curiosity warms your thoughts.",
+            "color": discord.Color.teal()
+        },
+        "Belnades Clan": {
+            "title": "Belnades Clan",
+            "desc": "Arcane caretakers and relic-keepers; wisdom shadows each of their moves.",
+            "flavor": "A whisper of old wards brushes your mind; something keeps watch for you tonight.",
+            "color": discord.Color.purple()
+        },
+        "Tepes Family": {
+            "title": "Tepes Family",
+            "desc": "A lineage touched by darkness; charisma and terror walk the same road.",
+            "flavor": "A darker edge brushes your tongue; authority and danger taste the same.",
+            "color": discord.Color.dark_teal()
+        },
+        "Baldwin Family": {
+            "title": "Baldwin Family",
+            "desc": "Merchants-turned-protectors; clever bargains and wide networks keep them fed.",
+            "flavor": "You sense allies in the crowd and coin to smooth rough edges when needed.",
+            "color": discord.Color.orange()
+        },
+        "Graves Family": {
+            "title": "Graves Family",
+            "desc": "Grim wardens who embrace duty and the bitter truth of sacrifice.",
+            "flavor": "A grave humility settles over you and a readiness to shoulder heavy cost.",
+            "color": discord.Color.dark_theme() if hasattr(discord.Color, "dark_theme") else discord.Color.dark_grey()
+        },
+    }
+
 
     def __init__(self, bot):
         self.bot = bot
@@ -224,7 +294,6 @@ class Vania(commands.Cog):
             "xp": 0,
             "level": 1,
             "skills": {},
-            # equipment slots
             "weapon": None,
             "offhand": None,
             "head": None,
@@ -234,13 +303,13 @@ class Vania(commands.Cog):
             "cloak": None,
             "accessory1": None,
             "accessory2": None,
-            # hp/hearts/inventory
             "hp": 50,
             "max_hp": 50,
             "hearts": 0,
             "relics": [],
             "consumables": {},
-            "items": {}
+            "items": {},
+            "clan": None
         }
 
     def _get_equipment(self, equip_id: Optional[str]) -> dict:
@@ -1196,6 +1265,58 @@ class Vania(commands.Cog):
         embed.add_field(name="Total Hearts", value=str(profile.get("hearts", 0)), inline=True)
         embed.set_footer(text="May these Hearts keep your will unbroken. • Try `vania heal` to spend them.")
         await ctx.send(embed=embed)
+        
+    @vania.command(name="clan")
+    async def clan_join(self, ctx: commands.Context):
+        """Join a random clan from the available clans or show your current clan with flavor."""
+        profiles = self._load_profiles()
+        uid = str(ctx.author.id)
+        profile = profiles.get(uid, self._default_profile())
+    
+        current = profile.get("clan")
+        if current:
+            # show current clan with flavor
+            meta = (CLAN_FLAVOR.get(current) or {})
+            title = meta.get("title", current)
+            desc = meta.get("desc", f"You belong to {current}.")
+            flavor = meta.get("flavor", "")
+            color = meta.get("color", discord.Color.random())
+            embed = discord.Embed(title=f"Clan — {title}", description=desc, color=color)
+            try:
+                embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
+            except Exception:
+                embed.set_author(name=ctx.author.display_name)
+            if flavor:
+                embed.add_field(name="Omen", value=flavor, inline=False)
+            embed.add_field(name="Clan", value=current, inline=True)
+            await ctx.send(embed=embed)
+            return
+    
+        # assign random clan
+        choice = random.choice(self.CLANS if hasattr(self, "CLANS") else CLANS)
+        profile["clan"] = choice
+        profiles[uid] = profile
+        await self._save_profiles(profiles)
+    
+        meta = (CLAN_FLAVOR.get(choice) or {})
+        title = meta.get("title", choice)
+        desc = meta.get("desc", "")
+        flavor = meta.get("flavor", "")
+        color = meta.get("color", discord.Color.random())
+    
+        embed = discord.Embed(title=f"You joined the {title}", description=desc, color=color)
+        try:
+            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
+        except Exception:
+            embed.set_author(name=ctx.author.display_name)
+    
+        if flavor:
+            embed.add_field(name="A Word", value=flavor, inline=False)
+        embed.add_field(name="Clan", value=choice, inline=True)
+        embed.set_footer(text="Carry your clan's name with care. Use `vania stats` to view it anytime.")
+        await ctx.send(embed=embed)
+
+        
 
     @vania.command(name="stats")
     async def stats(self, ctx: commands.Context):
@@ -1234,7 +1355,12 @@ class Vania(commands.Cog):
         # Top summary (HP bar, level, XP, Hearts)
         hp_bar = self._health_bar(hp, max_hp, length=18)
         percent = int(hp / max_hp * 100) if max_hp > 0 else 0
-        embed.add_field(name="Status", value=f"**HP** {hp}/{max_hp} · {hp_bar} · **{percent}%**\n**Level** {level} · **XP** {xp}\n**Hearts** {hearts}", inline=False)
+        clan = profile.get("clan") or "None"
+        embed.add_field(
+            name="Status",
+            value=f"**Clan** {clan}\n**HP** {hp}/{max_hp} · {hp_bar} · **{percent}%**\n**Level** {level} · **XP** {xp}\n**Hearts** {hearts}",
+            inline=False
+        )
 
         # Equipment snapshot: show weapon + all wearable slots 
         weapon_name = eqname("weapon")
@@ -1907,6 +2033,30 @@ class Vania(commands.Cog):
             f"Global difficulty multiplier set to **{scale:.2f}x**. "
             "Monsters will now hit harder (and can have more HP if you scale that too)."
         )
+
+    @commands.has_permissions(manage_guild=True)
+    @vania.command(name="clanset", hidden=True)
+    async def clan_set(self, ctx: commands.Context, member: discord.Member, *, clan_name: str):
+        """Hidden admin command to set a user's clan."""
+        # Normalize available clan names for simple matching
+        valid = [c.lower() for c in (self.CLANS if hasattr(self, "CLANS") else CLANS)]
+        if clan_name.lower() not in valid:
+            # allow partial match by startswith
+            matches = [c for c in (self.CLANS if hasattr(self, "CLANS") else CLANS) if c.lower().startswith(clan_name.lower())]
+            if len(matches) == 1:
+                clan_name = matches[0]
+            else:
+                await ctx.send(f"Unknown clan `{clan_name}`. Valid clans: {', '.join(self.CLANS if hasattr(self, 'CLANS') else CLANS)}")
+                return
+    
+        profiles = self._load_profiles()
+        uid = str(member.id)
+        profile = profiles.get(uid, self._default_profile())
+        profile["clan"] = clan_name
+        profiles[uid] = profile
+        await self._save_profiles(profiles)
+    
+        await ctx.send(f"Set clan for {member.mention} to **{clan_name}**.")
         
 
 
