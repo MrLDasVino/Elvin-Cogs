@@ -278,18 +278,33 @@ class Vania(commands.Cog):
             xp_gain = int(monster.get("xp_reward", 0) * float(weapon.get("xp_mod", 1.0)))
             hearts_awarded = extract_heart_reward(monster.get("heart_reward", 0))
             profile["xp"] = profile.get("xp", 0) + xp_gain
+            drops = monster_def.get("drops", [])
+            found_items = []
+            for drop in drops:
+                if random.random() <= float(drop.get("drop_chance", 0)):
+                    iid = drop["item_id"]
+                    items = profile.setdefault("items", {})
+                    items[iid] = items.get(iid, 0) + 1
+                    found_items.append(iid)
+
+            # Build log
             if hearts_awarded:
                 profile["hearts"] = profile.get("hearts", 0) + hearts_awarded
                 log_lines.append(f"You gained **{xp_gain} XP** and **{hearts_awarded} Heart{'s' if hearts_awarded != 1 else ''}**!")
             else:
                 log_lines.append(f"You gained **{xp_gain} XP**!")
-            color = discord.Color.green()
+
+            if found_items:
+                names = [next((it.get("name") for it in self.items if it.get("id") == iid), iid) for iid in found_items]
+                log_lines.append("You found: " + ", ".join(f"**{n}**" for n in names))
+
+            color = discord.Color.random()
         else:
             # Defeat
             log_lines.append("You were defeated and collapse to the ground.")
             player_hp = player_max // 2
             profile["hp"] = player_hp
-            color = discord.Color.orange()
+            color = discord.Color.random()
 
         # Level-up logic (after XP applied)
         old_level = profile.get("level", 1)
@@ -337,7 +352,7 @@ class Vania(commands.Cog):
         embed = discord.Embed(
             title="You prayed at the altar",
             description=f"You received **{gained}** Heart{'s' if gained != 1 else ''}.",
-            color=discord.Color.teal()
+            color=discord.Color.random()
         )
         embed.add_field(name="Hearts", value=str(profile.get("hearts", 0)), inline=True)
         await ctx.send(embed=embed)
@@ -360,7 +375,7 @@ class Vania(commands.Cog):
         def eqname(slot):
             return self._get_equipment(profile.get(slot)).get("name", "None") if profile.get(slot) else "None"
 
-        embed = discord.Embed(title=f"{ctx.author.display_name}'s Profile", color=discord.Color.dark_blue())
+        embed = discord.Embed(title=f"{ctx.author.display_name}'s Profile", color=discord.Color.random())
         embed.add_field(name="Level", value=level, inline=True)
         embed.add_field(name="XP", value=xp, inline=True)
         embed.add_field(name="Hearts", value=hearts, inline=True)
@@ -412,7 +427,7 @@ class Vania(commands.Cog):
         profiles[uid] = profile
         await self._save_profiles(profiles)
 
-        embed = discord.Embed(title="Training Complete", description=f"{skill} upgraded to level {skills[skill]}!", color=discord.Color.green())
+        embed = discord.Embed(title="Training Complete", description=f"{skill} upgraded to level {skills[skill]}!", color=discord.Color.random())
         embed.add_field(name="XP Remaining", value=str(profile["xp"]))
         await ctx.send(embed=embed)
 
@@ -428,7 +443,7 @@ class Vania(commands.Cog):
         pages = self._paginate_inventory(inv)
         view = InventoryView(self, ctx, pages)
 
-        embed = discord.Embed(title=f"{ctx.author.display_name}'s Inventory", color=discord.Color.blurple())
+        embed = discord.Embed(title=f"{ctx.author.display_name}'s Inventory", color=discord.Color.random())
         hearts = profile.get("hearts", 0)
         embed.add_field(name="Hearts", value=str(hearts), inline=True)
         if pages and pages[0]:
@@ -683,7 +698,7 @@ class Vania(commands.Cog):
         if not boss:
             return await ctx.send(f"No boss found with ID `{boss_id}`.")
 
-        embed = discord.Embed(title=f"Raid Sign-Up: {boss['name']}", description="React with ✅ to join the raid!", color=discord.Color.purple())
+        embed = discord.Embed(title=f"Raid Sign-Up: {boss['name']}", description="React with ✅ to join the raid!", color=discord.Color.random())
         embed.add_field(name="Boss HP", value=str(boss.get("hp")), inline=False)
         msg = await channel.send(embed=embed)
         await msg.add_reaction("✅")
@@ -754,7 +769,7 @@ class Vania(commands.Cog):
         description += f"\n\nBoss HP: `{boss_hp}/{boss_max_hp}`\n{bar}"
         image_url = boss.get("image")
 
-        embed = discord.Embed(title=f"Raid vs {boss['name']}", description=description, color=discord.Color.red() if boss_hp > 0 else discord.Color.gold())
+        embed = discord.Embed(title=f"Raid vs {boss['name']}", description=description, color=discord.Color.red() if boss_hp > 0 else discord.Color.random())
         if image_url:
             embed.set_image(url=image_url)
 
@@ -782,12 +797,12 @@ class Vania(commands.Cog):
                 reward_lines.append(line)
             await self._save_profiles(profiles)
 
-            victory_embed = discord.Embed(title="Raid Victory!", description="\n".join(reward_lines), color=discord.Color.green())
+            victory_embed = discord.Embed(title="Raid Victory!", description="\n".join(reward_lines), color=discord.Color.random())
             if image_url:
                 victory_embed.set_thumbnail(url=image_url)
             await channel.send(embed=victory_embed)
         else:
-            fail_embed = discord.Embed(title="Raid Failed", description=(f"The raid against **{boss['name']}** has failed. The boss still stands victorious."), color=discord.Color.dark_gray())
+            fail_embed = discord.Embed(title="Raid Failed", description=(f"The raid against **{boss['name']}** has failed. The boss still stands victorious."), color=discord.Color.random())
             if image_url:
                 fail_embed.set_thumbnail(url=image_url)
             await channel.send(embed=fail_embed)
@@ -809,7 +824,7 @@ class InventoryView(discord.ui.View):
 
     async def update_message(self):
         page = self.pages[self.page_index]
-        embed = discord.Embed(title=f"{self.ctx.author.display_name}'s Inventory", color=discord.Color.blurple())
+        embed = discord.Embed(title=f"{self.ctx.author.display_name}'s Inventory", color=discord.Color.random())
         # show hearts
         hearts = self.cog._load_profiles().get(str(self.ctx.author.id), {}).get("hearts", 0)
         embed.add_field(name="Hearts", value=str(hearts), inline=True)
