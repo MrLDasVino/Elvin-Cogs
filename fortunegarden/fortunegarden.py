@@ -657,7 +657,7 @@ class FortuneGarden(commands.Cog):
             "max_credits": MAX_CREDITS,
             "discover_message": None,  # None → fall back to DEFAULT_DISCOVER_MSG
         }
-        <span style="color:green">default_member = {"seeds": 0, "last_earned": None, "opt_out": False}</span>
+        default_member = {"seeds": 0, "last_earned": None, "opt_out": False}
         self.config.register_guild(**default_guild)
         self.config.register_member(**default_member)
         
@@ -794,23 +794,25 @@ class FortuneGarden(commands.Cog):
     async def on_message(self, message):
         if message.author.bot or not message.guild:
             return
-    
+
         member_conf = self.config.member(message.author)
-        <span style="color:green">data = await member_conf.all()</span>
-        <span style="color:green"># Respect opt-out</span>
-        <span style="color:green">if data.get("opt_out"):</span>
-        <span style="color:green">    return</span>
-        <span style="color:green">last = data["last_earned"]</span>
+        data = await member_conf.all()
+
+        # Respect opt-out: do not award seeds to opted-out members
+        if data.get("opt_out"):
+            return
+
+        last = data["last_earned"]
         now = datetime.utcnow()
-    
+
         if last and now - datetime.fromisoformat(last) < timedelta(hours=5):
             return
-    
+
         if random.random() < 0.05:
             new_count = data["seeds"] + 1
             await member_conf.seeds.set(new_count)
             await member_conf.last_earned.set(now.isoformat())
-    
+
             guild_conf = self.config.guild(message.guild)
             template = await guild_conf.discover_message() or DEFAULT_DISCOVER_MSG
 
