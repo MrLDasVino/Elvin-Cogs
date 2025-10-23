@@ -692,13 +692,35 @@ class Vania(commands.Cog):
             if not desc_lines:
                 desc_lines.append("No cooldowns were reset.")
 
-            embed = discord.Embed(title="Cooldowns Reset", description="\n".join(desc_lines), color=discord.Color.blurple())
-            try:
-                embed.set_author(name=member.display_name, icon_url=member.avatar.url)
-            except Exception:
-                embed.set_author(name=member.display_name)
+            full_desc = "\n".join(desc_lines) or "No cooldowns were reset."
 
-            await ctx.send(embed=embed)
+            # try to keep embed content small; if too large, send as split text messages
+            # safe thresholds: keep embed description under ~1800 chars to avoid hitting total embed limit
+            if len(full_desc) <= 1800:
+                embed = discord.Embed(title="Cooldowns Reset", description=full_desc, color=discord.Color.blurple())
+                try:
+                    embed.set_author(name=member.display_name, icon_url=member.avatar.url)
+                except Exception:
+                    embed.set_author(name=member.display_name)
+                await ctx.send(embed=embed)
+            else:
+                # when very large, prefer plain-text split messages so Discord doesn't reject the payload
+                header = f"Cooldowns Reset for {member.display_name}"
+                # send a short embed header first
+                try:
+                    header_embed = discord.Embed(title=header, description=f"Output too large for a single embed; sending as text.", color=discord.Color.blurple())
+                    header_embed.set_author(name=member.display_name)
+                    await ctx.send(embed=header_embed)
+                except Exception:
+                    await ctx.send(header)
+
+                # split long text into 1900-char chunks and send as plain messages
+                chunk_size = 1900
+                start = 0
+                while start < len(full_desc):
+                    chunk = full_desc[start : start + chunk_size]
+                    await ctx.send(f"```txt\n{chunk}\n```")
+                    start += chunk_size
         finally:
             # restore original context author
             ctx.author = orig_author
