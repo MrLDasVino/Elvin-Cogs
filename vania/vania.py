@@ -657,7 +657,7 @@ class Vania(commands.Cog):
             failed_list: List[str] = []
 
             # Gather only commands that belong to this cog
-            cog_cmds = list(self.get_commands())
+            cog_cmds = [c for c in self.bot.commands if getattr(c, "cog", None) is self]
 
             if command_name.lower() in ("all", "*"):
                 # reset for every command in this cog
