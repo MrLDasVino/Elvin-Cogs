@@ -436,7 +436,85 @@ class Vania(commands.Cog):
                 except Exception:
                     pass
 
-            await asyncio.sleep(3 * 60 * 60)  # 3 hours        
+            await asyncio.sleep(3 * 60 * 60)  # 3 hours  
+
+    # ----------------- Immediate event poster (reusable) -----------------
+    async def _post_event_to_channel(self, channel: discord.TextChannel):
+        """
+        Compose and send a single world-event embed (same style as _cycle_events).
+        Returns the chosen event dict so callers can inspect or set current_event.
+        """
+        # pick time and weather
+        time_of_day = random.choice(list({
+            "☀️ Day","🌙 Night","🌑 Blood Moon","🌞 Solar Eclipse","🌾 Harvest Festival"
+        }))
+        weather = random.choice(list({
+            "Clear skies","Rainstorm","Fog","Thunderstorm","Snow","🌑 Blood Moon","🌞 Solar Eclipse","🌾 Harvest Festival"
+        }))
+        self.current_event = {"time": time_of_day, "weather": weather}
+
+        # reuse flavor pools and maps defined in _cycle_events scope by rebuilding minimal copies here
+        time_flavor = {
+            "☀️ Day": ["A pale sun climbs above the jagged rooftops; the streets smell of cold soot and memory."],
+            "🌙 Night": ["The moon bleeds silver over the castle towers; distant howls stitch the dark."],
+            "🌑 Blood Moon": ["The moon turns bruised and red; creatures of old grow bold and cruel."],
+            "🌞 Solar Eclipse": ["A hush falls as the sun is swallowed; shadows move with unnatural intent."],
+            "🌾 Harvest Festival": ["Lanterns sway and a fragile cheer hangs in the air, but the fields whisper of offerings paid."],
+        }
+        weather_flavor = {
+            "Clear skies": ["The sky hangs clear but unforgiving, an empty witness to any wickedness below."],
+            "Rainstorm": ["Rain lashes like a thousand tiny blades; the cobbles gleam with old, forgotten blood."],
+            "Fog": ["A thick fog slithers through alleys, swallowing shapes and swallowing sound."],
+            "Thunderstorm": ["Lightning cracks the heavens like a summoned whip; thunder answers with an animal roar."],
+            "Snow": ["Snow falls like ash upon the ruins; each flake muffles the groan of old bones."],
+            "🌑 Blood Moon": ["A red haze thins across the horizon; scents sharpen and teeth twitch in hunger."],
+            "🌞 Solar Eclipse": ["Shadows writhe where light should be; a strange warmth and cold war in the air."],
+            "🌾 Harvest Festival": ["Lanterns hang, faces glow, and yet the fields whisper of tolls exacted long ago."],
+        }
+        color_map = {
+            "☀️ Day": discord.Color.dark_gold(),
+            "🌙 Night": discord.Color.dark_purple(),
+            "Clear skies": discord.Color.blue(),
+            "Rainstorm": discord.Color.dark_blue(),
+            "Fog": discord.Color.greyple(),
+            "Thunderstorm": discord.Color.dark_magenta(),
+            "Snow": discord.Color.light_grey(),
+            "🌑 Blood Moon": discord.Color.dark_red(),
+            "🌞 Solar Eclipse": discord.Color.dark_teal(),
+            "🌾 Harvest Festival": discord.Color.orange()
+        }
+
+        t_snip = random.choice(time_flavor.get(time_of_day, ["The hour turns."]))
+        w_snip = random.choice(weather_flavor.get(weather, ["The air shifts."]))
+
+        mech_time = self.EVENT_EFFECTS.get(time_of_day, {})
+        mech_weather = self.EVENT_EFFECTS.get(weather, {})
+        affects = []
+        if mech_time.get("player_damage", 1.0) != 1.0 or mech_weather.get("player_damage", 1.0) != 1.0:
+            affects.append("player damage")
+        if mech_time.get("monster_damage", 1.0) != 1.0 or mech_weather.get("monster_damage", 1.0) != 1.0:
+            affects.append("monster damage")
+        if mech_time.get("player_hp", 1.0) != 1.0 or mech_weather.get("player_hp", 1.0) != 1.0:
+            affects.append("player HP")
+        if mech_time.get("monster_hp", 1.0) != 1.0 or mech_weather.get("monster_hp", 1.0) != 1.0:
+            affects.append("monster HP")
+        affects_text = " · ".join(affects) if affects else "no mechanical changes"
+
+        embed = discord.Embed(
+            title=f"World Event — {time_of_day} • {weather}",
+            description=f"{t_snip}\n\n{w_snip}",
+            color=color_map.get(weather) or color_map.get(time_of_day) or discord.Color.dark_grey()
+        )
+        embed.add_field(name="Castlevania Note", value="Shadows lengthen, monsters stir; prepare your whip and steel.", inline=False)
+        embed.add_field(name="Mechanical Effects", value=affects_text, inline=False)
+        embed.set_footer(text=f"Time: {time_of_day} • Weather: {weather} • Effects: {affects_text}")
+
+        try:
+            await channel.send(embed=embed)
+        except Exception:
+            pass
+
+        return self.current_event            
 
     # ----------------- Event listeners for raid participant persistence -----------------
     @commands.Cog.listener()
@@ -929,7 +1007,17 @@ class Vania(commands.Cog):
         settings = self._load_settings()
         settings[str(ctx.guild.id)] = {"channel_id": channel.id}
         await self._save_settings(settings)
-        await ctx.send(f"✅ Updates will now post in {channel.mention} every 3 hours.")            
+        await ctx.send(f"✅ Updates will now post in {channel.mention} every 3 hours. Posting an initial world update now...")
+
+        # Immediately post an event to the newly configured channel
+        try:
+            # best-effort: get channel object and post a styled event
+            ch = self.bot.get_channel(channel.id)
+            if ch:
+                await self._post_event_to_channel(ch)
+        except Exception:
+            # non-fatal; the background loop will continue posting on schedule
+            pass         
 
     @vania.command(name="train")
     async def train(self, ctx: commands.Context, skill: str):
