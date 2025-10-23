@@ -219,6 +219,10 @@ class Vania(commands.Cog):
         uid = str(ctx.author.id)
         profile = profiles.get(uid, self._default_profile())
 
+        # Prevent starting a hunt if player is down at 0 HP
+        if int(profile.get("hp", profile.get("max_hp", 100))) <= 0:
+            return await ctx.send("You are at 0 HP and cannot hunt. Use `vania heal` or a revive item first.")
+
         # Prepare monster snapshot (copy so changes don't mutate base data)
         monster_def = random.choice(self.monsters)
         monster = {
@@ -244,6 +248,7 @@ class Vania(commands.Cog):
             return int(hr or 0)
 
         log_lines: List[str] = []
+
         # ---------------- Flavor text pools ----------------
         player_hit_flavor = [
             "A clean strike finds its mark.",
@@ -262,7 +267,7 @@ class Vania(commands.Cog):
         player_miss_flavor = [
             "Your attack grazes harmlessly off its hide.",
             "You overcommit and your strike slides off.",
-            "You swing wide; the monster slips out of reach."
+            "You swing wide; the monster slips out of reach.",
         ]
 
         monster_hit_flavor = [
@@ -307,7 +312,8 @@ class Vania(commands.Cog):
                 return random.choice(monster_miss_flavor)
             if crit_like:
                 return random.choice(monster_crit_flavor)
-            return random.choice(monster_hit_flavor)        
+            return random.choice(monster_hit_flavor)
+
         player_hp = profile.get("hp", profile.get("max_hp", 100))
         player_max = profile.get("max_hp", 100)
 
@@ -320,6 +326,7 @@ class Vania(commands.Cog):
             # Player attack
             p_dmg, was_crit = self._player_attack(profile, monster)
             monster["hp"] = max(0, monster["hp"] - p_dmg)
+            # player attack with flavor
             crit_note = " 💥" if was_crit and p_dmg > 0 else ""
             hit_text = choose_player_hit_text(p_dmg, was_crit, monster)
             log_lines.append(f"You strike the **{monster['name']}** for **{p_dmg}** damage{crit_note}. {hit_text} (Enemy {monster['hp']}/{monster['max_hp']})")
@@ -329,8 +336,9 @@ class Vania(commands.Cog):
             # Monster attack
             m_dmg = self._monster_attack(profile, monster)
             player_hp = max(0, player_hp - m_dmg)
+
+            # monster attack with flavor (treat dodge as miss)
             crit_like = False
-            # a simple heuristic: very large hits feel like crits
             try:
                 maxd = int(monster.get("max_damage", 0) or 10)
             except Exception:
@@ -347,7 +355,11 @@ class Vania(commands.Cog):
                 break
 
         # Outcome processing
+        # ensure variables exist for both victory and defeat branches
         found_items: List[str] = []
+        xp_gain: int = 0
+        hearts_awarded: int = 0
+
         if monster["hp"] == 0:
             # Victory
             weapon = self._get_equipment(profile.get("weapon"))
@@ -363,24 +375,22 @@ class Vania(commands.Cog):
                     items[iid] = items.get(iid, 0) + 1
                     found_items.append(iid)
 
-            # Build log
+            # Build log (rewards only applied here)
             if hearts_awarded:
                 profile["hearts"] = profile.get("hearts", 0) + hearts_awarded
                 log_lines.append(f"You gained **{xp_gain} XP** and **{hearts_awarded} Heart{'s' if hearts_awarded != 1 else ''}**!")
             else:
                 log_lines.append(f"You gained **{xp_gain} XP**!")
 
-            # victory flavor
-            log_lines.append(random.choice(victory_flavor))
-
             if found_items:
                 names = [next((it.get("name") for it in self.items if it.get("id") == iid), iid) for iid in found_items]
                 log_lines.append("You found: " + ", ".join(f"**{n}**" for n in names))
 
+            log_lines.append(random.choice(victory_flavor) if 'victory_flavor' in locals() else "You stand victorious.")
             color = discord.Color.random()
         else:
             # Defeat — remain at 0 HP until healed or revived
-            flavor = random.choice(defeat_flavor)
+            flavor = random.choice(defeat_flavor) if 'defeat_flavor' in locals() else "You were defeated."
             log_lines.append(flavor)
             log_lines.append("You were defeated and collapse to the ground.")
             player_hp = 0
@@ -394,6 +404,7 @@ class Vania(commands.Cog):
             levels_gained = new_level - old_level
             profile["level"] = new_level
             profile["max_hp"] = profile.get("max_hp", 100) + 5 * levels_gained
+            # do not auto-heal on level unless intended; only allow small bonus to current HP if desired:
             player_hp = min(player_hp + 10 * levels_gained, profile["max_hp"])
             log_lines.append(f"You reached level {new_level}! Max HP +{5 * levels_gained}.")
 
@@ -402,10 +413,10 @@ class Vania(commands.Cog):
         profiles[uid] = profile
         await self._save_profiles(profiles)
 
-        # Build embed
+        # ---------- Build a richer embed (replacement) ----------
         victory = monster["hp"] == 0
         title = f"You {'defeated' if victory else 'were defeated by'} {monster['name']}"
-        color = discord.Color.green() if victory else discord.Color.dark_red()
+        embed_color = discord.Color.green() if victory else discord.Color.dark_red()
 
         # short health bars
         player_bar = self._health_bar(profile.get("hp", 0), profile.get("max_hp", 100), length=12)
@@ -415,7 +426,7 @@ class Vania(commands.Cog):
         recent_log = log_lines[-8:] if len(log_lines) > 8 else log_lines
         combat_text = "\n".join(recent_log)
 
-        embed = discord.Embed(title=title, description=f"Round(s) fought: **{round_count}**", color=color)
+        embed = discord.Embed(title=title, description=f"Round(s) fought: **{round_count}**", color=embed_color)
 
         try:
             embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
@@ -449,14 +460,18 @@ class Vania(commands.Cog):
         # rewards / drops
         reward_lines = []
         weapon = self._get_equipment(profile.get("weapon"))
-        xp_gain = int(monster.get("xp_reward", 0) * float(weapon.get("xp_mod", 1.0)))
-        hearts_awarded = extract_heart_reward(monster.get("heart_reward", 0))
-        reward_lines.append(f"**XP**: +{xp_gain}")
-        if hearts_awarded:
-            reward_lines.append(f"**Hearts**: +{hearts_awarded}")
-        if found_items:
-            names = [next((it.get("name") for it in self.items if it.get("id") == iid), iid) for iid in found_items]
-            reward_lines.append("**Found**: " + ", ".join(names))
+        xp_gain_calc = int(monster.get("xp_reward", 0) * float(weapon.get("xp_mod", 1.0))) if weapon else int(monster.get("xp_reward", 0))
+        hearts_awarded_calc = extract_heart_reward(monster.get("heart_reward", 0))
+        if victory:
+            reward_lines.append(f"**XP**: +{xp_gain_calc}")
+            if hearts_awarded:
+                reward_lines.append(f"**Hearts**: +{hearts_awarded}")
+            if found_items:
+                names = [next((it.get("name") for it in self.items if it.get("id") == iid), iid) for iid in found_items]
+                reward_lines.append("**Found**: " + ", ".join(names))
+        else:
+            reward_lines.append("None")
+
         embed.add_field(name="Rewards", value="\n".join(reward_lines) if reward_lines else "None", inline=False)
 
         embed.set_footer(text=f"Tip: use `vania heal` to spend Hearts. • Rounds: {round_count}")
