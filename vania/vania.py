@@ -244,6 +244,70 @@ class Vania(commands.Cog):
             return int(hr or 0)
 
         log_lines: List[str] = []
+        # ---------------- Flavor text pools ----------------
+        player_hit_flavor = [
+            "A clean strike finds its mark.",
+            "Your whip sings through the air and bites deep.",
+            "You slash in a wide arc, the monster recoils.",
+            "A precise strike lands on a vulnerable spot.",
+            "You follow through with a brutal riposte.",
+            "You thrust forward, your weapon finding purchase."
+        ]
+        player_crit_flavor = [
+            "A crushing critical! The blow rends armor and bone.",
+            "A devastating hit pierces through its defenses.",
+            "Critical strike! Your weapon cleaves true.",
+            "You strike with uncanny force, the monster staggers."
+        ]
+        player_miss_flavor = [
+            "Your attack grazes harmlessly off its hide.",
+            "You overcommit and your strike slides off.",
+            "You swing wide; the monster slips out of reach."
+        ]
+
+        monster_hit_flavor = [
+            "A savage blow slams into you.",
+            "The beast's claw rakes across your flesh.",
+            "It lunges and connects with brutal force.",
+            "A vicious strike rattles your bones."
+        ]
+        monster_crit_flavor = [
+            "A bone-crushing hit! Pain explodes across your body.",
+            "The monster finds a weakness and lands a brutal strike.",
+            "A devastating blow sends you reeling."
+        ]
+        monster_miss_flavor = [
+            "You nimbly avoid the monster's strike.",
+            "The monster overreaches and misses.",
+            "You duck and the attack slashes past."
+        ]
+
+        victory_flavor = [
+            "The creature collapses, its life leaving it in a ragged sigh.",
+            "With a final cry, the monster falls and the night grows quiet.",
+            "You stand victorious as the beast crumples at your feet.",
+            "The last of its strength fades; you have prevailed."
+        ]
+        defeat_flavor = [
+            "Darkness closes around you as you fall to the dirt.",
+            "You collapse, breath shallow and vision blurred, the hunt lost.",
+            "The monster stands over you as your strength ebbs away.",
+            "Pain and cold take you; this hunt ends in failure."
+        ]
+
+        def choose_player_hit_text(dmg: int, crit: bool, monster: dict) -> str:
+            if dmg <= 0:
+                return random.choice(player_miss_flavor)
+            if crit:
+                return random.choice(player_crit_flavor)
+            return random.choice(player_hit_flavor)
+
+        def choose_monster_hit_text(dmg: int, crit_like: bool) -> str:
+            if dmg == 0:
+                return random.choice(monster_miss_flavor)
+            if crit_like:
+                return random.choice(monster_crit_flavor)
+            return random.choice(monster_hit_flavor)        
         player_hp = profile.get("hp", profile.get("max_hp", 100))
         player_max = profile.get("max_hp", 100)
 
@@ -257,17 +321,28 @@ class Vania(commands.Cog):
             p_dmg, was_crit = self._player_attack(profile, monster)
             monster["hp"] = max(0, monster["hp"] - p_dmg)
             crit_note = " 💥" if was_crit and p_dmg > 0 else ""
-            log_lines.append(f"You strike the **{monster['name']}** for **{p_dmg}** damage{crit_note}. (Enemy {monster['hp']}/{monster['max_hp']})")
+            hit_text = choose_player_hit_text(p_dmg, was_crit, monster)
+            log_lines.append(f"You strike the **{monster['name']}** for **{p_dmg}** damage{crit_note}. {hit_text} (Enemy {monster['hp']}/{monster['max_hp']})")
             if monster["hp"] == 0:
                 break
 
             # Monster attack
             m_dmg = self._monster_attack(profile, monster)
             player_hp = max(0, player_hp - m_dmg)
+            crit_like = False
+            # a simple heuristic: very large hits feel like crits
+            try:
+                maxd = int(monster.get("max_damage", 0) or 10)
+            except Exception:
+                maxd = 10
+            if m_dmg >= max(1, int(maxd * 0.8)):
+                crit_like = True
+
+            mon_text = choose_monster_hit_text(m_dmg, crit_like)
             if m_dmg == 0:
-                log_lines.append(f"The **{monster['name']}** attacks but you evade it.")
+                log_lines.append(f"The **{monster['name']}** attacks but you evade it. {mon_text}")
             else:
-                log_lines.append(f"The **{monster['name']}** hits you for **{m_dmg}** damage. (You {player_hp}/{player_max})")
+                log_lines.append(f"The **{monster['name']}** hits you for **{m_dmg}** damage. {mon_text} (You {player_hp}/{player_max})")
             if player_hp == 0:
                 break
 
@@ -294,16 +369,21 @@ class Vania(commands.Cog):
             else:
                 log_lines.append(f"You gained **{xp_gain} XP**!")
 
+            # victory flavor
+            log_lines.append(random.choice(victory_flavor))
+
             if found_items:
                 names = [next((it.get("name") for it in self.items if it.get("id") == iid), iid) for iid in found_items]
                 log_lines.append("You found: " + ", ".join(f"**{n}**" for n in names))
 
             color = discord.Color.random()
         else:
-            # Defeat
+            # Defeat — remain at 0 HP until healed or revived
+            flavor = random.choice(defeat_flavor)
+            log_lines.append(flavor)
             log_lines.append("You were defeated and collapse to the ground.")
-            player_hp = player_max // 2
-            profile["hp"] = player_hp
+            player_hp = 0
+            profile["hp"] = 0
             color = discord.Color.random()
 
         # Level-up logic (after XP applied)
@@ -709,7 +789,12 @@ class Vania(commands.Cog):
     @commands.cooldown(1, 60, commands.BucketType.user)
     @vania.command(name="heal")
     async def heal(self, ctx: commands.Context):
-        """Spend Hearts to heal a portion of your HP. Cooldown applies."""
+        """
+        Spend Hearts to heal. If you have enough Hearts, the command will
+        automatically spend the required number to fully heal you to max HP.
+        If you don't have enough Hearts to fully heal, it spends all Hearts
+        and heals proportionally.
+        """
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
         profile = profiles.get(uid)
@@ -720,18 +805,35 @@ class Vania(commands.Cog):
         if hearts <= 0:
             return await ctx.send("You have no Hearts to spend for healing.")
 
-        cost = 1
-        heal_amount = max(10, profile.get("max_hp", 100) // 6)
+        # Single-heart heal amount (keeps previous formula)
+        per_heart = max(10, profile.get("max_hp", 100) // 6)
+        current_hp = int(profile.get("hp", 0))
+        max_hp = int(profile.get("max_hp", 100))
+        missing = max_hp - current_hp
+        if missing <= 0:
+            return await ctx.send("You are already at full HP.")
 
-        if hearts < cost:
-            return await ctx.send(f"You need {cost} Hearts to heal (you have {hearts}).")
+        # Hearts required to fully heal (ceiling division)
+        hearts_needed = (missing + per_heart - 1) // per_heart
 
-        profile["hearts"] = hearts - cost
-        profile["hp"] = min(profile.get("max_hp", 100), profile.get("hp", 0) + heal_amount)
+        if hearts >= hearts_needed:
+            # Fully heal
+            hearts_spent = hearts_needed
+            healed = missing
+            profile["hp"] = max_hp
+            profile["hearts"] = hearts - hearts_spent
+            msg = f"You spent **{hearts_spent}** Heart{'s' if hearts_spent != 1 else ''} and were fully healed to {profile['hp']}/{max_hp} HP."
+        else:
+            # Spend all hearts and heal proportionally
+            hearts_spent = hearts
+            healed = min(missing, per_heart * hearts_spent)
+            profile["hp"] = min(max_hp, current_hp + healed)
+            profile["hearts"] = 0
+            msg = f"You spent **{hearts_spent}** Heart{'s' if hearts_spent != 1 else ''} and healed **{healed}** HP. Current HP: {profile['hp']}/{max_hp}"
+
         profiles[uid] = profile
         await self._save_profiles(profiles)
-
-        await ctx.send(f"You spent {cost} Heart and healed {heal_amount} HP. Current HP: {profile['hp']}/{profile['max_hp']}")
+        await ctx.send(msg)
 
     @vania.group(name="raid", invoke_without_command=True)
     async def raid(self, ctx: commands.Context):
