@@ -1094,44 +1094,6 @@ class Vania(commands.Cog):
             # restore original context author
             ctx.author = orig_author
 
-    @commands.cooldown(1, 3600, commands.BucketType.user)
-    @vania.command(name="pray")
-    async def pray(self, ctx: commands.Context):
-        """
-        Flavored pray command: receive 1–5 Hearts with a short prayer text and rich embed.
-        """
-        flavor_lines = [
-            "You kneel and whisper to the old gods; the altar answers.",
-            "A warm gust brushes your face as light spills from the altar.",
-            "You offer a quiet plea; a faint chime replies from the stones.",
-            "You close your eyes and, for a moment, feel watched by gentle eyes."
-        ]
-
-        profiles = self._load_profiles()
-        uid = str(ctx.author.id)
-        profile = profiles.get(uid, self._default_profile())
-
-        gained = random.randint(1, 5)
-        profile["hearts"] = profile.get("hearts", 0) + gained
-
-        profiles[uid] = profile
-        await self._save_profiles(profiles)
-
-        # Build rich embed
-        embed = discord.Embed(
-            title="You prayed at the altar",
-            description=random.choice(flavor_lines),
-            color=discord.Color.gold()
-        )
-        try:
-            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
-        except Exception:
-            embed.set_author(name=ctx.author.display_name)
-
-        embed.add_field(name="Hearts Gained", value=f"**{gained}**", inline=True)
-        embed.add_field(name="Total Hearts", value=str(profile.get("hearts", 0)), inline=True)
-        embed.set_footer(text="May these Hearts keep your will unbroken. • Try `vania heal` to spend them.")
-        await ctx.send(embed=embed)
 
     # ----------------- Raid commands (unchanged) -----------------
     @vania.group(name="raid", invoke_without_command=True)
