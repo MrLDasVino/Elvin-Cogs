@@ -155,7 +155,7 @@ class Vania(commands.Cog):
         base_max = int(weapon.get("max_damage", 14))
         base = random.randint(base_min, base_max)
 
-        weapon_mod = float(weapon.get("damage_mod", 1.0))
+        weapon_mod = 1.0
 
         lvl = int(profile.get("level", 1))
         level_scale = 1.0 + 0.05 * max(0, lvl - 1)
@@ -412,7 +412,15 @@ class Vania(commands.Cog):
                 log_lines.append(f"You gained **{xp_gain} XP**!")
 
             if found_items:
-                names = [next((it.get("name") for it in self.items if it.get("id") == iid), iid) for iid in found_items]
+                names = []
+                for iid in found_items:
+                    # look in items.json first
+                    meta = next((it for it in self.items if it.get("id") == iid), None)
+                    if not meta:
+                        # then look in equipment.json
+                        meta = next((e for e in self.equipment if e.get("id") == iid), None)
+                    display_name = meta.get("name", iid) if meta else iid
+                    names.append(display_name)
                 log_lines.append("You found: " + ", ".join(f"**{n}**" for n in names))
 
             log_lines.append(random.choice(victory_flavor) if 'victory_flavor' in locals() else "You stand victorious.")
@@ -496,7 +504,13 @@ class Vania(commands.Cog):
             if hearts_awarded:
                 reward_lines.append(f"**Hearts**: +{hearts_awarded}")
             if found_items:
-                names = [next((it.get("name") for it in self.items if it.get("id") == iid), iid) for iid in found_items]
+                names = []
+                for iid in found_items:
+                    meta = next((it for it in self.items if it.get("id") == iid), None)
+                    if not meta:
+                        meta = next((e for e in self.equipment if e.get("id") == iid), None)
+                    display_name = meta.get("name", iid) if meta else iid
+                    names.append(display_name)
                 reward_lines.append("**Found**: " + ", ".join(names))
         else:
             reward_lines.append("None")
@@ -704,12 +718,25 @@ class Vania(commands.Cog):
             lines = []
             for it in page:
                 iid = it.get("id", "unknown")
-                name = it.get("name", iid)
                 qty = it.get("qty", 1)
                 typ = it.get("type", "misc")
                 # show a small icon hint for type
                 icon = "🔹" if typ in ("weapon","offhand","head","body","legs","arms","cloak","accessory") else ("🧴" if typ=="consumable" else "✦")
-                lines.append(f"{icon} **{name}** (`{iid}`) x{qty} — {typ}")
+
+                # resolve display name from items.json or equipment.json
+                meta = next((m for m in self.items if m.get("id") == iid), None)
+                if not meta:
+                    meta = next((e for e in self.equipment if e.get("id") == iid), None)
+                name = meta.get("name", iid) if meta else iid
+
+                # look up equipment stats if this is equippable
+                stat_text = ""
+                if meta and meta.get("category") == "weapon":
+                    stat_text = f" [{meta.get('min_damage')}-{meta.get('max_damage')} dmg, crit {int(meta.get('crit_chance',0)*100)}%]"
+                elif meta and meta.get("category") == "armor":
+                    stat_text = f" [DEF {meta.get('defense',0)}]"
+
+                lines.append(f"{icon} **{name}**  x{qty} — {typ}{stat_text}")
             embed.add_field(name=f"Page 1/{len(pages)}", value="\n".join(lines), inline=False)
 
         # Footer / hint and attach view
