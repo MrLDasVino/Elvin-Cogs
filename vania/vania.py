@@ -1702,3 +1702,4 @@ class InventoryView(discord.ui.View):
             try:
                 await interaction.response.send_message("Could not open equip selector.", ephemeral=True)
             except Exception:
+                pass
