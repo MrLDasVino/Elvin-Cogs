@@ -297,6 +297,93 @@ class Vania(commands.Cog):
     # ----------------- Background world events -----------------
     async def _cycle_events(self):
         await self.bot.wait_until_ready()
+        # Flavor pools tuned for a Gothic Castlevania mood
+        time_flavor = {
+            "☀️ Day": [
+                "A pale sun climbs above the jagged rooftops; the streets smell of cold soot and memory.",
+                "Dawn creeps across the crumbling spires, light like a blade against shadows."
+            ],
+            "🌙 Night": [
+                "The moon bleeds silver over the castle towers; distant howls stitch the dark.",
+                "A velvet night wraps the land, and every echo seems to hold a warning."
+            ],
+            "🌑 Blood Moon": [
+                "The moon turns bruised and red; creatures of old grow bold and cruel.",
+                "Under the Blood Moon the land tastes of iron and old sins; none sleep easy."
+            ],
+            "🌞 Solar Eclipse": [
+                "A hush falls as the sun is swallowed; shadows move with unnatural intent.",
+                "Daylight falters and the world leans toward a strange, burning calm."
+            ],
+            "🌾 Harvest Festival": [
+                "Lanterns sway and a fragile cheer hangs in the air, but the fields whisper of offerings paid.",
+                "A hollow celebration; laughter and music thinly veil the scent of old bargains."
+            ],
+        }
+
+        weather_flavor = {
+            "Clear skies": [
+                "The sky hangs clear but unforgiving, an empty witness to any wickedness below.",
+                "Stars gaze down like patient judges; the air is brittle and watchful."
+            ],
+            "Rainstorm": [
+                "Rain lashes like a thousand tiny blades; the cobbles gleam with old, forgotten blood.",
+                "A cold downpour drums a funeral march on slate roofs and wilted flags."
+            ],
+            "Fog": [
+                "A thick fog slithers through alleys, swallowing shapes and swallowing sound.",
+                "Veils of mist hide more than they reveal; footsteps could belong to friend or fiend."
+            ],
+            "Thunderstorm": [
+                "Lightning cracks the heavens like a summoned whip; thunder answers with an animal roar.",
+                "Storm and shadow collude, each flash revealing silhouettes of the damned."
+            ],
+            "Snow": [
+                "Snow falls like ash upon the ruins; each flake muffles the groan of old bones.",
+                "A hush of cold white softens even the harshest moans of the night."
+            ],
+            "🌑 Blood Moon": [
+                "A red haze thins across the horizon; scents sharpen and teeth twitch in hunger.",
+                "The sky oozes bloodlight; even the bravest pause as old things rouse."
+            ],
+            "🌞 Solar Eclipse": [
+                "Shadows writhe where light should be; a strange warmth and cold war in the air.",
+                "The sky warps and the world holds its breath, as if something watches from the dark."
+            ],
+            "🌾 Harvest Festival": [
+                "Lanterns hang, faces glow, and yet the fields whisper of tolls exacted long ago.",
+                "Bounty and bargains walk hand in hand; the feast hides small, necessary sacrifices."
+            ],
+        }
+
+        # small mapping for embed color per time/weather for mood
+        color_map = {
+            "☀️ Day": discord.Color.dark_gold(),
+            "🌙 Night": discord.Color.dark_purple(),
+            "Clear skies": discord.Color.blue(),
+            "Rainstorm": discord.Color.dark_blue(),
+            "Fog": discord.Color.greyple(),
+            "Thunderstorm": discord.Color.dark_magenta(),
+            "Snow": discord.Color.light_grey(),
+            "🌑 Blood Moon": discord.Color.dark_red(),
+            "🌞 Solar Eclipse": discord.Color.dark_teal(),
+            "🌾 Harvest Festival": discord.Color.orange()
+        }
+
+        # optional decorative images keyed by weather/time (replace with your own hosted art URLs)
+        art_map = {
+            "☀️ Day": None,
+            "🌙 Night": None,
+            "Clear skies": None,
+            "Rainstorm": None,
+            "Fog": None,
+            "Thunderstorm": None,
+            "Snow": None,
+            "🌑 Blood Moon": None,
+            "🌞 Solar Eclipse": None,
+            "🌾 Harvest Festival": None,
+        }
+
         while not self.bot.is_closed():
             settings = self._load_settings()
             for guild_id, conf in settings.items():
@@ -305,16 +392,45 @@ class Vania(commands.Cog):
                 if not channel:
                     continue
 
-                # roll random event
-                time_of_day = random.choice(["☀️ Day", "🌙 Night"])
-                weather = random.choice(["Clear skies", "Rainstorm", "Fog", "Thunderstorm", "Snow"])
+                # pick time and weather, set current_event
+                time_of_day = random.choice(list(time_flavor.keys()))
+                weather = random.choice(list(weather_flavor.keys()))
                 self.current_event = {"time": time_of_day, "weather": weather}
 
+                # assemble flavor: one time snippet + one weather snippet, plus a mechanical hint line
+                t_snip = random.choice(time_flavor.get(time_of_day, ["The hour turns."]))
+                w_snip = random.choice(weather_flavor.get(weather, ["The air shifts."]))
+                mech_time = self.EVENT_EFFECTS.get(time_of_day, {})
+                mech_weather = self.EVENT_EFFECTS.get(weather, {})
+                # note what is affected (concise)
+                affects = []
+                if mech_time.get("player_damage", 1.0) != 1.0 or mech_weather.get("player_damage", 1.0) != 1.0:
+                    affects.append("player damage")
+                if mech_time.get("monster_damage", 1.0) != 1.0 or mech_weather.get("monster_damage", 1.0) != 1.0:
+                    affects.append("monster damage")
+                if mech_time.get("player_hp", 1.0) != 1.0 or mech_weather.get("player_hp", 1.0) != 1.0:
+                    affects.append("player HP")
+                if mech_time.get("monster_hp", 1.0) != 1.0 or mech_weather.get("monster_hp", 1.0) != 1.0:
+                    affects.append("monster HP")
+                affects_text = " · ".join(affects) if affects else "no mechanical changes"
+
+                # build embed with gothic styling
+                color_choice = color_map.get(weather, discord.Color.dark_grey()) or color_map.get(time_of_day, discord.Color.dark_grey())
                 embed = discord.Embed(
-                    title="World Event Update",
-                    description=f"**{time_of_day}** falls. The weather shifts: **{weather}**.",
-                    color=discord.Color.blue()
+                    title=f"World Event — {time_of_day} • {weather}",
+                    description=f"{t_snip}\n\n{w_snip}",
+                    color=color_choice
                 )
+
+                # optional artwork
+                art = art_map.get(weather) or art_map.get(time_of_day)
+                if art:
+                    embed.set_image(url=art)
+
+                embed.add_field(name="Castlevania Note", value="Shadows lengthen, monsters stir; prepare your whip and steel.", inline=False)
+                embed.add_field(name="Mechanical Effects", value=affects_text, inline=False)
+                embed.set_footer(text=f"Time: {time_of_day} • Weather: {weather} • Effects: {affects_text}")
+
                 try:
                     await channel.send(embed=embed)
                 except Exception:
@@ -1428,7 +1544,6 @@ class InventoryView(discord.ui.View):
     async def update_message(self):
         page = self.pages[self.page_index]
         embed = discord.Embed(title=f"{self.ctx.author.display_name}'s Inventory", color=discord.Color.random())
-        # show hearts
         hearts = self.cog._load_profiles().get(str(self.ctx.author.id), {}).get("hearts", 0)
         embed.add_field(name="Hearts", value=str(hearts), inline=True)
 
@@ -1441,23 +1556,19 @@ class InventoryView(discord.ui.View):
                 qty = item.get("qty", 1)
                 typ = item.get("type", "misc")
 
-                # resolve display name from items.json or equipment.json (same logic as inventory command)
                 meta = next((m for m in self.cog.items if m.get("id") == iid), None)
                 if not meta:
                     meta = next((e for e in self.cog.equipment if e.get("id") == iid), None)
                 name = meta.get("name", iid) if meta else iid
 
-                # stat text for equippables
                 stat_text = ""
                 if meta and meta.get("category") == "weapon":
-                    stat_text = f" [{meta.get('min_damage')}-{meta.get('max_damage')} dmg, crit {int(meta.get('crit_chance', 0) * 100)}%]"
+                    stat_text = f" [{meta.get('min_damage')}-{meta.get('max_damage')} dmg, crit {int(meta.get('crit_chance',0)*100)}%]"
                 elif meta and meta.get("category") == "armor":
-                    stat_text = f" [DEF {meta.get('defense', 0)}]"
+                    stat_text = f" [DEF {meta.get('defense',0)}]"
 
-                # compact icon per type
-                icon = "🔹" if typ in ("weapon", "offhand", "head", "body", "legs", "arms", "cloak", "accessory") else ("🧴" if typ == "consumable" else "✦")
+                icon = "🔹" if typ in ("weapon","offhand","head","body","legs","arms","cloak","accessory") else ("🧴" if typ=="consumable" else "✦")
 
-                # build line using display name (no raw id shown) and include qty + type + stats
                 lines.append(f"{icon} **{name}** x{qty} — {typ}{stat_text}")
             embed.description = "\n".join(lines)
 
@@ -1513,20 +1624,81 @@ class InventoryView(discord.ui.View):
         if not page:
             await interaction.response.send_message("No item to equip on this page.", ephemeral=True)
             return
-        # find first equippable item on page (slot names included in type)
-        equippable = next((it for it in page if it.get("type") in ("weapon", "offhand", "head", "body", "legs", "arms", "cloak", "accessory")), None)
-        if not equippable:
-            # also accept generic 'armor' or 'item' if equipment metadata exists
-            equippable = next((it for it in page if any(e.get("id") == it.get("id") for e in self.cog.equipment)), None)
-        if not equippable:
+
+        equippables = []
+        for it in page:
+            iid = it.get("id")
+            typ = it.get("type", "")
+            if typ in ("weapon","offhand","head","body","legs","arms","cloak","accessory"):
+                equippables.append(it)
+                continue
+            if any(e.get("id") == iid for e in self.cog.equipment):
+                equippables.append(it)
+
+        if not equippables:
             await interaction.response.send_message("No equippable item on this page to equip.", ephemeral=True)
             return
-        item_id = equippable.get("id")
-        await interaction.response.defer()
-        await self.cog._do_equip_item(interaction, str(interaction.user.id), item_id)
-        profiles = self.cog._load_profiles()
-        inv = self.cog._gather_inventory(profiles.get(str(self.author_id), {}))
-        pages = self.cog._paginate_inventory(inv)
-        self.pages = pages
-        self.page_index = min(self.page_index, max(0, len(self.pages) - 1))
-        await self.update_message()
+
+        options = []
+        for it in equippables:
+            iid = it.get("id")
+            meta = next((m for m in self.cog.items if m.get("id") == iid), None)
+            if not meta:
+                meta = next((e for e in self.cog.equipment if e.get("id") == iid), None)
+            name = meta.get("name", iid) if meta else iid
+            qty = it.get("qty", 1)
+            typ = it.get("type", "item")
+            label = f"{name} x{qty}"
+            desc = f"{typ}"
+            options.append(discord.SelectOption(label=label, value=iid, description=desc[:100]))
+
+        class _EquipSelect(discord.ui.Select):
+            def __init__(self, opts, parent):
+                super().__init__(placeholder="Choose item to equip...", min_values=1, max_values=1, options=opts)
+                self.parent_view = parent
+
+            async def callback(self, select_interaction: discord.Interaction):
+                chosen_id = self.values[0]
+                if select_interaction.user.id != self.parent_view.author_id:
+                    await select_interaction.response.send_message("You cannot equip for someone else.", ephemeral=True)
+                    return
+                await select_interaction.response.defer()
+                await self.parent_view.cog._do_equip_item(select_interaction, str(select_interaction.user.id), chosen_id)
+                profiles = self.parent_view.cog._load_profiles()
+                inv = self.parent_view.cog._gather_inventory(profiles.get(str(self.parent_view.author_id), {}))
+                pages = self.parent_view.cog._paginate_inventory(inv)
+                self.parent_view.pages = pages
+                self.parent_view.page_index = min(self.parent_view.page_index, max(0, len(self.parent_view.pages) - 1))
+                await self.parent_view.update_message()
+                try:
+                    # resolve display name for friendly ack
+                    meta = next((m for m in self.parent_view.cog.items if m.get("id") == chosen_id), None) or next((e for e in self.parent_view.cog.equipment if e.get("id") == chosen_id), None)
+                    display = meta.get("name", chosen_id) if meta else chosen_id
+                    await select_interaction.followup.send(f"Equipped **{display}**.", ephemeral=True)
+                except Exception:
+                    pass
+
+        class _EquipSelectView(discord.ui.View):
+            def __init__(self, opts, parent, timeout=60):
+                super().__init__(timeout=timeout)
+                self.add_item(_EquipSelect(opts, parent))
+                self.parent_view = parent
+
+            async def on_timeout(self):
+                try:
+                    for child in list(self.children):
+                        child.disabled = True
+                    if msg:
+                        await msg.edit(view=self)
+                except Exception:
+                    pass
+
+        view = _EquipSelectView(options, self)
+        msg = None
+        try:
+            await interaction.response.send_message("Select an item to equip:", view=view, ephemeral=True)
+            msg = await interaction.original_response()
+        except Exception:
+            try:
+                await interaction.response.send_message("Could not open equip selector.", ephemeral=True)
+            except Exception:
