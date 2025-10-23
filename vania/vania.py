@@ -576,8 +576,30 @@ class Vania(commands.Cog):
                     embed.set_footer(text=f"Time: {time_of_day} • Weather: {weather} • Effects: {affects_text}")
     
                     try:
-                        await channel.send(embed=embed)
+                        # Try to edit a previously posted event message for this guild instead of posting a new one
+                        guild_settings = settings.get(str(channel.guild.id), {}) if channel and getattr(channel, "guild", None) else {}
+                        prev_msg_id = guild_settings.get("event_message_id")
+                        edited = False
+                        if prev_msg_id:
+                            try:
+                                prev_msg = await channel.fetch_message(prev_msg_id)
+                                await prev_msg.edit(embed=embed)
+                                edited = True
+                            except Exception:
+                                edited = False
+
+                        if not edited:
+                            sent = await channel.send(embed=embed)
+                            # persist the message id so future updates edit this message
+                            try:
+                                # copy existing conf to avoid mutating the dict we iterate
+                                settings[str(channel.guild.id)] = dict(conf)
+                                settings[str(channel.guild.id)]["event_message_id"] = sent.id
+                                asyncio.create_task(self._save_settings(settings))
+                            except Exception:
+                                pass
                     except Exception:
+                        # non-fatal; continue to next guild
                         pass
     
                 # Sleep in one chunk but respond quickly to cancellation
@@ -662,11 +684,36 @@ class Vania(commands.Cog):
         embed.set_footer(text=f"Time: {time_of_day} • Weather: {weather} • Effects: {affects_text}")
 
         try:
-            await channel.send(embed=embed)
+            # attempt to edit a previously posted event message for that guild
+            guild_id = getattr(channel.guild, "id", None)
+            prev_msg_id = None
+            if guild_id is not None:
+                s = self._load_settings()
+                prev_msg_id = s.get(str(guild_id), {}).get("event_message_id")
+
+            edited = False
+            if prev_msg_id:
+                try:
+                    prev_msg = await channel.fetch_message(prev_msg_id)
+                    await prev_msg.edit(embed=embed)
+                    edited = True
+                except Exception:
+                    edited = False
+
+            if not edited:
+                sent = await channel.send(embed=embed)
+                # save new message id for future edits (best-effort asynchronous save)
+                try:
+                    s = self._load_settings()
+                    s[str(guild_id)] = s.get(str(guild_id), {})
+                    s[str(guild_id)]["event_message_id"] = sent.id
+                    asyncio.create_task(self._save_settings(s))
+                except Exception:
+                    pass
         except Exception:
             pass
 
-        return self.current_event            
+        return self.current_event          
 
     # ----------------- Event listeners for raid participant persistence -----------------
     @commands.Cog.listener()
