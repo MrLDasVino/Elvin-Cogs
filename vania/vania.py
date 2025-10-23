@@ -322,15 +322,64 @@ class Vania(commands.Cog):
         await self._save_profiles(profiles)
 
         # Build embed
-        embed = discord.Embed(title=f"Hunt vs {monster['name']}", description="\n".join(log_lines), color=color)
-        if monster.get("image"):
-            embed.set_image(url=monster.get("image"))
-        embed.add_field(name="HP", value=f"{profile['hp']}/{profile['max_hp']}", inline=True)
-        embed.add_field(name="XP", value=str(profile.get("xp", 0)), inline=True)
-        embed.add_field(name="Level", value=str(profile.get("level", 1)), inline=True)
-        embed.add_field(name="Hearts", value=str(profile.get("hearts", 0)), inline=True)
+        victory = monster["hp"] == 0
+        title = f"You {'defeated' if victory else 'were defeated by'} {monster['name']}"
+        color = discord.Color.green() if victory else discord.Color.dark_red()
 
-        await ctx.send(embed=embed)
+        # short health bars
+        player_bar = self._health_bar(profile.get("hp", 0), profile.get("max_hp", 100), length=12)
+        monster_bar = self._health_bar(monster["hp"], monster["max_hp"], length=12)
+
+        # recent combat log (keep final 8 lines)
+        recent_log = log_lines[-8:] if len(log_lines) > 8 else log_lines
+        combat_text = "\n".join(recent_log)
+
+        embed = discord.Embed(title=title, description=f"Round(s) fought: **{round_count}**", color=color)
+
+        try:
+            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
+        except Exception:
+            embed.set_author(name=ctx.author.display_name)
+
+        if monster.get("image"):
+            embed.set_thumbnail(url=monster.get("image"))
+
+        embed.add_field(
+            name="Player",
+            value=(
+                f"**HP** {profile.get('hp',0)}/{profile.get('max_hp',0)}\n"
+                f"{player_bar}\n"
+                f"**Lvl** {profile.get('level',1)} • **XP** {profile.get('xp',0)}"
+            ),
+            inline=True
+        )
+        embed.add_field(
+            name=monster["name"],
+            value=(
+                f"**HP** {monster['hp']}/{monster['max_hp']}\n"
+                f"{monster_bar}\n"
+                f"**XP Reward** {monster.get('xp_reward',0)}"
+            ),
+            inline=True
+        )
+
+        embed.add_field(name="Combat Log", value=combat_text or "No actions recorded.", inline=False)
+
+        # rewards / drops
+        reward_lines = []
+        weapon = self._get_equipment(profile.get("weapon"))
+        xp_gain = int(monster.get("xp_reward", 0) * float(weapon.get("xp_mod", 1.0)))
+        hearts_awarded = extract_heart_reward(monster.get("heart_reward", 0))
+        reward_lines.append(f"**XP**: +{xp_gain}")
+        if hearts_awarded:
+            reward_lines.append(f"**Hearts**: +{hearts_awarded}")
+        if found_items:
+            names = [next((it.get("name") for it in self.items if it.get("id") == iid), iid) for iid in found_items]
+            reward_lines.append("**Found**: " + ", ".join(names))
+        embed.add_field(name="Rewards", value="\n".join(reward_lines) if reward_lines else "None", inline=False)
+
+        embed.set_footer(text=f"Tip: use `vania heal` to spend Hearts. • Rounds: {round_count}")
+         await ctx.send(embed=embed)
 
     @commands.cooldown(1, 3600, commands.BucketType.user)
     @vania.command(name="pray")
