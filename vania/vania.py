@@ -111,11 +111,25 @@ class Vania(commands.Cog):
         # Current world event state
         self.current_event = None
 
-        # Background task handle (may be None or a running Task).
-        # Create the cycle task only if not present or already finished.
+        # Background task handle for this cog instance
         self.bg_task: Optional[asyncio.Task] = None
-        if not getattr(self, "bg_task", None) or getattr(self, "bg_task").done():
-            self.bg_task = self.bot.loop.create_task(self._cycle_events())     
+
+        # If a previous Vania bg task was left attached to the bot from an older load,
+        # attempt to cancel it so we don't accumulate duplicate loops.
+        prev_task = getattr(self.bot, "_vania_bg_task", None)
+        if prev_task and hasattr(prev_task, "cancel") and not getattr(prev_task, "done", lambda: True)():
+            try:
+                prev_task.cancel()
+            except Exception:
+                pass
+
+        # Start this instance's background loop and register it on the bot so future reloads can find it.
+        self.bg_task = self.bot.loop.create_task(self._cycle_events())
+        try:
+            self.bot._vania_bg_task = self.bg_task
+        except Exception:
+            # Some bot objects may not allow arbitrary attributes; ignore failure.
+            pass   
 
         # Ensure files exist and are valid JSON
         for f in (self.raid_file, self.data_file):
@@ -130,13 +144,26 @@ class Vania(commands.Cog):
                     f.write_text(json.dumps({}))
                     
     def cog_unload(self):
-        """Cancel background task on cog unload to prevent duplicated loops."""
+        """Cancel background task on cog unload and clear bot registry to avoid leftover tasks."""
         try:
             task = getattr(self, "bg_task", None)
             if task and not task.done():
                 task.cancel()
         except Exception:
-            pass                    
+            pass
+        try:
+            # Only remove the bot-stored reference if it points to this instance's task.
+            if getattr(self.bot, "_vania_bg_task", None) is getattr(self, "bg_task", None):
+                try:
+                    delattr(self.bot, "_vania_bg_task")
+                except Exception:
+                    # fallback if delattr fails
+                    try:
+                        del self.bot._vania_bg_task
+                    except Exception:
+                        pass
+        except Exception:
+            pass                   
 
     # ----------------- Safe package JSON loader -----------------
     def _safe_load_pkg_json(self, path: Path) -> dict:
