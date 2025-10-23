@@ -380,58 +380,123 @@ class Vania(commands.Cog):
             time_flavor = {
                 "☀️ Day": [
                     "A pale sun climbs above the jagged rooftops; the streets smell of cold soot and memory.",
-                    "Dawn creeps across the crumbling spires, light like a blade against shadows."
+                    "Dawn creeps across the crumbling spires, light like a blade against shadows.",
+                    "A thin glare washes the alleyways, revealing ruined banners and forgotten promises.",
+                    "The day seems borrowed, every warmth uneasy and measured like a toll.",
+                    "Pigeons scatter from spires; even small noises echo as if the city keeps secrets.",
+                    "Shopkeepers shutter windows with hands that tremble as if expecting old debts.",
+                    "A brittle clarity settles on the lanes; the light shows stains that time refuses to hide."                    
                 ],
                 "🌙 Night": [
                     "The moon bleeds silver over the castle towers; distant howls stitch the dark.",
-                    "A velvet night wraps the land, and every echo seems to hold a warning."
+                    "A velvet night wraps the land, and every echo seems to hold a warning.",
+                    "Lanterns gutter and a thousand small shadows lengthen into accusations.",
+                    "Night smells of peat and iron; footsteps seem larger than their makers.",
+                    "Cat-calls and whispered bargains scrape down under-arches like stray wind.",
+                    "A solitary bell tolls somewhere; its hollow sound tastes like unfinished business.",
+                    "The alleys sew themselves closed under a shawl of velvet and chill."                    
                 ],
                 "🌑 Blood Moon": [
                     "The moon turns bruised and red; creatures of old grow bold and cruel.",
-                    "Under the Blood Moon the land tastes of iron and old sins; none sleep easy."
+                    "Under the Blood Moon the land tastes of iron and old sins; none sleep easy.",
+                    "Bloodlight paints the hedgerows; even the trees look like they remember wrath.",
+                    "Shadows take on teeth and hunger; lamplight fizzles under their glare.",
+                    "The world smells of copper and old war; every animal bares a sharper edge.",
+                    "Faint music warps through the streets, a warped lullaby that twines with hunger.",
+                    "Eyes gleam where there should be none; patrols stop to listen and do not speak."                    
                 ],
                 "🌞 Solar Eclipse": [
                     "A hush falls as the sun is swallowed; shadows move with unnatural intent.",
-                    "Daylight falters and the world leans toward a strange, burning calm."
+                    "Daylight falters and the world leans toward a strange, burning calm.",
+                    "Shadows stretch long and wrong; colors wash out like old paintings left to the rain.",
+                    "A distant roar seems to come from the sun itself as it blinks and hides.",
+                    "People pause mid-step as if the air has become a question they cannot answer.",
+                    "Light thins to a coin's edge; heat and cold argue in the same breath.",
+                    "Birdsong stops; where it should be, there is only a waiting that smells of ash."                    
                 ],
                 "🌾 Harvest Festival": [
                     "Lanterns sway and a fragile cheer hangs in the air, but the fields whisper of offerings paid.",
-                    "A hollow celebration; laughter and music thinly veil the scent of old bargains."
+                    "A hollow celebration; laughter and music thinly veil the scent of old bargains.",
+                    "Banners fold over with careful hands; smiles look practiced, like carved things.",
+                    "The fair smells of honey and iron; joy seems to be keeping one eye closed.",
+                    "Children dart between stalls, their laughter too bright for the dust beneath their feet.",
+                    "The feast tables groan with bounty while furtive glances count coins in shadow.",
+                    "A fiddler plays a merry tune with a tremor at the edge; the tune never quite resolves."                    
                 ],
             }
     
             weather_flavor = {
                 "Clear skies": [
                     "The sky hangs clear but unforgiving, an empty witness to any wickedness below.",
-                    "Stars gaze down like patient judges; the air is brittle and watchful."
+                    "Stars gaze down like patient judges; the air is brittle and watchful.",
+                    "Distant lights blink like watchful eyes; nothing moves without being seen.",
+                    "The wind is thin and sharp, as if the world itself has been whittled.",
+                    "Cold light reveals more than comfort; it shows the map of old scars.",
+                    "The horizon looks too honest; secrets seem to gather in the corners.",
+                    "Silence sits heavy beneath that clear ceiling; even birds fly less boldly."                    
                 ],
                 "Rainstorm": [
                     "Rain lashes like a thousand tiny blades; the cobbles gleam with old, forgotten blood.",
-                    "A cold downpour drums a funeral march on slate roofs and wilted flags."
+                    "A cold downpour drums a funeral march on slate roofs and wilted flags.",
+                    "Water runs in black ribbons down gutters; faces blur in the downpour like wet portraits.",
+                    "The rain smells of metal and memory; people hurry as if someone follows.",
+                    "Storm drains cough up the city\u2019s past; the sound is like an old throat clearing.",
+                    "Umbrellas bloom like dark mushrooms; each one a small, guarded secret.",
+                    "Puddles mirror the sky but show a darker version that never quite matches."                    
                 ],
                 "Fog": [
                     "A thick fog slithers through alleys, swallowing shapes and swallowing sound.",
-                    "Veils of mist hide more than they reveal; footsteps could belong to friend or fiend."
+                    "Veils of mist hide more than they reveal; footsteps could belong to friend or fiend.",
+                    "Figures loom and unloom in the haze; the world loses its edges and gains whispers.",
+                    "Moist air tastes faintly of old iron and the hush of basements long sealed.",
+                    "Lanterns appear as halos around strangers; faces come and go like old debts.",
+                    "The fog carries distant laughter that might, or might not, be human.",
+                    "Paths double back on themselves; a man may find he has walked nowhere and always."                    
                 ],
                 "Thunderstorm": [
                     "Lightning cracks the heavens like a summoned whip; thunder answers with an animal roar.",
-                    "Storm and shadow collude, each flash revealing silhouettes of the damned."
+                    "Storm and shadow collude, each flash revealing silhouettes of the damned.",
+                    "Electric light stabs the sky and leaves black ink stains where it touched.",
+                    "Thunder rolls like cartwheels of fate; every window shivers in answer.",
+                    "Sparks leap from iron railings as if the town itself grows teeth for the night.",
+                    "The first gust smells of ozone and warnings; roofs groan as if recalling weight.",
+                    "Rain hammers like small mallets; the world seems to be hammered back into shape."                    
                 ],
                 "Snow": [
                     "Snow falls like ash upon the ruins; each flake muffles the groan of old bones.",
-                    "A hush of cold white softens even the harshest moans of the night."
+                    "A hush of cold white softens even the harshest moans of the night.",
+                    "Footprints vanish quickly, swallowed by clean, cruel silence and cold.",
+                    "Icicles hang like knives from eaves; every step cracks like a small, brittle oath.",
+                    "Breath paints the air in ghostly puffs; the town exhales as if all agreed to wait.",
+                    "Snowflakes glitter on tarnished metal like tiny, indifferent stars.",
+                    "The world looks politely dead; those who walk it feel small and secretive."                    
                 ],
                 "🌑 Blood Moon": [
                     "A red haze thins across the horizon; scents sharpen and teeth twitch in hunger.",
-                    "The sky oozes bloodlight; even the bravest pause as old things rouse."
+                    "The sky oozes bloodlight; even the bravest pause as old things rouse.",
+                    "The light makes familiar features look feral; statues seem to leer from their plinths.",
+                    "Animals move with a strange ceremony; their eyes reflect a poem of hunger.",
+                    "Streetlights bleed color into puddles; reflections seem to whisper names.",
+                    "The wind carries a far-off chorus that sounds like old prayers and older curses.",
+                    "Shadows gather in corners and exchange news with low, slitted voices."                    
                 ],
                 "🌞 Solar Eclipse": [
                     "Shadows writhe where light should be; a strange warmth and cold war in the air.",
-                    "The sky warps and the world holds its breath, as if something watches from the dark."
+                    "The sky warps and the world holds its breath, as if something watches from the dark.",
+                    "People stop mid-breath as the eclipse folds the day in half; even dogs sit still.",
+                    "Shadows pool at doorways like oil; walking through them feels like stepping into sleep.",
+                    "Light frays like old cloth at the edges; everything looks like a stage prop.",
+                    "A dull, sweet smell rises from drains as if the city exhales an old secret.",
+                    "You can hear distant things more clearly; not because they are louder, but because the world is thinner."                    
                 ],
                 "🌾 Harvest Festival": [
                     "Lanterns hang, faces glow, and yet the fields whisper of tolls exacted long ago.",
-                    "Bounty and bargains walk hand in hand; the feast hides small, necessary sacrifices."
+                    "Bounty and bargains walk hand in hand; the feast hides small, necessary sacrifices.",
+                    "Trays clink; someone laughs too loudly while someone else counts coins in the dark.",
+                    "The bread is warm and the ale goes down easy, but each mouth tastes a little of debt.",
+                    "Children trade trinkets with solemn faces, as if they understand obligations beyond their years.",
+                    "A troupe of masked performers moves like a slow omen through the square.",
+                    "The smell of roasted meat mingles with the faint, sharp perfume of old offerings."                    
                 ],
             }
     
@@ -756,20 +821,36 @@ class Vania(commands.Cog):
             "You follow through with a brutal riposte that cuts off its momentum.",
             "You thrust forward, your weapon finding purchase and tearing a ragged wound.",
             "A brutal snap of leather — the monster staggers, clutching at torn hide.",
-            "Your blade/whip bites with practiced cruelty; the creature's roar falters."
+            "Your blade/whip bites with practiced cruelty; the creature's roar falters.",
+            "The attack cleaves cleanly, leaving a slow, red trail down its flank.",
+            "Steel sings as it meets sinew; the monster's eyes flash with surprised pain.",
+            "You find a seam and pry it open; the wound breathes out a small, bitter hiss.",
+            "Leather snaps and sinew parts; the beast staggers as if remembering an old injury.",
+            "Your strike lands with cold precision, like a clockwork blade finding its mark."            
         ]
         player_crit_flavor = [
             "A crushing critical! The blow rends armor and bone; a cry shatters the night.",
             "A devastating hit pierces through its defenses, leaving it stunned and bleeding.",
             "Critical strike! Your weapon cleaves true, spilling a bitter, copper smell.",
             "You strike with uncanny force; the monster staggers and gurgles, its life unwinding.",
-            "A deathly strike lands with terrible grace; the creature's eyes dim."
+            "A deathly strike lands with terrible grace; the creature's eyes dim.",
+            "The blow splits armor like parchment; something essential snaps inside the beast.",
+            "A fatal seam opens; the creature's howl cuts off as life pours like dark wine.",
+            "You hit the fulcrum of its balance; it collapses in a heap of ruined fury.",
+            "A thunderous strike rends hide and metal alike, and silence rushes in.",
+            "Your weapon sings a cold, final note as it rends the monster's stubborn heart."            
         ]
         player_miss_flavor = [
             "Your attack grazes harmlessly off its hide, sparks flying from cursed mail.",
             "You overcommit and your strike slides off; the beast's grin widens.",
             "You swing wide; the monster slips out of reach and hisses like cold wind.",
-            "Your blow finds only air — something unseen laughs from the rafters."
+            "Your blow finds only air — something unseen laughs from the rafters.",
+            "Your blow finds only air — something unseen laughs from the rafters.",
+            "You misjudge its reach and the tip of your weapon whistles past nothing.",
+            "The creature ducks as if it expected your move; you taste dust and regret.",
+            "Your footing betrays you and the blow stings nothing but wind.",
+            "A shadowed hand seems to guide your weapon away; luck, or something else, spares you.",
+            "Your strike clips empty air; for a heartbeat you feel foolish and fortunate."            
         ]
 
         monster_hit_flavor = [
@@ -777,19 +858,34 @@ class Vania(commands.Cog):
             "The beast's claw rakes across your flesh, teeth like knives looking to finish the job.",
             "It lunges and connects with brutal force; the world tilts and smells of iron.",
             "A vicious strike rattles your bones and leaves a ringing in your ears.",
-            "A raw, animal swipe bites into you, leaving a hot sting that lingers."
+            "A raw, animal swipe bites into you, leaving a hot sting that lingers.",
+            "A brutal arc of talon finds you; your breath fogs as pain blooms.",
+            "Bone meets bone in a jolt that tastes like old iron and lost resolve.",
+            "The attack tears clothing and flesh alike; you stagger with something gone.",
+            "A grinding strike crushes breath and thought alike; the world simplifies to pain.",
+            "The monster's limb smashes home; stars bloom behind your eyes and you sway."            
         ]
         monster_crit_flavor = [
             "A bone-crushing hit! Pain explodes across your body as breath slips away.",
             "The monster finds a weakness and lands a brutal strike that reorders your senses.",
             "A devastating blow sends you reeling; stars and shadows dance together.",
-            "A monstrous strike rends your defenses; you taste dust and old regrets."
+            "A monstrous strike rends your defenses; you taste dust and old regrets.",
+            "A lethal arc breaks ribs and resolve; you feel your strength unraveling.",
+            "The blow drives you to your knees; the world narrows to a single, hot point.",
+            "A grievous strike rearranges your senses; you hear distant things as if through water.",
+            "It lands with catastrophic force; you wish the ground would swallow you faster.",
+            "A crippling hit steals motion and steals breath; the night rushes in cold and precise."            
         ]
         monster_miss_flavor = [
             "You nimbly avoid the monster's strike, feeling the chill of almost-death pass.",
             "The monster overreaches and misses, its momentum betraying it.",
             "You duck and the attack slashes past; a shiver runs down your spine.",
-            "A near miss; the air where it struck smells faintly of rot."
+            "A near miss; the air where it struck smells faintly of rot.",
+            "Its claws rake only curtain and shadow; you blink and count your blessings.",
+            "The beast's jaw snaps shut on empty space; it huffs and repositions with animal grace.",
+            "You sidestep like a practiced dancer; the attack eats only lantern light.",
+            "The strike collapses into the cobbles with a hollow thunk; you feel the world tilt with relief.",
+            "It swings at ghosts and catches nothing but cold air; for once, fortune favors you."            
         ]
 
         victory_flavor = [
@@ -797,14 +893,24 @@ class Vania(commands.Cog):
             "With a final cry, the monster falls and the night grows quieter yet somehow hungrier.",
             "You stand victorious as the beast crumples at your feet, a small triumph against the dark.",
             "The last of its strength fades; you have prevailed, though the cost is written on your bones.",
-            "Silence follows the death; even the rats seem to bow as the thing dies."
+            "Silence follows the death; even the rats seem to bow as the thing dies.",
+            "You breathe and the world seems to obey for a moment; victory tastes faint and iron-rich.",
+            "Limbs slacken and the creature's eyes dim; you feel an old, small pride like a light.",
+            "Blood soaks the cobbles and your hands tremble, but the night is a little quieter.",
+            "The beast unravels like poor stitching; you stand amid the loose threads and call it done.",
+            "A hush falls and then the city exhales; the alley seems to respect you, briefly."            
         ]
         defeat_flavor = [
             "Darkness closes around you as you fall to the dirt; the world narrows to a single, cold point.",
             "You collapse, breath shallow and vision blurred; the hunt has turned on you at last.",
             "The monster stands over you as your strength ebbs away, its shadow swallowing the light.",
             "Pain and cold take you; this hunt ends in failure and the ground drinks your warmth.",
-            "Your hands tremble and the lamp guttering in the throat of night seems to wink out."
+            "Your hands tremble and the lamp guttering in the throat of night seems to wink out.",
+            "The world narrows until sound is a long way off; you taste iron and regret.",
+            "Limbs fail and the sky tilts; the last thing you see is the monster's slow, terrible silhouette.",
+            "The night folds over you like a heavy cloth; your breath fogs and fails to warm it.",
+            "You lie beneath the creature's silent decree; the cobbles remember your foolishness.",
+            "The lamp gutter fades and the darkness is patient; your heartbeat slows into the earth."            
         ]
         
         def choose_player_hit_text(dmg: int, crit: bool, monster: dict) -> str:
@@ -998,7 +1104,12 @@ class Vania(commands.Cog):
             "You offer a quiet plea; a faint chime replies from the stones, echoing old bargains.",
             "You close your eyes and, for a moment, feel watched by something both kind and terrible.",
             "Candles tremble when your prayer ends; the air tastes faintly of iron and comfort.",
-            "The altar exhales a sigh of relief; a soft warmth loosens the knots in your chest."
+            "The altar exhales a sigh of relief; a soft warmth loosens the knots in your chest.",
+            "A bell rings somewhere deep beneath the chapel; the sound settles into your bones.",
+            "An image shivers in the candlelight and a presence leans close as if to listen.",
+            "A perfumed breath brushes your face; the altar's answer is small but sincere.",
+            "You sense hands smoothing the edges of your day; some small thing is made right.",
+            "A faint chorus hums under your feet, and with it comes the sense that debts shift."            
         ]
 
         profiles = self._load_profiles()
@@ -1447,12 +1558,22 @@ class Vania(commands.Cog):
             "A soft gold glow surrounds you as the Hearts' power knits flesh and spirit into brittle strength.",
             "Memory and muscle mend beneath the gentle pulse; scars smooth and breath steadies.",
             "Energy floods your limbs; the wound sews itself closed with a whisper and the air smells faintly of incense.",
-            "The Heart thrums in your palm; light travels up your veins and the cold recedes from your bones."
+            "The Heart thrums in your palm; light travels up your veins and the cold recedes from your bones.",
+            "A steady hum runs through your bones; pain loosens its grip and you stand more whole.",
+            "The warmth settles like a blanket; small cracks knit and the world stops wobbling.",
+            "Tension unwinds along your spine as if invisible hands stitch you back together.",
+            "A soft light pools into wounds and sips away the worst of the night's sharpness.",
+            "You feel the past stitches close; breathing becomes easier and hope a quiet companion."            
         ]
         low_heal_flavor = [
             "The Hearts offer a small comfort, sealing the worst of your wounds and sharpening resolve.",
             "A faint pulse returns to you; not whole, but steady enough to fight another hour.",
-            "A shard of warmth finds you and stitches a line of courage into aching limbs."
+            "A shard of warmth finds you and stitches a line of courage into aching limbs.",
+            "You feel a small tide of warmth; it does not fix all, but it keeps you moving.",
+            "A dull glow settles in your chest and dulls the edge of pain for now.",
+            "The wound binds enough for breath to come easier; it is not perfect, but sufficient.",
+            "A trickle of light repairs a few small tears; your steps return, imperfect but yours.",
+            "A modest warmth mends what it can; the rest will need more time or sacrifice."            
         ]
 
         profiles = self._load_profiles()
