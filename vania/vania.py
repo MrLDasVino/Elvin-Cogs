@@ -1438,17 +1438,36 @@ class InventoryView(discord.ui.View):
             lines = []
             for item in page:
                 iid = item.get("id", "unknown")
-                name = item.get("name", iid)
                 qty = item.get("qty", 1)
                 typ = item.get("type", "misc")
-                lines.append(f"`{iid}` • **{name}** x{qty} — {typ}")
+
+                # resolve display name from items.json or equipment.json (same logic as inventory command)
+                meta = next((m for m in self.cog.items if m.get("id") == iid), None)
+                if not meta:
+                    meta = next((e for e in self.cog.equipment if e.get("id") == iid), None)
+                name = meta.get("name", iid) if meta else iid
+
+                # stat text for equippables
+                stat_text = ""
+                if meta and meta.get("category") == "weapon":
+                    stat_text = f" [{meta.get('min_damage')}-{meta.get('max_damage')} dmg, crit {int(meta.get('crit_chance', 0) * 100)}%]"
+                elif meta and meta.get("category") == "armor":
+                    stat_text = f" [DEF {meta.get('defense', 0)}]"
+
+                # compact icon per type
+                icon = "🔹" if typ in ("weapon", "offhand", "head", "body", "legs", "arms", "cloak", "accessory") else ("🧴" if typ == "consumable" else "✦")
+
+                # build line using display name (no raw id shown) and include qty + type + stats
+                lines.append(f"{icon} **{name}** x{qty} — {typ}{stat_text}")
             embed.description = "\n".join(lines)
+
         embed.set_footer(text=f"Page {self.page_index + 1}/{len(self.pages)}  •  Use equippables with Equip button, consumables with Use button")
         if self.message:
             try:
                 await self.message.edit(embed=embed, view=self)
             except Exception:
                 pass
+
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.author_id:
