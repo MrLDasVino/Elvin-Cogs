@@ -741,7 +741,8 @@ class Vania(commands.Cog):
             "The monster stands over you as your strength ebbs away, its shadow swallowing the light.",
             "Pain and cold take you; this hunt ends in failure and the ground drinks your warmth.",
             "Your hands tremble and the lamp guttering in the throat of night seems to wink out."
-
+        ]
+        
         def choose_player_hit_text(dmg: int, crit: bool, monster: dict) -> str:
             if dmg <= 0:
                 return random.choice(player_miss_flavor)
