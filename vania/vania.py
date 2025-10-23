@@ -246,19 +246,21 @@ class Vania(commands.Cog):
         Level and skill scaling applied.
         """
         weapon = self._get_equipment(profile.get("weapon"))
-        # When unarmed (no weapon equipped) use a modest base damage range and an "unarmed" modifier.
+        # Unarmed: base 5-10 plus a small level-based bonus so fists scale slightly with level.
+        # Apply a reduced weapon_mod so unarmed remains weaker than proper weapons.
         if not weapon:
-            # base unarmed damage scales lightly with level so punches feel meaningful at higher levels
             lvl = int(profile.get("level", 1))
-            unarmed_min = 1 + lvl // 2           # small growth per 2 levels
-            unarmed_max = 4 + lvl // 1           # slightly higher ceiling
-            base = random.randint(unarmed_min, unarmed_max)
-            weapon_mod = 0.75                    # unarmed deals slightly less than a basic weapon on average
+            # small per-level bonus (e.g., +0.5 damage per level, rounded down)
+            lvl_bonus = lvl // 2  # 0 at lvl1, +1 every 2 levels
+            base_min = 5 + lvl_bonus
+            base_max = 10 + lvl_bonus
+            base = random.randint(base_min, base_max)
+            weapon_mod = 0.75
         else:
             base_min = int(weapon.get("min_damage", 8))
             base_max = int(weapon.get("max_damage", 14))
             base = random.randint(base_min, base_max)
-            weapon_mod = float(weapon.get("damage_mod", 1.0)) if weapon else 1.0
+            weapon_mod = float(weapon.get("damage_mod", 1.0))
 
         lvl = int(profile.get("level", 1))
         level_scale = 1.0 + 0.05 * max(0, lvl - 1)
@@ -1542,11 +1544,10 @@ class Vania(commands.Cog):
     async def reset_progress(self, ctx: commands.Context, member: Optional[discord.Member] = None):
         """
         Admin command to reset progress.
-        - `vania resetprogress @User` resets that user's profile.
-        - `vania resetprogress` resets all saved profiles (server-wide).
-        A confirmation prompt is shown before any destructive action.
+        - `vania resetprogress @User` resets that user's profile (after confirmation).
+        - `vania resetprogress` resets all saved profiles (server-wide) (after confirmation).
         """
-        # prepare description and target info
+        # determine target
         if member:
             target_text = f"user **{member.display_name}** (ID {member.id})"
             scope = "user"
@@ -1556,19 +1557,20 @@ class Vania(commands.Cog):
             scope = "server"
             target_id = None
 
-        # Confirmation view with two buttons
+        # Confirmation view
         class _ConfirmResetView(discord.ui.View):
-            def __init__(self, timeout: int = 60):
+            def __init__(self, invoker_id: int, timeout: int = 60):
                 super().__init__(timeout=timeout)
                 self.result: Optional[bool] = None
+                self.invoker_id = invoker_id
 
             @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger, custom_id="vania_reset_confirm")
             async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-                if not interaction.user.guild_permissions.manage_guild:
-                    await interaction.response.send_message("You do not have permission to confirm this action.", ephemeral=True)
+                if interaction.user.id != self.invoker_id:
+                    await interaction.response.send_message("Only the command invoker can confirm this action.", ephemeral=True)
                     return
-                if interaction.user.id != ctx.author.id:
-                    await interaction.response.send_message("Only the command invoker can confirm.", ephemeral=True)
+                if not interaction.user.guild_permissions.manage_guild:
+                    await interaction.response.send_message("You lack Manage Guild to perform this.", ephemeral=True)
                     return
                 self.result = True
                 for child in list(self.children):
@@ -1578,7 +1580,7 @@ class Vania(commands.Cog):
 
             @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, custom_id="vania_reset_cancel")
             async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-                if interaction.user.id != ctx.author.id:
+                if interaction.user.id != self.invoker_id:
                     await interaction.response.send_message("Only the command invoker can cancel.", ephemeral=True)
                     return
                 self.result = False
@@ -1596,24 +1598,19 @@ class Vania(commands.Cog):
                 except Exception:
                     pass
 
-        # send confirmation embed/message
         prompt = (
             f"WARNING — you are about to reset progress for {target_text}.\n\n"
             "This action is irreversible. Confirm to proceed, or Cancel to abort."
         )
-        view = _ConfirmResetView()
+        view = _ConfirmResetView(ctx.author.id)
         message = await ctx.send(prompt, view=view)
-
-        # wait for the view to stop (confirm/cancel/timeout)
         await view.wait()
 
         if view.result is not True:
-            # cancelled or timed out
             if view.result is False:
                 await ctx.send("Reset cancelled.")
             return
 
-        # perform reset
         profiles = self._load_profiles()
         if scope == "user":
             if target_id in profiles:
@@ -1623,21 +1620,17 @@ class Vania(commands.Cog):
             else:
                 await ctx.send(f"No stored profile found for {member.mention} ({member.id}). Nothing to reset.")
         else:
-            # server-wide: remove all profiles (destructive). Keep a backup file.
+            # server-wide reset: backup then clear
             try:
-                # backup current profiles to a timestamped file
                 backup_file = self.data_file.with_suffix(f".bak_{int(random.random()*1e9)}")
                 backup_file.write_text(self.data_file.read_text())
             except Exception:
-                # non-fatal: continue anyway
                 pass
-            # clear profiles dict entirely
             profiles = {}
             await self._save_profiles(profiles)
-            await ctx.send("✅ All saved profiles have been reset for this cog. A backup of previous profiles was created where possible.")
+            await ctx.send("✅ All saved profiles have been reset for this cog. A backup was created where possible.")
 
-        # optional logging to console for audit
-        print(f"[vania.reset_progress] {ctx.author} ({ctx.author.id}) reset {scope} {target_id or 'ALL'} in guild {ctx.guild.id}")            
+        print(f"[vania.reset_progress] {ctx.author} ({ctx.author.id}) reset {scope} {target_id or 'ALL'} in guild {ctx.guild.id}")         
 
 
     # ----------------- Raid commands (unchanged) -----------------
