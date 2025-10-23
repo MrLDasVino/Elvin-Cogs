@@ -113,6 +113,35 @@ class Vania(commands.Cog):
         filled = int(current / maximum * length)
         return "█" * filled + "─" * (length - filled)
 
+    # ---------- Leveling curve configuration and helpers (steeper) ----------
+    # Base XP for level 1->2 and exponential scale per level
+    xp_base: int = 100
+    xp_scale: float = 1.5  # much steeper growth
+
+    def _xp_for_level(self, level: int) -> int:
+        """
+        XP required to advance from `level` to `level + 1`.
+        Exponential growth: base * scale^(level-1)
+        """
+        lvl = max(1, int(level))
+        return int(self.xp_base * (self.xp_scale ** (lvl - 1)))
+
+    def _level_from_xp(self, total_xp: int) -> int:
+        """
+        Convert cumulative total_xp into a discrete level.
+        Subtract per-level requirements until remaining XP is less than the next-level requirement.
+        Safety cap to avoid infinite loops.
+        """
+        xp = max(0, int(total_xp))
+        lvl = 1
+        max_iters = 1000
+        iters = 0
+        while xp >= self._xp_for_level(lvl) and iters < max_iters:
+            xp -= self._xp_for_level(lvl)
+            lvl += 1
+            iters += 1
+        return lvl
+
     # ----------------- Combat helpers (turn-based) -----------------
     def _player_attack(self, profile: dict, monster: dict) -> Tuple[int, bool]:
         """
@@ -397,14 +426,14 @@ class Vania(commands.Cog):
             profile["hp"] = 0
             color = discord.Color.random()
 
-        # Level-up logic (after XP applied)
-        old_level = profile.get("level", 1)
-        new_level = profile.get("xp", 0) // 100 + 1
+        # Level-up logic (after XP applied) using scaled XP curve
+        old_level = int(profile.get("level", 1))
+        new_level = self._level_from_xp(profile.get("xp", 0))
         if new_level > old_level:
             levels_gained = new_level - old_level
             profile["level"] = new_level
             profile["max_hp"] = profile.get("max_hp", 100) + 5 * levels_gained
-            # do not auto-heal on level unless intended; only allow small bonus to current HP if desired:
+            # small HP top-up on level (not a full heal)
             player_hp = min(player_hp + 10 * levels_gained, profile["max_hp"])
             log_lines.append(f"You reached level {new_level}! Max HP +{5 * levels_gained}.")
 
@@ -529,7 +558,8 @@ class Vania(commands.Cog):
             await self._save_profiles(profiles)
 
         xp = int(profile.get("xp", 0))
-        level = int(profile.get("level", xp // 100 + 1))
+        # derive level from total XP using the new curve to keep UI consistent
+        level = self._level_from_xp(xp)
         skills = profile.get("skills", {})
         hearts = int(profile.get("hearts", 0))
         hp = int(profile.get("hp", 0))
@@ -634,115 +664,6 @@ class Vania(commands.Cog):
         embed = discord.Embed(title="Training Complete", description=f"{skill} upgraded to level {skills[skill]}!", color=discord.Color.random())
         embed.add_field(name="XP Remaining", value=str(profile["xp"]))
         await ctx.send(embed=embed)
-        
-    @vania.command(name="resetcool")
-    @commands.has_permissions(manage_guild=True)
-    async def vania_resetcool(self, ctx: commands.Context, member: discord.Member, *, command_name: str = "all"):
-        """
-        Admin: reset cooldowns for a user for Vania cog commands only.
-        Usage:
-          - vania resetcool @User            -> resets all vania command cooldowns for that user
-          - vania resetcool @User command   -> resets cooldown for a single vania command (by full or partial name)
-        Requires Manage Guild permission.
-        """
-        if member is None:
-            return await ctx.send("Specify a user to reset cooldowns for.")
-
-        orig_author = ctx.author
-        try:
-            # Temporarily impersonate the target user on the context for reset_cooldown calls
-            ctx.author = member
-
-            reset_list: List[str] = []
-            failed_list: List[str] = []
-
-            # Gather only commands that belong to this cog
-            seen = set()
-            cog_cmds = []
-            for c in (c for c in self.bot.commands if getattr(c, "cog", None) is self):
-                if c.qualified_name not in seen:
-                    seen.add(c.qualified_name)
-                    cog_cmds.append(c)
-                # include subcommands for Group/GroupCog commands
-                try:
-                    children = list(getattr(c, "all_commands", {}).values()) or []
-                except Exception:
-                    children = []
-                for ch in children:
-                    if getattr(ch, "cog", None) is self and ch.qualified_name not in seen:
-                        seen.add(ch.qualified_name)
-                        cog_cmds.append(ch)
-
-            if command_name.lower() in ("all", "*"):
-                # reset for every command in this cog
-                for cmd in cog_cmds:
-                    try:
-                        cmd.reset_cooldown(ctx)
-                        reset_list.append(cmd.qualified_name)
-                    except Exception:
-                        failed_list.append(getattr(cmd, "qualified_name", str(cmd)))
-            else:
-                # try to resolve a specific command among this cog's commands (partial match supported)
-                target = None
-                # exact qualified name or name match first
-                for c in cog_cmds:
-                    if c.qualified_name == command_name or c.name == command_name:
-                        target = c
-                        break
-                # partial match by start
-                if target is None:
-                    candidates = [c for c in cog_cmds if c.name.startswith(command_name) or c.qualified_name.startswith(command_name)]
-                    if len(candidates) == 1:
-                        target = candidates[0]
-                    elif len(candidates) > 1:
-                        names = ", ".join(c.qualified_name for c in candidates)
-                        return await ctx.send(f"Multiple vania commands match `{command_name}`: {names}. Use the full command name.")
-                    else:
-                        return await ctx.send(f"No vania command found matching `{command_name}`.")
-
-                try:
-                    target.reset_cooldown(ctx)
-                    reset_list.append(target.qualified_name)
-                except Exception:
-                    failed_list.append(target.qualified_name)
-
-            # Build a single description string and guard embed size
-            desc_lines: List[str] = []
-            if reset_list:
-                desc_lines.append(f"Reset cooldowns for: {', '.join(reset_list)}")
-            if failed_list:
-                desc_lines.append(f"Failed to reset: {', '.join(failed_list)}")
-            if not desc_lines:
-                desc_lines.append("No cooldowns were reset.")
-            full_desc = "\n".join(desc_lines)
-
-            if len(full_desc) <= 1800:
-                embed = discord.Embed(title="Vania Cooldowns Reset", description=full_desc, color=discord.Color.blurple())
-                try:
-                    embed.set_author(name=member.display_name, icon_url=getattr(member.avatar, "url", None))
-                except Exception:
-                    embed.set_author(name=member.display_name)
-                await ctx.send(embed=embed)
-            else:
-                # fallback to text splits if result is huge
-                header = f"Vania cooldowns reset for {member.display_name}"
-                try:
-                    header_embed = discord.Embed(title=header, description="Output too large for a single embed; sending as text.", color=discord.Color.blurple())
-                    header_embed.set_author(name=member.display_name)
-                    await ctx.send(embed=header_embed)
-                except Exception:
-                    await ctx.send(header)
-                chunk_size = 1900
-                start = 0
-                while start < len(full_desc):
-                    chunk = full_desc[start : start + chunk_size]
-                    await ctx.send(f"```txt\n{chunk}\n```")
-                    start += chunk_size
-        finally:
-            # restore original context author
-            ctx.author = orig_author
-
-        
 
     # ----------------- Inventory, Equip (integrated), Heal Implementation -----------------
     @vania.command(name="inventory")
@@ -1065,6 +986,154 @@ class Vania(commands.Cog):
         embed.set_footer(text="Hearts are precious. Use them wisely or save them for revives.")
         await ctx.send(embed=embed)
 
+    @vania.command(name="resetcool")
+    @commands.has_permissions(manage_guild=True)
+    async def vania_resetcool(self, ctx: commands.Context, member: discord.Member, *, command_name: str = "all"):
+        """
+        Admin: reset cooldowns for a user for Vania cog commands only.
+        Usage:
+          - vania resetcool @User            -> resets all vania command cooldowns for that user
+          - vania resetcool @User command   -> resets cooldown for a single vania command (by full or partial name)
+        Requires Manage Guild permission.
+        """
+        if member is None:
+            return await ctx.send("Specify a user to reset cooldowns for.")
+
+        orig_author = ctx.author
+        try:
+            # Temporarily impersonate the target user on the context for reset_cooldown calls
+            ctx.author = member
+
+            reset_list: List[str] = []
+            failed_list: List[str] = []
+
+            # Gather all runtime Command objects that belong to this cog (includes group subcommands).
+            # Flatten group children and deduplicate by qualified_name.
+            seen = set()
+            cog_cmds = []
+            for c in (c for c in self.bot.commands if getattr(c, "cog", None) is self):
+                if c.qualified_name not in seen:
+                    seen.add(c.qualified_name)
+                    cog_cmds.append(c)
+                # include subcommands for Group/GroupCog commands
+                try:
+                    children = list(getattr(c, "all_commands", {}).values()) or []
+                except Exception:
+                    children = []
+                for ch in children:
+                    if getattr(ch, "cog", None) is self and ch.qualified_name not in seen:
+                        seen.add(ch.qualified_name)
+                        cog_cmds.append(ch)
+
+            if command_name.lower() in ("all", "*"):
+                # reset for every command in this cog
+                for cmd in cog_cmds:
+                    try:
+                        cmd.reset_cooldown(ctx)
+                        reset_list.append(cmd.qualified_name)
+                    except Exception:
+                        failed_list.append(getattr(cmd, "qualified_name", str(cmd)))
+            else:
+                # try to resolve a specific command among this cog's commands (partial match supported)
+                target = None
+                # exact qualified name or name match first
+                for c in cog_cmds:
+                    if c.qualified_name == command_name or c.name == command_name:
+                        target = c
+                        break
+                # partial match by start
+                if target is None:
+                    candidates = [c for c in cog_cmds if c.name.startswith(command_name) or c.qualified_name.startswith(command_name)]
+                    if len(candidates) == 1:
+                        target = candidates[0]
+                    elif len(candidates) > 1:
+                        names = ", ".join(c.qualified_name for c in candidates)
+                        return await ctx.send(f"Multiple vania commands match `{command_name}`: {names}. Use the full command name.")
+                    else:
+                        return await ctx.send(f"No vania command found matching `{command_name}`.")
+
+                try:
+                    target.reset_cooldown(ctx)
+                    reset_list.append(target.qualified_name)
+                except Exception:
+                    failed_list.append(target.qualified_name)
+
+            # Build a single description string and guard embed size
+            desc_lines: List[str] = []
+            if reset_list:
+                desc_lines.append(f"Reset cooldowns for: {', '.join(reset_list)}")
+            if failed_list:
+                desc_lines.append(f"Failed to reset: {', '.join(failed_list)}")
+            if not desc_lines:
+                desc_lines.append("No cooldowns were reset.")
+            full_desc = "\n".join(desc_lines)
+
+            if len(full_desc) <= 1800:
+                embed = discord.Embed(title="Vania Cooldowns Reset", description=full_desc, color=discord.Color.blurple())
+                try:
+                    embed.set_author(name=member.display_name, icon_url=getattr(member.avatar, "url", None))
+                except Exception:
+                    embed.set_author(name=member.display_name)
+                await ctx.send(embed=embed)
+            else:
+                # fallback to text splits if result is huge
+                header = f"Vania cooldowns reset for {member.display_name}"
+                try:
+                    header_embed = discord.Embed(title=header, description="Output too large for a single embed; sending as text.", color=discord.Color.blurple())
+                    header_embed.set_author(name=member.display_name)
+                    await ctx.send(embed=header_embed)
+                except Exception:
+                    await ctx.send(header)
+                chunk_size = 1900
+                start = 0
+                while start < len(full_desc):
+                    chunk = full_desc[start : start + chunk_size]
+                    await ctx.send(f"```txt\n{chunk}\n```")
+                    start += chunk_size
+        finally:
+            # restore original context author
+            ctx.author = orig_author
+
+    @commands.cooldown(1, 3600, commands.BucketType.user)
+    @vania.command(name="pray")
+    async def pray(self, ctx: commands.Context):
+        """
+        Flavored pray command: receive 1–5 Hearts with a short prayer text and rich embed.
+        """
+        flavor_lines = [
+            "You kneel and whisper to the old gods; the altar answers.",
+            "A warm gust brushes your face as light spills from the altar.",
+            "You offer a quiet plea; a faint chime replies from the stones.",
+            "You close your eyes and, for a moment, feel watched by gentle eyes."
+        ]
+
+        profiles = self._load_profiles()
+        uid = str(ctx.author.id)
+        profile = profiles.get(uid, self._default_profile())
+
+        gained = random.randint(1, 5)
+        profile["hearts"] = profile.get("hearts", 0) + gained
+
+        profiles[uid] = profile
+        await self._save_profiles(profiles)
+
+        # Build rich embed
+        embed = discord.Embed(
+            title="You prayed at the altar",
+            description=random.choice(flavor_lines),
+            color=discord.Color.gold()
+        )
+        try:
+            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url)
+        except Exception:
+            embed.set_author(name=ctx.author.display_name)
+
+        embed.add_field(name="Hearts Gained", value=f"**{gained}**", inline=True)
+        embed.add_field(name="Total Hearts", value=str(profile.get("hearts", 0)), inline=True)
+        embed.set_footer(text="May these Hearts keep your will unbroken. • Try `vania heal` to spend them.")
+        await ctx.send(embed=embed)
+
+    # ----------------- Raid commands (unchanged) -----------------
     @vania.group(name="raid", invoke_without_command=True)
     async def raid(self, ctx: commands.Context):
         """Raid commands: schedule and start boss fights."""
