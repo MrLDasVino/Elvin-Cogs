@@ -501,6 +501,11 @@ class Vania(commands.Cog):
         """Background loop: post world events on a schedule and exit cleanly when cancelled."""
         try:
             await self.bot.wait_until_ready()
+            
+            # helper to always return a dict for event effect lookups
+            def _event_effects_for(key):
+                v = self.EVENT_EFFECTS.get(key, {})
+                return v if isinstance(v, dict) else {}            
     
             # Flavor pools tuned for a Gothic Castlevania mood
             time_flavor = {
@@ -646,6 +651,14 @@ class Vania(commands.Cog):
             while not self.bot.is_closed():
                 settings = self._load_settings()
                 for guild_id, conf in settings.items():
+                    # protect one guild iteration so a single error doesn't kill the whole loop
+                    try:
+                        pass
+                    except Exception:
+                        pass
+                # We will actually iterate below; the real per-guild logic is inside a protected block.
+
+                for guild_id, conf in settings.items():
                     chan_id = conf.get("channel_id")
                     channel = self.bot.get_channel(chan_id)
                     if not channel:
@@ -659,12 +672,8 @@ class Vania(commands.Cog):
                     # assemble flavor: one time snippet + one weather snippet, plus a mechanical hint line
                     t_snip = random.choice(time_flavor.get(time_of_day, ["The hour turns."]))
                     w_snip = random.choice(weather_flavor.get(weather, ["The air shifts."]))
-                    mech_time = self.EVENT_EFFECTS.get(time_of_day, {})
-                    if not isinstance(mech_time, dict):
-                        mech_time = {}
-                    mech_weather = self.EVENT_EFFECTS.get(weather, {})
-                    if not isinstance(mech_weather, dict):
-                        mech_weather = {}
+                    mech_time = _event_effects_for(time_of_day)
+                    mech_weather = _event_effects_for(weather)
                     affects = []
                     if mech_time.get("player_damage", 1.0) != 1.0 or mech_weather.get("player_damage", 1.0) != 1.0:
                         affects.append("player damage")
@@ -715,12 +724,19 @@ class Vania(commands.Cog):
                                 asyncio.create_task(self._save_settings(settings))
                             except Exception:
                                 pass
-                    except Exception:
-                        # non-fatal; continue to next guild
-                        pass
+                    except Exception as exc:
+                        # Log the error but continue processing other guilds and keep the loop alive
+                        try:
+                            print(f"[vania._cycle_events] non-fatal error for guild {guild_id}: {exc}")
+                        except Exception:
+                            pass
+                        continue
     
                 # Sleep in one chunk but respond quickly to cancellation
-                await asyncio.sleep(3 * 60 * 60)
+                try:
+                    await asyncio.sleep(3 * 60 * 60)
+                except asyncio.CancelledError:
+                    raise
         except asyncio.CancelledError:
             # Task was cancelled (cog unload / reload); exit quietly.
             return
