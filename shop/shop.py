@@ -581,10 +581,30 @@ class GiftModal(Modal, title="Gift Item"):
         shops[self.shop_name]["stock"][self.item_name] = entry
         await self.config.guild_from_id(self.guild_id).shops.set(shops)
 
+        # Public notification so the recipient and channel know about the gift
+        try:
+            channel = interaction.channel
+            # Prefer an embed for nicer formatting
+            embed = discord.Embed(
+                title="🎁 Gift Received",
+                description=f"{member.mention} received **{amount}× {self.item_name}** from {interaction.user.mention}.",
+                color=discord.Color.green()
+            )
+            # include shop and optional item description if available
+            if entry.get("description"):
+                embed.add_field(name="Item details", value=entry["description"], inline=False)
+            embed.set_footer(text=f"From shop: {self.shop_name}")
+            await channel.send(embed=embed)
+        except Exception:
+            # If public post fails (permissions, missing channel), ignore and continue
+            pass
+
+        # Ephemeral confirmation to gifter
         await interaction.response.send_message(
             f"✅ Gifted {amount}× `{self.item_name}` to {member.mention}.",
             ephemeral=True,
         )
+
 
 
 # --------------------
