@@ -660,7 +660,11 @@ class Vania(commands.Cog):
                     t_snip = random.choice(time_flavor.get(time_of_day, ["The hour turns."]))
                     w_snip = random.choice(weather_flavor.get(weather, ["The air shifts."]))
                     mech_time = self.EVENT_EFFECTS.get(time_of_day, {})
+                    if not isinstance(mech_time, dict):
+                        mech_time = {}
                     mech_weather = self.EVENT_EFFECTS.get(weather, {})
+                    if not isinstance(mech_weather, dict):
+                        mech_weather = {}
                     affects = []
                     if mech_time.get("player_damage", 1.0) != 1.0 or mech_weather.get("player_damage", 1.0) != 1.0:
                         affects.append("player damage")
@@ -788,7 +792,11 @@ class Vania(commands.Cog):
         w_snip = random.choice(weather_flavor.get(weather, ["The air shifts."]))
 
         mech_time = self.EVENT_EFFECTS.get(time_of_day, {})
+        if not isinstance(mech_time, dict):
+            mech_time = {}
         mech_weather = self.EVENT_EFFECTS.get(weather, {})
+        if not isinstance(mech_weather, dict):
+            mech_weather = {}
         affects = []
         if mech_time.get("player_damage", 1.0) != 1.0 or mech_weather.get("player_damage", 1.0) != 1.0:
             affects.append("player damage")
