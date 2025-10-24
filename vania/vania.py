@@ -1741,21 +1741,6 @@ class Vania(commands.Cog):
             # best-effort: ignore send errors
             pass
 
-        # Optional public announcement in the channel where the caller invoked the inventory (best-effort)
-        if announce:
-            try:
-                # resolve a user-friendly display name
-                announcer = None
-                if is_interaction:
-                    announcer = getattr(ctx_or_interaction.user, "display_name", None)
-                    channel = getattr(ctx_or_interaction.channel, "guild", None) and ctx_or_interaction.channel
-                else:
-                    announcer = getattr(ctx_or_interaction.author, "display_name", None)
-                    channel = getattr(ctx_or_interaction, "channel", None)
-                if channel:
-                    await channel.send(f"**{announcer or uid}** equipped **{equip_meta.get('name', item_id)}** into **{chosen_slot}**.")
-            except Exception:
-                pass
 
         # Return the friendly message so callers can reuse it if needed
         return msg
@@ -1811,19 +1796,6 @@ class Vania(commands.Cog):
         except Exception:
             pass
     
-        # optional public announcement
-        if announce:
-            try:
-                if is_interaction:
-                    channel = getattr(ctx_or_interaction, "channel", None) or getattr(ctx_or_interaction.message, "channel", None)
-                    announcer = getattr(ctx_or_interaction.user, "display_name", uid)
-                else:
-                    channel = getattr(ctx_or_interaction, "channel", None)
-                    announcer = getattr(ctx_or_interaction.author, "display_name", uid)
-                if channel:
-                    await channel.send(f"**{announcer}** unequipped **{display_name}** from **{slot}**.")
-            except Exception:
-                pass
     
         return msg
         
@@ -2428,10 +2400,13 @@ class InventoryView(discord.ui.View):
                 await select_interaction.response.defer()
                 # have the cog perform the equip and also post a public announcement
                 try:
-                    ann = await self.parent_view.cog._do_equip_item(select_interaction, str(select_interaction.user.id), chosen_id, announce=True)
+                    await self.parent_view.cog._do_equip_item(select_interaction, str(select_interaction.user.id), chosen_id)
                 except TypeError:
-                    # backward-compat fallback if _do_equip_item signature wasn't updated
-                    ann = None
+                    # fallback for older signature that expects announce parameter
+                    try:
+                        await self.parent_view.cog._do_equip_item(select_interaction, str(select_interaction.user.id), chosen_id, announce=False)
+                    except Exception:
+                        pass
                 profiles = self.parent_view.cog._load_profiles()
                 inv = self.parent_view.cog._gather_inventory(profiles.get(str(self.parent_view.author_id), {}))
                 pages = self.parent_view.cog._paginate_inventory(inv)
@@ -2507,9 +2482,9 @@ class InventoryView(discord.ui.View):
                 slot = self.values[0]
                 # perform unequip with public announcement
                 try:
-                    await self.parent_view.cog._do_unequip_item(select_interaction, str(select_interaction.user.id), slot, announce=True)
-                except Exception:
-                    # fallback: try without announce
+                    await self.parent_view.cog._do_unequip_item(select_interaction, str(select_interaction.user.id), slot)
+                except TypeError:
+                    # fallback for older signature that expects announce param
                     try:
                         await self.parent_view.cog._do_unequip_item(select_interaction, str(select_interaction.user.id), slot, announce=False)
                     except Exception:
