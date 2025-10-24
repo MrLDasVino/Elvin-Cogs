@@ -501,13 +501,12 @@ class Vania(commands.Cog):
         """Background loop: post world events on a schedule and exit cleanly when cancelled."""
         try:
             await self.bot.wait_until_ready()
-            
-            # helper to always return a dict for event effect lookups
+
             def _event_effects_for(key):
                 v = self.EVENT_EFFECTS.get(key, {})
-                return v if isinstance(v, dict) else {}            
-    
-            # Flavor pools tuned for a Gothic Castlevania mood
+                return v if isinstance(v, dict) else {}
+
+            # Flavor pools tuned for a Gothic Castlevania mood (full content copied from original)
             time_flavor = {
                 "☀️ Day": [
                     "A pale sun climbs above the jagged rooftops; the streets smell of cold soot and memory.",
@@ -516,7 +515,7 @@ class Vania(commands.Cog):
                     "The day seems borrowed, every warmth uneasy and measured like a toll.",
                     "Pigeons scatter from spires; even small noises echo as if the city keeps secrets.",
                     "Shopkeepers shutter windows with hands that tremble as if expecting old debts.",
-                    "A brittle clarity settles on the lanes; the light shows stains that time refuses to hide."                    
+                    "A brittle clarity settles on the lanes; the light shows stains that time refuses to hide."
                 ],
                 "🌙 Night": [
                     "The moon bleeds silver over the castle towers; distant howls stitch the dark.",
@@ -525,7 +524,7 @@ class Vania(commands.Cog):
                     "Night smells of peat and iron; footsteps seem larger than their makers.",
                     "Cat-calls and whispered bargains scrape down under-arches like stray wind.",
                     "A solitary bell tolls somewhere; its hollow sound tastes like unfinished business.",
-                    "The alleys sew themselves closed under a shawl of velvet and chill."                    
+                    "The alleys sew themselves closed under a shawl of velvet and chill."
                 ],
                 "🌑 Blood Moon": [
                     "The moon turns bruised and red; creatures of old grow bold and cruel.",
@@ -534,7 +533,7 @@ class Vania(commands.Cog):
                     "Shadows take on teeth and hunger; lamplight fizzles under their glare.",
                     "The world smells of copper and old war; every animal bares a sharper edge.",
                     "Faint music warps through the streets, a warped lullaby that twines with hunger.",
-                    "Eyes gleam where there should be none; patrols stop to listen and do not speak."                    
+                    "Eyes gleam where there should be none; patrols stop to listen and do not speak."
                 ],
                 "🌞 Solar Eclipse": [
                     "A hush falls as the sun is swallowed; shadows move with unnatural intent.",
@@ -543,7 +542,7 @@ class Vania(commands.Cog):
                     "A distant roar seems to come from the sun itself as it blinks and hides.",
                     "People pause mid-step as if the air has become a question they cannot answer.",
                     "Light thins to a coin's edge; heat and cold argue in the same breath.",
-                    "Birdsong stops; where it should be, there is only a waiting that smells of ash."                    
+                    "Birdsong stops; where it should be, there is only a waiting that smells of ash."
                 ],
                 "🌾 Harvest Festival": [
                     "Lanterns sway and a fragile cheer hangs in the air, but the fields whisper of offerings paid.",
@@ -552,10 +551,10 @@ class Vania(commands.Cog):
                     "The fair smells of honey and iron; joy seems to be keeping one eye closed.",
                     "Children dart between stalls, their laughter too bright for the dust beneath their feet.",
                     "The feast tables groan with bounty while furtive glances count coins in shadow.",
-                    "A fiddler plays a merry tune with a tremor at the edge; the tune never quite resolves."                    
+                    "A fiddler plays a merry tune with a tremor at the edge; the tune never quite resolves."
                 ],
             }
-    
+
             weather_flavor = {
                 "Clear skies": [
                     "The sky hangs clear but unforgiving, an empty witness to any wickedness below.",
@@ -564,16 +563,16 @@ class Vania(commands.Cog):
                     "The wind is thin and sharp, as if the world itself has been whittled.",
                     "Cold light reveals more than comfort; it shows the map of old scars.",
                     "The horizon looks too honest; secrets seem to gather in the corners.",
-                    "Silence sits heavy beneath that clear ceiling; even birds fly less boldly."                    
+                    "Silence sits heavy beneath that clear ceiling; even birds fly less boldly."
                 ],
                 "Rainstorm": [
                     "Rain lashes like a thousand tiny blades; the cobbles gleam with old, forgotten blood.",
                     "A cold downpour drums a funeral march on slate roofs and wilted flags.",
                     "Water runs in black ribbons down gutters; faces blur in the downpour like wet portraits.",
                     "The rain smells of metal and memory; people hurry as if someone follows.",
-                    "Storm drains cough up the city\u2019s past; the sound is like an old throat clearing.",
+                    "Storm drains cough up the city’s past; the sound is like an old throat clearing.",
                     "Umbrellas bloom like dark mushrooms; each one a small, guarded secret.",
-                    "Puddles mirror the sky but show a darker version that never quite matches."                    
+                    "Puddles mirror the sky but show a darker version that never quite matches."
                 ],
                 "Fog": [
                     "A thick fog slithers through alleys, swallowing shapes and swallowing sound.",
@@ -582,7 +581,7 @@ class Vania(commands.Cog):
                     "Moist air tastes faintly of old iron and the hush of basements long sealed.",
                     "Lanterns appear as halos around strangers; faces come and go like old debts.",
                     "The fog carries distant laughter that might, or might not, be human.",
-                    "Paths double back on themselves; a man may find he has walked nowhere and always."                    
+                    "Paths double back on themselves; a man may find he has walked nowhere and always."
                 ],
                 "Thunderstorm": [
                     "Lightning cracks the heavens like a summoned whip; thunder answers with an animal roar.",
@@ -591,7 +590,7 @@ class Vania(commands.Cog):
                     "Thunder rolls like cartwheels of fate; every window shivers in answer.",
                     "Sparks leap from iron railings as if the town itself grows teeth for the night.",
                     "The first gust smells of ozone and warnings; roofs groan as if recalling weight.",
-                    "Rain hammers like small mallets; the world seems to be hammered back into shape."                    
+                    "Rain hammers like small mallets; the world seems to be hammered back into shape."
                 ],
                 "Snow": [
                     "Snow falls like ash upon the ruins; each flake muffles the groan of old bones.",
@@ -600,7 +599,7 @@ class Vania(commands.Cog):
                     "Icicles hang like knives from eaves; every step cracks like a small, brittle oath.",
                     "Breath paints the air in ghostly puffs; the town exhales as if all agreed to wait.",
                     "Snowflakes glitter on tarnished metal like tiny, indifferent stars.",
-                    "The world looks politely dead; those who walk it feel small and secretive."                    
+                    "The world looks politely dead; those who walk it feel small and secretive."
                 ],
                 "🌑 Blood Moon": [
                     "A red haze thins across the horizon; scents sharpen and teeth twitch in hunger.",
@@ -609,7 +608,7 @@ class Vania(commands.Cog):
                     "Animals move with a strange ceremony; their eyes reflect a poem of hunger.",
                     "Streetlights bleed color into puddles; reflections seem to whisper names.",
                     "The wind carries a far-off chorus that sounds like old prayers and older curses.",
-                    "Shadows gather in corners and exchange news with low, slitted voices."                    
+                    "Shadows gather in corners and exchange news with low, slitted voices."
                 ],
                 "🌞 Solar Eclipse": [
                     "Shadows writhe where light should be; a strange warmth and cold war in the air.",
@@ -618,7 +617,7 @@ class Vania(commands.Cog):
                     "Shadows pool at doorways like oil; walking through them feels like stepping into sleep.",
                     "Light frays like old cloth at the edges; everything looks like a stage prop.",
                     "A dull, sweet smell rises from drains as if the city exhales an old secret.",
-                    "You can hear distant things more clearly; not because they are louder, but because the world is thinner."                    
+                    "You can hear distant things more clearly; not because they are louder, but because the world is thinner."
                 ],
                 "🌾 Harvest Festival": [
                     "Lanterns hang, faces glow, and yet the fields whisper of tolls exacted long ago.",
@@ -627,10 +626,10 @@ class Vania(commands.Cog):
                     "The bread is warm and the ale goes down easy, but each mouth tastes a little of debt.",
                     "Children trade trinkets with solemn faces, as if they understand obligations beyond their years.",
                     "A troupe of masked performers moves like a slow omen through the square.",
-                    "The smell of roasted meat mingles with the faint, sharp perfume of old offerings."                    
+                    "The smell of roasted meat mingles with the faint, sharp perfume of old offerings."
                 ],
             }
-    
+
             # small mapping for embed color per time/weather for mood
             color_map = {
                 "☀️ Day": discord.Color.dark_gold(),
@@ -644,31 +643,31 @@ class Vania(commands.Cog):
                 "🌞 Solar Eclipse": discord.Color.dark_teal(),
                 "🌾 Harvest Festival": discord.Color.orange()
             }
-    
+
             # optional decorative images keyed by weather/time (replace with your own hosted art URLs)
             art_map = {k: None for k in color_map.keys()}
-    
-            while not self.bot.is_closed():
-                settings = self._load_settings()
-                for guild_id, conf in settings.items():
-                    # protect one guild iteration so a single error doesn't kill the whole loop
-                    try:
-                        pass
-                    except Exception:
-                        pass
-                # We will actually iterate below; the real per-guild logic is inside a protected block.
 
-                for guild_id, conf in settings.items():
+            while not self.bot.is_closed():
+                settings = self._load_settings() or {}
+
+                # iterate only over saved guild configs (skip non-dict top-level keys like "difficulty")
+                for guild_key, conf in list(settings.items()):
+                    if not isinstance(conf, dict):
+                        continue
+
                     chan_id = conf.get("channel_id")
-                    channel = self.bot.get_channel(chan_id)
+                    if not chan_id:
+                        continue
+
+                    channel = self.bot.get_channel(int(chan_id))
                     if not channel:
                         continue
-    
+
                     # pick time and weather, set current_event
                     time_of_day = random.choice(list(time_flavor.keys()))
                     weather = random.choice(list(weather_flavor.keys()))
                     self.current_event = {"time": time_of_day, "weather": weather}
-    
+
                     # assemble flavor: one time snippet + one weather snippet, plus a mechanical hint line
                     t_snip = random.choice(time_flavor.get(time_of_day, ["The hour turns."]))
                     w_snip = random.choice(weather_flavor.get(weather, ["The air shifts."]))
@@ -684,54 +683,33 @@ class Vania(commands.Cog):
                     if mech_time.get("monster_hp", 1.0) != 1.0 or mech_weather.get("monster_hp", 1.0) != 1.0:
                         affects.append("monster HP")
                     affects_text = " · ".join(affects) if affects else "no mechanical changes"
-    
+
                     # build embed with gothic styling
-                    color_choice = color_map.get(weather, discord.Color.dark_grey()) or color_map.get(time_of_day, discord.Color.dark_grey())
+                    color_choice = color_map.get(weather) or color_map.get(time_of_day) or discord.Color.dark_grey()
                     embed = discord.Embed(
                         title=f"World Event — {time_of_day} • {weather}",
                         description=f"{t_snip}\n\n{w_snip}",
                         color=color_choice
                     )
-    
+
                     # optional artwork
                     art = art_map.get(weather) or art_map.get(time_of_day)
                     if art:
                         embed.set_image(url=art)
-    
+
                     embed.add_field(name="Mechanical Effects", value=affects_text, inline=False)
                     embed.set_footer(text=f"Time: {time_of_day} • Weather: {weather} • Effects: {affects_text}")
-    
-                    try:
-                        # Try to edit a previously posted event message for this guild instead of posting a new one
-                        guild_settings = settings.get(str(channel.guild.id), {}) if channel and getattr(channel, "guild", None) else {}
-                        prev_msg_id = guild_settings.get("event_message_id")
-                        edited = False
-                        if prev_msg_id:
-                            try:
-                                prev_msg = await channel.fetch_message(prev_msg_id)
-                                await prev_msg.edit(embed=embed)
-                                edited = True
-                            except Exception:
-                                edited = False
 
-                        if not edited:
-                            sent = await channel.send(embed=embed)
-                            # persist the message id so future updates edit this message
-                            try:
-                                # copy existing conf to avoid mutating the dict we iterate
-                                settings[str(channel.guild.id)] = dict(conf)
-                                settings[str(channel.guild.id)]["event_message_id"] = sent.id
-                                asyncio.create_task(self._save_settings(settings))
-                            except Exception:
-                                pass
+                    try:
+                        # ALWAYS send a new event message (do not attempt to edit a previous one)
+                        await channel.send(embed=embed)
                     except Exception as exc:
-                        # Log the error but continue processing other guilds and keep the loop alive
                         try:
-                            print(f"[vania._cycle_events] non-fatal error for guild {guild_id}: {exc}")
+                            print(f"[vania._cycle_events] failed to send event for guild {guild_key}: {exc}")
                         except Exception:
                             pass
                         continue
-    
+
                 # Sleep in one chunk but respond quickly to cancellation
                 try:
                     await asyncio.sleep(3 * 60 * 60)
@@ -741,7 +719,7 @@ class Vania(commands.Cog):
             # Task was cancelled (cog unload / reload); exit quietly.
             return
         except Exception:
-            # Unexpected error: exit quietly to avoid runaway tasks. Consider logging if you want to inspect.
+            # Unexpected error: exit quietly to avoid runaway tasks.
             return
         finally:
             # When the background loop ends for any reason, clear the bot-held registry
@@ -758,13 +736,13 @@ class Vania(commands.Cog):
                 pass
 
 
+
     # ----------------- Immediate event poster (reusable) -----------------
     async def _post_event_to_channel(self, channel: discord.TextChannel):
         """
-        Compose and send a single world-event embed (same style as _cycle_events).
+        Compose and send a single world-event embed. Always sends a new message (does not edit).
         Returns the chosen event dict so callers can inspect or set current_event.
         """
-        # pick time and weather
         time_of_day = random.choice(list({
             "☀️ Day","🌙 Night","🌑 Blood Moon","🌞 Solar Eclipse","🌾 Harvest Festival"
         }))
@@ -773,7 +751,7 @@ class Vania(commands.Cog):
         }))
         self.current_event = {"time": time_of_day, "weather": weather}
 
-        # reuse flavor pools and maps defined in _cycle_events scope by rebuilding minimal copies here
+        # minimal flavor copies (full pools exist in _cycle_events; this is a compact version used for immediate posting)
         time_flavor = {
             "☀️ Day": ["A pale sun climbs above the jagged rooftops; the streets smell of cold soot and memory."],
             "🌙 Night": ["The moon bleeds silver over the castle towers; distant howls stitch the dark."],
@@ -807,12 +785,8 @@ class Vania(commands.Cog):
         t_snip = random.choice(time_flavor.get(time_of_day, ["The hour turns."]))
         w_snip = random.choice(weather_flavor.get(weather, ["The air shifts."]))
 
-        mech_time = self.EVENT_EFFECTS.get(time_of_day, {})
-        if not isinstance(mech_time, dict):
-            mech_time = {}
-        mech_weather = self.EVENT_EFFECTS.get(weather, {})
-        if not isinstance(mech_weather, dict):
-            mech_weather = {}
+        mech_time = self.EVENT_EFFECTS.get(time_of_day, {}) or {}
+        mech_weather = self.EVENT_EFFECTS.get(weather, {}) or {}
         affects = []
         if mech_time.get("player_damage", 1.0) != 1.0 or mech_weather.get("player_damage", 1.0) != 1.0:
             affects.append("player damage")
@@ -833,36 +807,12 @@ class Vania(commands.Cog):
         embed.set_footer(text=f"Time: {time_of_day} • Weather: {weather} • Effects: {affects_text}")
 
         try:
-            # attempt to edit a previously posted event message for that guild
-            guild_id = getattr(channel.guild, "id", None)
-            prev_msg_id = None
-            if guild_id is not None:
-                s = self._load_settings()
-                prev_msg_id = s.get(str(guild_id), {}).get("event_message_id")
-
-            edited = False
-            if prev_msg_id:
-                try:
-                    prev_msg = await channel.fetch_message(prev_msg_id)
-                    await prev_msg.edit(embed=embed)
-                    edited = True
-                except Exception:
-                    edited = False
-
-            if not edited:
-                sent = await channel.send(embed=embed)
-                # save new message id for future edits (best-effort asynchronous save)
-                try:
-                    s = self._load_settings()
-                    s[str(guild_id)] = s.get(str(guild_id), {})
-                    s[str(guild_id)]["event_message_id"] = sent.id
-                    asyncio.create_task(self._save_settings(s))
-                except Exception:
-                    pass
+            await channel.send(embed=embed)
         except Exception:
             pass
 
-        return self.current_event          
+        return self.current_event
+       
 
     # ----------------- Event listeners for raid participant persistence -----------------
     @commands.Cog.listener()
