@@ -641,7 +641,6 @@ class Vania(commands.Cog):
                     if art:
                         embed.set_image(url=art)
     
-                    embed.add_field(name="Castlevania Note", value="Shadows lengthen, monsters stir; prepare your whip and steel.", inline=False)
                     embed.add_field(name="Mechanical Effects", value=affects_text, inline=False)
                     embed.set_footer(text=f"Time: {time_of_day} • Weather: {weather} • Effects: {affects_text}")
     
@@ -749,7 +748,6 @@ class Vania(commands.Cog):
             description=f"{t_snip}\n\n{w_snip}",
             color=color_map.get(weather) or color_map.get(time_of_day) or discord.Color.dark_grey()
         )
-        embed.add_field(name="Castlevania Note", value="Shadows lengthen, monsters stir; prepare your whip and steel.", inline=False)
         embed.add_field(name="Mechanical Effects", value=affects_text, inline=False)
         embed.set_footer(text=f"Time: {time_of_day} • Weather: {weather} • Effects: {affects_text}")
 
