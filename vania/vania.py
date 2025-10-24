@@ -2094,8 +2094,13 @@ class Vania(commands.Cog):
         await self._save_settings(settings)
 
         await ctx.send(
-            f"Global difficulty multiplier set to **{scale:.2f}x**. "
-            "Monsters will now hit harder (and can have more HP if you scale that too)."
+            f"Global difficulty multiplier set to **{scale:.2f}x**.\n\n"
+            f"Effects applied globally:\n"
+            f"- **Monster damage**: multiplied by {scale:.2f}x\n"
+            f"- **Monster HP**: multiplied by {scale:.2f}x when difficulty is applied to HP\n"
+            f"- **Player total defense**: divided by {scale:.2f}x (armor is less effective)\n"
+            f"- **Raid and hunt calculations**: participant damage vs bosses and sampled monster stats use this multiplier\n\n"
+            f"Set a lower value to make fights easier, or a higher value to increase challenge."
         )
 
     @commands.has_permissions(manage_guild=True)
