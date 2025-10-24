@@ -1645,7 +1645,7 @@ class Vania(commands.Cog):
             await ctx_or_interaction.send(msg)
 
     # internal equip performer (used by InventoryView Equip button)
-    async def _do_equip_item(self, ctx_or_interaction, uid: str, item_id: str):
+    async def _do_equip_item(self, ctx_or_interaction, uid: str, item_id: str, announce: bool = False):
         is_interaction = hasattr(ctx_or_interaction, "response") and isinstance(ctx_or_interaction, discord.Interaction)
         profiles = self._load_profiles()
         profile = profiles.get(uid)
@@ -1730,10 +1730,103 @@ class Vania(commands.Cog):
         dmg_mod = float(weapon.get("damage_mod", 1.0)) if weapon else 1.0
 
         msg = f"You equipped **{equip_meta.get('name', item_id)}** into **{chosen_slot}**. (XP×{xp_mod}, DMG×{dmg_mod}, DEF {defense})"
-        if is_interaction:
-            await ctx_or_interaction.response.send_message(msg)
-        else:
-            await ctx_or_interaction.send(msg)
+
+        # Send immediate response back to the caller (ephemeral for interactions where appropriate)
+        try:
+            if is_interaction:
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+        except Exception:
+            # best-effort: ignore send errors
+            pass
+
+        # Optional public announcement in the channel where the caller invoked the inventory (best-effort)
+        if announce:
+            try:
+                # resolve a user-friendly display name
+                announcer = None
+                if is_interaction:
+                    announcer = getattr(ctx_or_interaction.user, "display_name", None)
+                    channel = getattr(ctx_or_interaction.channel, "guild", None) and ctx_or_interaction.channel
+                else:
+                    announcer = getattr(ctx_or_interaction.author, "display_name", None)
+                    channel = getattr(ctx_or_interaction, "channel", None)
+                if channel:
+                    await channel.send(f"**{announcer or uid}** equipped **{equip_meta.get('name', item_id)}** into **{chosen_slot}**.")
+            except Exception:
+                pass
+
+        # Return the friendly message so callers can reuse it if needed
+        return msg
+        
+    async def _do_unequip_item(self, ctx_or_interaction, uid: str, slot: str, announce: bool = False):
+        """
+        Unequip the item currently in `slot` for user `uid`.
+        ctx_or_interaction may be Context or Interaction.
+        Returns friendly message string.
+        """
+        is_interaction = hasattr(ctx_or_interaction, "response") and isinstance(ctx_or_interaction, discord.Interaction)
+    
+        profiles = self._load_profiles()
+        profile = profiles.get(uid)
+        if not profile:
+            msg = "No profile found. Start hunting with `vania hunt`."
+            if is_interaction:
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return msg
+    
+        current = profile.get(slot)
+        if not current:
+            msg = f"No item is equipped in **{slot}**."
+            if is_interaction:
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return msg
+    
+        # Move equipped item back to items inventory
+        items = profile.setdefault("items", {})
+        items[current] = items.get(current, 0) + 1
+        profile[slot] = None
+        profile["items"] = items
+        profiles[uid] = profile
+        await self._save_profiles(profiles)
+    
+        # Compose messages
+        display_name = current
+        meta = next((m for m in self.items if m.get("id") == current), None) or next((e for e in self.equipment if e.get("id") == current), None)
+        if meta:
+            display_name = meta.get("name", current)
+        msg = f"You unequipped **{display_name}** from **{slot}**."
+    
+        # immediate response (ephemeral for interactions)
+        try:
+            if is_interaction:
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+        except Exception:
+            pass
+    
+        # optional public announcement
+        if announce:
+            try:
+                if is_interaction:
+                    channel = getattr(ctx_or_interaction, "channel", None) or getattr(ctx_or_interaction.message, "channel", None)
+                    announcer = getattr(ctx_or_interaction.user, "display_name", uid)
+                else:
+                    channel = getattr(ctx_or_interaction, "channel", None)
+                    announcer = getattr(ctx_or_interaction.author, "display_name", uid)
+                if channel:
+                    await channel.send(f"**{announcer}** unequipped **{display_name}** from **{slot}**.")
+            except Exception:
+                pass
+    
+        return msg
+        
 
     @commands.cooldown(1, 60, commands.BucketType.user)
     @vania.command(name="heal")
@@ -2333,7 +2426,12 @@ class InventoryView(discord.ui.View):
                     await select_interaction.response.send_message("You cannot equip for someone else.", ephemeral=True)
                     return
                 await select_interaction.response.defer()
-                await self.parent_view.cog._do_equip_item(select_interaction, str(select_interaction.user.id), chosen_id)
+                # have the cog perform the equip and also post a public announcement
+                try:
+                    ann = await self.parent_view.cog._do_equip_item(select_interaction, str(select_interaction.user.id), chosen_id, announce=True)
+                except TypeError:
+                    # backward-compat fallback if _do_equip_item signature wasn't updated
+                    ann = None
                 profiles = self.parent_view.cog._load_profiles()
                 inv = self.parent_view.cog._gather_inventory(profiles.get(str(self.parent_view.author_id), {}))
                 pages = self.parent_view.cog._paginate_inventory(inv)
@@ -2371,5 +2469,85 @@ class InventoryView(discord.ui.View):
         except Exception:
             try:
                 await interaction.response.send_message("Could not open equip selector.", ephemeral=True)
+            except Exception:
+                pass
+
+    @discord.ui.button(label="Unequip", style=discord.ButtonStyle.secondary, custom_id="vania_inv_unequip")
+    async def unequip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # only allow the inventory owner via interaction_check
+        page = self.pages[self.page_index]
+        # gather currently equipped slots for this user
+        profiles = self.cog._load_profiles()
+        uid = str(interaction.user.id)
+        profile = profiles.get(uid, self.cog._default_profile())
+        # allowed slots to unequip (same canonical set used in equip logic)
+        slots = ["weapon","offhand","head","body","legs","arms","cloak","accessory1","accessory2"]
+        equipped = [(s, profile.get(s)) for s in slots if profile.get(s)]
+        if not equipped:
+            await interaction.response.send_message("You have nothing equipped to unequip.", ephemeral=True)
+            return
+    
+        options = []
+        for s, iid in equipped:
+            meta = next((m for m in self.cog.items if m.get("id") == iid), None) or next((e for e in self.cog.equipment if e.get("id") == iid), None)
+            name = meta.get("name", iid) if meta else iid
+            options.append(discord.SelectOption(label=f"{name} — {s}", value=s, description=str(iid)[:100]))
+    
+        # Select view for choosing which slot to unequip
+        class _UnequipSelect(discord.ui.Select):
+            def __init__(self, opts, parent):
+                super().__init__(placeholder="Choose slot to unequip...", min_values=1, max_values=1, options=opts)
+                self.parent_view = parent
+    
+            async def callback(self, select_interaction: discord.Interaction):
+                if select_interaction.user.id != self.parent_view.author_id:
+                    await select_interaction.response.send_message("This inventory is not for you.", ephemeral=True)
+                    return
+                await select_interaction.response.defer()
+                slot = self.values[0]
+                # perform unequip with public announcement
+                try:
+                    await self.parent_view.cog._do_unequip_item(select_interaction, str(select_interaction.user.id), slot, announce=True)
+                except Exception:
+                    # fallback: try without announce
+                    try:
+                        await self.parent_view.cog._do_unequip_item(select_interaction, str(select_interaction.user.id), slot, announce=False)
+                    except Exception:
+                        pass
+                # refresh pages from saved profile and update message
+                profiles = self.parent_view.cog._load_profiles()
+                inv = self.parent_view.cog._gather_inventory(profiles.get(str(self.parent_view.author_id), {}))
+                pages = self.parent_view.cog._paginate_inventory(inv)
+                self.parent_view.pages = pages
+                self.parent_view.page_index = min(self.parent_view.page_index, max(0, len(self.parent_view.pages) - 1))
+                await self.parent_view.update_message()
+                try:
+                    await select_interaction.followup.send("Unequipped.", ephemeral=True)
+                except Exception:
+                    pass
+    
+        class _UnequipSelectView(discord.ui.View):
+            def __init__(self, opts, parent, timeout=60):
+                super().__init__(timeout=timeout)
+                self.add_item(_UnequipSelect(opts, parent))
+                self.parent_view = parent
+    
+            async def on_timeout(self):
+                try:
+                    for child in list(self.children):
+                        child.disabled = True
+                    if msg:
+                        await msg.edit(view=self)
+                except Exception:
+                    pass
+    
+        view = _UnequipSelectView(options, self)
+        msg = None
+        try:
+            await interaction.response.send_message("Select equipped slot to unequip:", view=view, ephemeral=True)
+            msg = await interaction.original_response()
+        except Exception:
+            try:
+                await interaction.response.send_message("Could not open unequip selector.", ephemeral=True)
             except Exception:
                 pass
