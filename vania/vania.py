@@ -588,7 +588,8 @@ class Vania(commands.Cog):
                     "Drizzle whispers against windows and hats, as if the sky can't decide to weep properly.",
                     "Streets shine with a steady film of moisture; footsteps huff without much hurry beneath the drops.",
                     "The drizzle leaves a lace of tiny beads on lantern glass, turning light into trembling stars.",
-                    "A soft mist of rain settles in the gutters; it tastes like iron and distant memory when it hits the tongue."                    
+                    "A soft mist of rain settles in the gutters; it tastes like iron and distant memory when it hits the tongue." 
+                ],    
             }
 
             # small mapping for embed color per time/weather for mood
