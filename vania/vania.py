@@ -114,6 +114,8 @@ class Vania(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._write_lock = asyncio.Lock()
+        # Event used to wake the _cycle_events loop early (e.g., when a channel is configured)
+        self._wake_event: asyncio.Event = asyncio.Event()        
 
         # Data folder inside cog package
         data_pkg = Path(__file__).parent / "data"
@@ -677,9 +679,20 @@ class Vania(commands.Cog):
                             pass
                         continue
 
-                # Sleep in one chunk but respond quickly to cancellation
+                # Wait up to 3 hours or until someone wakes the loop (set_channel will set the event).
+                # Using wait_for lets us respond quickly to cancellation while also reacting to wake signals.
                 try:
-                    await asyncio.sleep(3 * 60 * 60)
+                    try:
+                        await asyncio.wait_for(self._wake_event.wait(), timeout=3 * 60 * 60)
+                    except asyncio.TimeoutError:
+                        # Normal wake from timeout -> proceed to generate the next batch of events
+                        pass
+                    finally:
+                        # clear the event so future waits will block until another wake
+                        try:
+                            self._wake_event.clear()
+                        except Exception:
+                            pass
                 except asyncio.CancelledError:
                     raise
         except asyncio.CancelledError:
@@ -1429,6 +1442,11 @@ class Vania(commands.Cog):
             ch = self.bot.get_channel(channel.id)
             if ch:
                 await self._post_event_to_channel(ch)
+                # Wake the background loop now so it posts on schedule relative to this immediate post
+                try:
+                    self._wake_event.set()
+                except Exception:
+                    pass                
         except Exception:
             # non-fatal; the background loop will continue posting on schedule
             pass         
