@@ -354,7 +354,7 @@ class Vania(commands.Cog):
         maximum = max(1, int(maximum))
         current = max(0, min(current, maximum))
         filled = int(current / maximum * length)
-        return "█" * filled + "─" * (length - filled
+        return "█" * filled + "─" * (length - filled)
         
     def _stage_for_hp(self, base_hp: int) -> str:
         """Return the stage name that contains base_hp according to STAGE_DEFINITIONS."""
