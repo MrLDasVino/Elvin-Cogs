@@ -38,7 +38,36 @@ class Vania(commands.Cog):
         "Castle Approach": (66, 110),
         "Inner Halls": (111, 170),
         "The Sanctum": (171, 10_000_000),
-    }  
+    } 
+
+    # per-stage gear ranges used to randomize dropped gear stats
+    STAGE_GEAR_RANGES = {
+        "Graveyard": {
+            "weapon_min": (5, 8),
+            "weapon_max": (9, 14),
+            "armor_def": (1, 4)
+        },
+        "Village Outskirts": {
+            "weapon_min": (9, 12),
+            "weapon_max": (14, 18),
+            "armor_def": (4, 7)
+        },
+        "Castle Approach": {
+            "weapon_min": (12, 15),
+            "weapon_max": (18, 22),
+            "armor_def": (8, 10)
+        },
+        "Inner Halls": {
+            "weapon_min": (16, 18),
+            "weapon_max": (20, 24),
+            "armor_def": (10, 14)
+        },
+        "The Sanctum": {
+            "weapon_min": (20, 24),
+            "weapon_max": (25, 30),
+            "armor_def": (14, 16)
+        }
+    }    
     
     CLANS = [
         "Belmont Clan",
@@ -296,6 +325,7 @@ class Vania(commands.Cog):
         return {
             "xp": 0,
             "level": 1,
+            "generated_items": {},
             "skills": {},
             "weapon": None,
             "offhand": None,
@@ -324,7 +354,46 @@ class Vania(commands.Cog):
         maximum = max(1, int(maximum))
         current = max(0, min(current, maximum))
         filled = int(current / maximum * length)
-        return "█" * filled + "─" * (length - filled)
+        return "█" * filled + "─" * (length - filled
+        
+    def _stage_for_hp(self, base_hp: int) -> str:
+        """Return the stage name that contains base_hp according to STAGE_DEFINITIONS."""
+        try:
+            hp = int(base_hp)
+        except Exception:
+            # fallback to first stage name if something is wrong
+            return next(iter(self.STAGE_DEFINITIONS.keys()))
+        for name, (low, high) in self.STAGE_DEFINITIONS.items():
+            if low <= hp <= high:
+                return name
+        return next(iter(self.STAGE_DEFINITIONS.keys()))
+
+    def _generate_stage_item(self, equip_meta: dict, stage_name: str) -> Tuple[str, dict]:
+        """
+        Create a unique item instance scaled to stage_name.
+        Returns (instance_id, instance_meta).
+        """
+        base = dict(equip_meta)  # shallow copy
+        ranges = STAGE_GEAR_RANGES.get(stage_name) or {}
+        # weapon
+        if base.get("category") == "weapon":
+            wmin_rng = ranges.get("weapon_min", (max(1, int(base.get("min_damage", 1))), int(base.get("min_damage", 1) + 2)))
+            wmax_rng = ranges.get("weapon_max", (int(base.get("max_damage", base.get("min_damage", 1) + 2)), int(base.get("max_damage", base.get("min_damage", 1) + 4))))
+            new_min = random.randint(int(wmin_rng[0]), int(wmin_rng[1]))
+            new_max = random.randint(max(new_min, int(wmax_rng[0])), int(wmax_rng[1]))
+            base["min_damage"] = new_min
+            base["max_damage"] = new_max
+        # armor
+        elif base.get("category") == "armor":
+            def_rng = ranges.get("armor_def", (max(0, int(base.get("defense", 0)) - 1), int(base.get("defense", 0) + 3)))
+            new_def = random.randint(int(def_rng[0]), int(def_rng[1]))
+            base["defense"] = new_def
+        # generate instance id and metadata
+        inst_id = f"{base.get('id')}_stage_{stage_name.replace(' ', '_')}_{random.randint(1000,9999)}"
+        base["instance_of"] = base.get("id")
+        base["generated_stage"] = stage_name
+        base["id"] = inst_id
+        return inst_id, base        
 
     # ---------- Leveling curve configuration and helpers (steeper) ----------
     # Base XP for level 1->2 and exponential scale per level
@@ -1128,9 +1197,22 @@ class Vania(commands.Cog):
             for drop in drops:
                 if random.random() <= float(drop.get("drop_chance", 0)):
                     iid = drop["item_id"]
-                    items = profile.setdefault("items", {})
-                    items[iid] = items.get(iid, 0) + 1
-                    found_items.append(iid)
+                    # try to find the equipment template by id
+                    equip_meta = next((e for e in self.equipment if e.get("id") == iid), None)
+                    if equip_meta:
+                        # determine stage by monster base hp (use monster_def or monster dict)
+                        stage = self._stage_for_hp(monster_def.get("hp", monster.get("max_hp", 0)))
+                        inst_id, inst_meta = self._generate_stage_item(equip_meta, stage)
+                        gen_map = profile.setdefault("generated_items", {})
+                        gen_map[inst_id] = inst_meta
+                        items = profile.setdefault("items", {})
+                        items[inst_id] = items.get(inst_id, 0) + 1
+                        found_items.append(inst_id)
+                    else:
+                        # non-equipment items keep original behavior
+                        items = profile.setdefault("items", {})
+                        items[iid] = items.get(iid, 0) + 1
+                        found_items.append(iid)
             if hearts_awarded:
                 profile["hearts"] = profile.get("hearts", 0) + hearts_awarded
                 log_lines.append(f"You gained **{xp_gain} XP** and **{hearts_awarded} Heart{'s' if hearts_awarded != 1 else ''}**!")
@@ -1160,9 +1242,9 @@ class Vania(commands.Cog):
         if new_level > old_level:
             levels_gained = new_level - old_level
             profile["level"] = new_level
-            profile["max_hp"] = profile.get("max_hp", 100) + 5 * levels_gained
+            profile["max_hp"] = profile.get("max_hp", 100) + 2 * levels_gained
             player_hp = min(player_hp + 10 * levels_gained, profile["max_hp"])
-            log_lines.append(f"You reached level {new_level}! Max HP +{5 * levels_gained}.")
+            log_lines.append(f"You reached level {new_level}! Max HP +{2 * levels_gained}.")
 
         profile["hp"] = player_hp
         profiles[uid] = profile
