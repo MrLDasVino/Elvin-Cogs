@@ -1798,7 +1798,7 @@ class Vania(commands.Cog):
         return msg
         
 
-    @commands.cooldown(1, 60, commands.BucketType.user)
+    @commands.cooldown(1, 30, commands.BucketType.user)
     @vania.command(name="heal")
     async def heal(self, ctx: commands.Context):
         """
