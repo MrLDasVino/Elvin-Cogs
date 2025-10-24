@@ -14,67 +14,23 @@ class Vania(commands.Cog):
 
     # ----------------- World Event Effects -----------------    
     EVENT_EFFECTS = {
-        "☀️ Day": {
-            "player_damage": 1.10,
-            "monster_damage": 1.0,
-            "player_hp": 1.05,     
-            "monster_hp": 1.0,
-        },
-        "🌙 Night": {
-            "player_damage": 1.0,
-            "monster_damage": 1.20,
-            "player_hp": 0.95,     
-            "monster_hp": 1.10,    
-        },
-        "Clear skies": {
-            "player_damage": 1.0,
-            "monster_damage": 1.0,
-            "player_hp": 1.0,
-            "monster_hp": 1.0,
-        },
-        "Rainstorm": {
-            "player_damage": 0.90,
-            "monster_damage": 1.0,
-            "player_hp": 1.0,
-            "monster_hp": 0.95,    
-        },
-        "Fog": {
-            "player_damage": 1.0,
-            "monster_damage": 0.90,
-            "player_hp": 1.0,
-            "monster_hp": 0.9,
-        },
-        "Thunderstorm": {
-            "player_damage": 1.0,
-            "monster_damage": 1.15,
-            "player_hp": 0.95,
-            "monster_hp": 1.05,
-        },
-        "Snow": {
-            "player_damage": 1.0,
-            "monster_damage": 0.85,
-            "player_hp": 1.05,
-            "monster_hp": 0.9,
-        },
-        "🌑 Blood Moon": {
-            "player_damage": 0.9,
-            "monster_damage": 1.3,
-            "player_hp": 0.9,
-            "monster_hp": 1.2,
-        },
-        "🌞 Solar Eclipse": {
-            "player_damage": 1.2,
-            "monster_damage": 0.8,
-            "player_hp": 1.1,
-            "monster_hp": 0.9,
-        },
-        "🌾 Harvest Festival": {
-            "player_damage": 1.15,
-            "monster_damage": 1.0,
-            "player_hp": 1.2,
-            "monster_hp": 1.0,
-        },
-    }  
+        # Time-only special events and day/night variants
+        "☀️ Day": {"player_damage": 1.10, "monster_damage": 1.0, "player_hp": 1.05, "monster_hp": 1.0},
+        "🌙 Night": {"player_damage": 1.0, "monster_damage": 1.20, "player_hp": 0.95, "monster_hp": 1.10},
+        "🌑 Blood Moon": {"player_damage": 0.9, "monster_damage": 1.3, "player_hp": 0.9, "monster_hp": 1.2},
+        "🌞 Solar Eclipse": {"player_damage": 1.2, "monster_damage": 0.8, "player_hp": 1.1, "monster_hp": 0.9},
+        "🌾 Harvest Festival": {"player_damage": 1.15, "monster_damage": 1.0, "player_hp": 1.2, "monster_hp": 1.0},
+
+        # Weather-only effects (no astronomical/seasonal entries here)
+        "Clear skies": {"player_damage": 1.0, "monster_damage": 1.0, "player_hp": 1.0, "monster_hp": 1.0},
+        "Rainstorm": {"player_damage": 0.90, "monster_damage": 1.0, "player_hp": 1.0, "monster_hp": 0.95},
+        "Fog": {"player_damage": 1.0, "monster_damage": 0.90, "player_hp": 1.0, "monster_hp": 0.9},
+        "Thunderstorm": {"player_damage": 1.0, "monster_damage": 1.15, "player_hp": 0.95, "monster_hp": 1.05},
+        "Snow": {"player_damage": 1.0, "monster_damage": 0.85, "player_hp": 1.05, "monster_hp": 0.9},
+        "Haze": {"player_damage": 0.98, "monster_damage": 0.98, "player_hp": 1.0, "monster_hp": 1.0},
+        "Drizzle": {"player_damage": 0.97, "monster_damage": 1.0, "player_hp": 1.0, "monster_hp": 0.98}
+    }
+
 
     STAGE_DEFINITIONS = {
         "Graveyard": (1, 25),
@@ -460,6 +416,10 @@ class Vania(commands.Cog):
         Compute monster damage against player for one attack.
         Monster metadata supported: min_damage, max_damage.
         Armor defense reduces damage; Evasion skill can dodge.
+
+        Difficulty scaling now reduces the player's effective total defense after equipment.
+        The same "difficulty" setting that scales monster damage/HP will also reduce
+        player defense by an inverse factor so higher difficulty makes armor less effective.
         """
         base_min = int(monster.get("min_damage", max(1, int(monster.get("hp", 10) * 0.05))))
         base_max = int(monster.get("max_damage", max(2, int(monster.get("hp", 10) * 0.15))))
@@ -468,16 +428,28 @@ class Vania(commands.Cog):
         if event:
             time_mult = self.EVENT_EFFECTS.get(event["time"], {}).get("monster_damage", 1.0)
             weather_mult = self.EVENT_EFFECTS.get(event["weather"], {}).get("monster_damage", 1.0)
-            base = int(base * time_mult * weather_mult)        
+            base = int(base * time_mult * weather_mult)
 
         # total defense = body + offhand (some offhands may add defense) + head/arms/legs/cloak
         defense = 0
         for slot in ("body", "offhand", "head", "arms", "legs", "cloak"):
             defense += int(self._get_equipment(profile.get(slot)).get("defense", 0))
 
+        # Apply difficulty-based player defense debuff (difficulty > 1 reduces defense)
+        settings = self._load_settings()
+        scale = float(settings.get("difficulty", 1.0))
+        # Defensive scaling rule: effective_defense = defense / scale
+        # This keeps behavior simple and predictable: difficulty 1.5 -> defense ~ 66% of normal.
+        try:
+            effective_defense = int(defense / max(0.0001, float(scale)))
+        except Exception:
+            effective_defense = defense
+
+        # Evasion skill can dodge
         skills = profile.get("skills", {})
         evasion = int(skills.get("Evasion", 0))
         dodge_chance = 0.02 * evasion
+
         # Monster accuracy modifier (monster defs can include 'accuracy' default 1.0)
         monster_accuracy = float(monster.get("accuracy", 1.0))
         # base miss for monsters is small; reduced by accuracy >1.0
@@ -487,14 +459,13 @@ class Vania(commands.Cog):
         if random.random() < monster_miss_chance:
             return 0
 
-        dmg = max(0, base - defense)
+        dmg = max(0, base - effective_defense)
 
-        # Apply global difficulty multiplier from settings
-        settings = self._load_settings()
-        scale = float(settings.get("difficulty", 1.0))
+        # Apply global difficulty multiplier from settings to monster damage
         dmg = int(dmg * scale)
 
         return dmg
+
         
     # ----------------- Background world events -----------------
     async def _cycle_events(self):
@@ -601,47 +572,42 @@ class Vania(commands.Cog):
                     "Snowflakes glitter on tarnished metal like tiny, indifferent stars.",
                     "The world looks politely dead; those who walk it feel small and secretive."
                 ],
-                "🌑 Blood Moon": [
-                    "A red haze thins across the horizon; scents sharpen and teeth twitch in hunger.",
-                    "The sky oozes bloodlight; even the bravest pause as old things rouse.",
-                    "The light makes familiar features look feral; statues seem to leer from their plinths.",
-                    "Animals move with a strange ceremony; their eyes reflect a poem of hunger.",
-                    "Streetlights bleed color into puddles; reflections seem to whisper names.",
-                    "The wind carries a far-off chorus that sounds like old prayers and older curses.",
-                    "Shadows gather in corners and exchange news with low, slitted voices."
+                "Haze": [
+                    "A thin yellow haze hangs low; outlines blur and edges soften into rumor.",
+                    "The air feels heavy and slow, colors dulled like tarnished brass under a weak light.",
+                    "A sickly, warm haze clings to the streets; distant shapes breathe like sleeping beasts.",
+                    "Light falls through a smeared veil, and even the lamps seem to hesitate to cut the gloom.",
+                    "The horizon melts into a watercolor of soot and gold; every footstep sounds farther away.",
+                    "A tobacco-sweet haze coats the tongue; conversations become half-remembered stories.",
+                    "The haze carries a faint, metallic tang that makes the city feel like a wound bandaged too tight."                    
                 ],
-                "🌞 Solar Eclipse": [
-                    "Shadows writhe where light should be; a strange warmth and cold war in the air.",
-                    "The sky warps and the world holds its breath, as if something watches from the dark.",
-                    "People stop mid-breath as the eclipse folds the day in half; even dogs sit still.",
-                    "Shadows pool at doorways like oil; walking through them feels like stepping into sleep.",
-                    "Light frays like old cloth at the edges; everything looks like a stage prop.",
-                    "A dull, sweet smell rises from drains as if the city exhales an old secret.",
-                    "You can hear distant things more clearly; not because they are louder, but because the world is thinner."
-                ],
-                "🌾 Harvest Festival": [
-                    "Lanterns hang, faces glow, and yet the fields whisper of tolls exacted long ago.",
-                    "Bounty and bargains walk hand in hand; the feast hides small, necessary sacrifices.",
-                    "Trays clink; someone laughs too loudly while someone else counts coins in the dark.",
-                    "The bread is warm and the ale goes down easy, but each mouth tastes a little of debt.",
-                    "Children trade trinkets with solemn faces, as if they understand obligations beyond their years.",
-                    "A troupe of masked performers moves like a slow omen through the square.",
-                    "The smell of roasted meat mingles with the faint, sharp perfume of old offerings."
-                ],
+                "Drizzle": [
+                    "A light, persistent drizzle mists the streets; it soaks paper and patience alike.",
+                    "The world looks slightly wet and resigned; every sound is edged in tiny drops.",
+                    "Fine rain threads the air like a thin veil, leaving everything damp and a little cleaner.",
+                    "Drizzle whispers against windows and hats, as if the sky can't decide to weep properly.",
+                    "Streets shine with a steady film of moisture; footsteps huff without much hurry beneath the drops.",
+                    "The drizzle leaves a lace of tiny beads on lantern glass, turning light into trembling stars.",
+                    "A soft mist of rain settles in the gutters; it tastes like iron and distant memory when it hits the tongue."                    
             }
 
             # small mapping for embed color per time/weather for mood
             color_map = {
+                # time / special events
                 "☀️ Day": discord.Color.dark_gold(),
                 "🌙 Night": discord.Color.dark_purple(),
+                "🌑 Blood Moon": discord.Color.dark_red(),
+                "🌞 Solar Eclipse": discord.Color.dark_teal(),
+                "🌾 Harvest Festival": discord.Color.orange(),
+
+                # weather-only colors
                 "Clear skies": discord.Color.blue(),
                 "Rainstorm": discord.Color.dark_blue(),
                 "Fog": discord.Color.greyple(),
                 "Thunderstorm": discord.Color.dark_magenta(),
                 "Snow": discord.Color.light_grey(),
-                "🌑 Blood Moon": discord.Color.dark_red(),
-                "🌞 Solar Eclipse": discord.Color.dark_teal(),
-                "🌾 Harvest Festival": discord.Color.orange()
+                "Haze": discord.Color.brand_red().lighter() if hasattr(discord.Color, "brand_red") else discord.Color.dark_grey(),
+                "Drizzle": discord.Color.teal()
             }
 
             # optional decorative images keyed by weather/time (replace with your own hosted art URLs)
@@ -747,7 +713,7 @@ class Vania(commands.Cog):
             "☀️ Day","🌙 Night","🌑 Blood Moon","🌞 Solar Eclipse","🌾 Harvest Festival"
         }))
         weather = random.choice(list({
-            "Clear skies","Rainstorm","Fog","Thunderstorm","Snow","🌑 Blood Moon","🌞 Solar Eclipse","🌾 Harvest Festival"
+            "Clear skies","Rainstorm","Fog","Thunderstorm","Snow","Haze","Drizzle"
         }))
         self.current_event = {"time": time_of_day, "weather": weather}
 
