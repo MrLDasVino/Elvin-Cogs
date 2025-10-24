@@ -192,13 +192,17 @@ class Vania(commands.Cog):
         self.bg_task: Optional[asyncio.Task] = None
 
         # If a previous Vania bg task was left attached to the bot from an older load,
-        # attempt to cancel it so we don't accumulate duplicate loops.
+        # schedule a best-effort cancel+wait so we don't accumulate duplicate loops.
         prev_task = getattr(self.bot, "_vania_bg_task", None)
         if prev_task and hasattr(prev_task, "cancel") and not getattr(prev_task, "done", lambda: True)():
             try:
-                prev_task.cancel()
+                # schedule a short-lived coroutine to cancel and wait for the old task
+                asyncio.create_task(self._cancel_and_wait_for(prev_task, timeout=2.0))
             except Exception:
-                pass
+                try:
+                    prev_task.cancel()
+                except Exception:
+                    pass
 
         # Start this instance's background loop and register it on the bot so future reloads can find it.
         self.bg_task = self.bot.loop.create_task(self._cycle_events())
@@ -206,7 +210,26 @@ class Vania(commands.Cog):
             self.bot._vania_bg_task = self.bg_task
         except Exception:
             # Some bot objects may not allow arbitrary attributes; ignore failure.
-            pass   
+            pass
+
+        # Ensure the bot-held registry is cleared when this task completes
+        def _on_bg_done(t: asyncio.Task):
+            try:
+                if getattr(self.bot, "_vania_bg_task", None) is t:
+                    try:
+                        delattr(self.bot, "_vania_bg_task")
+                    except Exception:
+                        try:
+                            del self.bot._vania_bg_task
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        try:
+            self.bg_task.add_done_callback(_on_bg_done)
+        except Exception:
+            pass  
 
         # Ensure files exist and are valid JSON
         for f in (self.raid_file, self.data_file):
@@ -225,7 +248,14 @@ class Vania(commands.Cog):
         try:
             task = getattr(self, "bg_task", None)
             if task and not task.done():
-                task.cancel()
+                try:
+                    # cannot await in sync cog_unload; schedule a short cancel+wait
+                    asyncio.create_task(self._cancel_and_wait_for(task, timeout=2.0))
+                except Exception:
+                    try:
+                        task.cancel()
+                    except Exception:
+                        pass
         except Exception:
             pass
         try:
@@ -234,13 +264,27 @@ class Vania(commands.Cog):
                 try:
                     delattr(self.bot, "_vania_bg_task")
                 except Exception:
-                    # fallback if delattr fails
                     try:
                         del self.bot._vania_bg_task
                     except Exception:
                         pass
         except Exception:
             pass                   
+
+    async def _cancel_and_wait_for(self, task: asyncio.Task, timeout: float = 2.0):
+        """Best-effort: cancel a task and wait briefly for it to finish."""
+        if not task:
+            return
+        try:
+            task.cancel()
+        except Exception:
+            pass
+        try:
+            await asyncio.wait_for(task, timeout=timeout)
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            return                   
 
     # ----------------- Safe package JSON loader -----------------
     def _safe_load_pkg_json(self, path: Path) -> dict:
@@ -679,6 +723,19 @@ class Vania(commands.Cog):
         except Exception:
             # Unexpected error: exit quietly to avoid runaway tasks. Consider logging if you want to inspect.
             return
+        finally:
+            # When the background loop ends for any reason, clear the bot-held registry
+            try:
+                if getattr(self.bot, "_vania_bg_task", None) is getattr(self, "bg_task", None):
+                    try:
+                        delattr(self.bot, "_vania_bg_task")
+                    except Exception:
+                        try:
+                            del self.bot._vania_bg_task
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
 
     # ----------------- Immediate event poster (reusable) -----------------
