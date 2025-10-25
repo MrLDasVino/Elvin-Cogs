@@ -1900,7 +1900,7 @@ class Vania(commands.Cog):
         await self._reply(ctx_or_interaction, msg, ephemeral=True)
 
     # internal equip performer (used by InventoryView Equip button)
-    async def _do_equip_item(self, ctx_or_interaction, uid, chosen_id):
+    async def _do_equip_item(self, ctx_or_interaction, user_id, chosen_id):
         _logger.debug("_do_equip_item entered; type=%s response_done=%s user=%s",
                       type(ctx_or_interaction),
                       getattr(getattr(ctx_or_interaction, "response", None), "is_done", lambda: False)(),
