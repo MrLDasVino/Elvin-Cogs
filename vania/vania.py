@@ -1916,7 +1916,7 @@ class Vania(commands.Cog):
                 await ctx_or_interaction.send(msg)
             return
 
-        equip_meta = next((e for e in self.equipment if e.get("id") == item_id), None)
+        equip_meta = next((e for e in self.equipment if e.get("id") == chosen_id), None)
         if not equip_meta:
             msg = f"`{item_id}` is not equippable."
             if is_interaction:
