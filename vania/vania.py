@@ -1685,7 +1685,7 @@ class Vania(commands.Cog):
         """
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
-        profile = profiles.get(uid)
+        profile = profiles.get(user_id)
         if not profile:
             return await ctx.send("Start hunting first with `vania hunt`.")
 
@@ -1836,7 +1836,7 @@ class Vania(commands.Cog):
         is_interaction = hasattr(ctx_or_interaction, "response") and isinstance(ctx_or_interaction, discord.Interaction)
 
         profiles = self._load_profiles()
-        profile = profiles.get(uid)
+        profile = profiles.get(user_id)
         if not profile:
             msg = "No profile found. Start hunting with `vania hunt`."
             if is_interaction:
@@ -1900,14 +1900,14 @@ class Vania(commands.Cog):
         await self._reply(ctx_or_interaction, msg, ephemeral=True)
 
     # internal equip performer (used by InventoryView Equip button)
-    async def _do_equip_item(self, ctx_or_interaction, user_id, chosen_id):
+    async def _do_equip_item(self, ctx_or_interaction, uid, chosen_id):
         _logger.debug("_do_equip_item entered; type=%s response_done=%s user=%s",
                       type(ctx_or_interaction),
                       getattr(getattr(ctx_or_interaction, "response", None), "is_done", lambda: False)(),
                       getattr(ctx_or_interaction, "user", getattr(ctx_or_interaction, "author", None))) 
         is_interaction = hasattr(ctx_or_interaction, "response") and isinstance(ctx_or_interaction, discord.Interaction)
         profiles = self._load_profiles()
-        profile = profiles.get(uid)
+        profile = profiles.get(user_id)
         if not profile:
             msg = "No profile found. Start hunting with `vania hunt`."
             if is_interaction:
@@ -2012,7 +2012,7 @@ class Vania(commands.Cog):
         is_interaction = hasattr(ctx_or_interaction, "response") and isinstance(ctx_or_interaction, discord.Interaction)
     
         profiles = self._load_profiles()
-        profile = profiles.get(uid)
+        profile = profiles.get(user_id)
         if not profile:
             msg = "No profile found. Start hunting with `vania hunt`."
             if is_interaction:
@@ -2089,7 +2089,7 @@ class Vania(commands.Cog):
 
         profiles = self._load_profiles()
         uid = str(ctx.author.id)
-        profile = profiles.get(uid)
+        profile = profiles.get(user_id)
         if not profile:
             return await ctx.send("No profile found. Start hunting with `vania hunt`.")
 
