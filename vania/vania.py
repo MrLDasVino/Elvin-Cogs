@@ -1671,23 +1671,34 @@ class Vania(commands.Cog):
                 iid = it.get("id", "unknown")
                 qty = it.get("qty", 1)
                 typ = it.get("type", "misc")
-                # show a small icon hint for type
-                icon = "🔹" if typ in ("weapon","offhand","head","body","legs","arms","cloak","accessory") else ("🧴" if typ=="consumable" else "✦")
 
-                # resolve display name from items.json or equipment.json
-                meta = next((m for m in self.items if m.get("id") == iid), None)
-                if not meta:
-                    meta = next((e for e in self.equipment if e.get("id") == iid), None)
-                name = meta.get("name", iid) if meta else iid
+                # Prefer per-instance metadata when available
+                gen_map = profile.get("generated_items", {}) or {}
+                inst_meta = gen_map.get(iid)
+                if inst_meta:
+                    name = inst_meta.get("display_name") or inst_meta.get("name") or inst_meta.get("instance_of") or iid
+                    category = inst_meta.get("category") or inst_meta.get("slot") or typ
+                    stat_text = ""
+                    if category == "weapon":
+                        stat_text = f" [{inst_meta.get('min_damage')}-{inst_meta.get('max_damage')} dmg, crit {int(float(inst_meta.get('crit_chance',0))*100)}%]"
+                    elif category == "armor":
+                        stat_text = f" [DEF {inst_meta.get('defense',0)}]"
+                    it_type = category
+                else:
+                    # fallback to package data lookups
+                    meta = next((m for m in self.items if m.get("id") == iid), None)
+                    if not meta:
+                        meta = next((e for e in self.equipment if e.get("id") == iid), None)
+                    name = meta.get("name", iid) if meta else iid
+                    stat_text = ""
+                    if meta and meta.get("category") == "weapon":
+                        stat_text = f" [{meta.get('min_damage')}-{meta.get('max_damage')} dmg, crit {int(meta.get('crit_chance',0)*100)}%]"
+                    elif meta and meta.get("category") == "armor":
+                        stat_text = f" [DEF {meta.get('defense',0)}]"
+                    it_type = typ
 
-                # look up equipment stats if this is equippable
-                stat_text = ""
-                if meta and meta.get("category") == "weapon":
-                    stat_text = f" [{meta.get('min_damage')}-{meta.get('max_damage')} dmg, crit {int(meta.get('crit_chance',0)*100)}%]"
-                elif meta and meta.get("category") == "armor":
-                    stat_text = f" [DEF {meta.get('defense',0)}]"
-
-                lines.append(f"{icon} **{name}**  x{qty} — {typ}{stat_text}")
+                icon = "🔹" if it_type in ("weapon","offhand","head","body","legs","arms","cloak","accessory") else ("🧴" if it_type=="consumable" else "✦")
+                lines.append(f"{icon} **{name}**  x{qty} — {it_type}{stat_text}")
             embed.add_field(name=f"Page 1/{len(pages)}", value="\n".join(lines), inline=False)
 
         # Footer / hint and attach view
@@ -1710,14 +1721,21 @@ class Vania(commands.Cog):
             name = meta.get("name", cid)
             out.append({"id": cid, "name": name, "qty": int(qty), "type": "consumable"})
         for iid, qty in profile.get("items", {}).items():
-            meta = next((it for it in self.items if it.get("id") == iid), {})
-            name = meta.get("name", iid)
-            equip_meta = next((e for e in self.equipment if e.get("id") == iid), None)
-            it_type = "item"
-            if equip_meta:
-                # map equipment slot to inventory type for display
-                slot = equip_meta.get("slot") or equip_meta.get("category")
-                it_type = slot if slot else equip_meta.get("category", "item")
+            # Prefer per-instance metadata for generated items stored under profile["generated_items"]
+            gen_map = profile.get("generated_items", {}) or {}
+            inst_meta = gen_map.get(iid)
+            if inst_meta:
+                name = inst_meta.get("display_name") or inst_meta.get("name") or inst_meta.get("instance_of") or iid
+                # determine type from inst_meta category/slot if present
+                it_type = inst_meta.get("slot") or inst_meta.get("category") or "item"
+            else:
+                meta = next((it for it in self.items if it.get("id") == iid), {})
+                name = meta.get("name", iid)
+                equip_meta = next((e for e in self.equipment if e.get("id") == iid), None)
+                it_type = "item"
+                if equip_meta:
+                    slot = equip_meta.get("slot") or equip_meta.get("category")
+                    it_type = slot if slot else equip_meta.get("category", "item")
             out.append({"id": iid, "name": name, "qty": int(qty), "type": it_type})
         return out
 
@@ -2456,20 +2474,33 @@ class InventoryView(discord.ui.View):
                 qty = item.get("qty", 1)
                 typ = item.get("type", "misc")
 
-                meta = next((m for m in self.cog.items if m.get("id") == iid), None)
-                if not meta:
-                    meta = next((e for e in self.cog.equipment if e.get("id") == iid), None)
-                name = meta.get("name", iid) if meta else iid
+                # prefer generated instance metadata stored in the owner's profile
+                owner_profile = self.cog._load_profiles().get(str(self.ctx.author.id), {}) or {}
+                gen_map = owner_profile.get("generated_items", {}) or {}
+                inst_meta = gen_map.get(iid)
+                if inst_meta:
+                    name = inst_meta.get("display_name") or inst_meta.get("name") or inst_meta.get("instance_of") or iid
+                    category = inst_meta.get("category") or inst_meta.get("slot") or typ
+                    stat_text = ""
+                    if category == "weapon":
+                        stat_text = f" [{inst_meta.get('min_damage')}-{inst_meta.get('max_damage')} dmg, crit {int(float(inst_meta.get('crit_chance',0))*100)}%]"
+                    elif category == "armor":
+                        stat_text = f" [DEF {inst_meta.get('defense',0)}]"
+                    it_type = category
+                else:
+                    meta = next((m for m in self.cog.items if m.get("id") == iid), None)
+                    if not meta:
+                        meta = next((e for e in self.cog.equipment if e.get("id") == iid), None)
+                    name = meta.get("name", iid) if meta else iid
+                    stat_text = ""
+                    if meta and meta.get("category") == "weapon":
+                        stat_text = f" [{meta.get('min_damage')}-{meta.get('max_damage')} dmg, crit {int(meta.get('crit_chance',0)*100)}%]"
+                    elif meta and meta.get("category") == "armor":
+                        stat_text = f" [DEF {meta.get('defense',0)}]"
+                    it_type = typ
 
-                stat_text = ""
-                if meta and meta.get("category") == "weapon":
-                    stat_text = f" [{meta.get('min_damage')}-{meta.get('max_damage')} dmg, crit {int(meta.get('crit_chance',0)*100)}%]"
-                elif meta and meta.get("category") == "armor":
-                    stat_text = f" [DEF {meta.get('defense',0)}]"
-
-                icon = "🔹" if typ in ("weapon","offhand","head","body","legs","arms","cloak","accessory") else ("🧴" if typ=="consumable" else "✦")
-
-                lines.append(f"{icon} **{name}** x{qty} — {typ}{stat_text}")
+                icon = "🔹" if it_type in ("weapon","offhand","head","body","legs","arms","cloak","accessory") else ("🧴" if it_type=="consumable" else "✦")
+                lines.append(f"{icon} **{name}** x{qty} — {it_type}{stat_text}")
             embed.description = "\n".join(lines)
 
         embed.set_footer(text=f"Page {self.page_index + 1}/{len(self.pages)}  •  Use equippables with Equip button, consumables with Use button")
