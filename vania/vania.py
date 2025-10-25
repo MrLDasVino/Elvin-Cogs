@@ -439,11 +439,25 @@ class Vania(commands.Cog):
             new_def = random.randint(int(def_rng[0]), int(def_rng[1]))
             base["defense"] = new_def
         # generate instance id and metadata
-        inst_id = f"{base.get('id')}_stage_{stage_name.replace(' ', '_')}_{random.randint(1000,9999)}"
-        base["instance_of"] = base.get("id")
-        base["generated_stage"] = stage_name
+        # Build instance id and preserve original reference
+        orig_id = base.get("id")
+        human_name = base.get("name") or orig_id or "item"
+        inst_id = f"{orig_id}_stage_{resolved_stage_name.replace(' ', '_')}_{random.randint(1000,9999)}"
+
+        # Required fields so the display/inventory code can show proper name/stats
+        base["instance_of"] = orig_id
+        base["generated_stage"] = resolved_stage_name
         base["id"] = inst_id
-        return inst_id, base        
+        # ensure display name is present so the UI doesn't fall back to raw id
+        base["name"] = human_name
+        base["display_name"] = f"{human_name} (Stage {resolved_stage_name})"
+
+        # Optionally group stats under a known key if your display expects it
+        # e.g., base["stats"] = {"min_damage": base.get("min_damage"), "max_damage": base.get("max_damage"), "defense": base.get("defense")}
+        # Uncomment and adapt if your UI expects a "stats" dict:
+        # base["stats"] = {k: base[k] for k in ("min_damage","max_damage","defense") if k in base}
+
+        return inst_id, base       
 
     # ---------- Leveling curve configuration and helpers (steeper) ----------
     # Base XP for level 1->2 and exponential scale per level
