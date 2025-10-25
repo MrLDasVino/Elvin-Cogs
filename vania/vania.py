@@ -230,13 +230,23 @@ class Vania(commands.Cog):
         for f in (self.raid_file, self.data_file):
             if not f.exists():
                 f.write_text(json.dumps({}))
-            else:
+                continue
+ 
+            # If file exists, validate it's valid JSON; if not, back it up and replace with an empty dict
+            try:
+                json.loads(f.read_text())
+            except Exception:
                 try:
-                    json.loads(f.read_text())
-                except Exception:
                     backup = f.with_suffix(f".corrupt_{int(random.random()*1e9)}.bak")
                     f.rename(backup)
+                except Exception:
+                    # If rename fails, ignore and overwrite in-place
+                    pass
+                try:
                     f.write_text(json.dumps({}))
+                except Exception:
+                    # If writing fails, ignore to avoid crashing cog import
+                    pass
                     
     def cog_unload(self):
         """Cancel background task on cog unload and clear bot registry to avoid leftover tasks."""
