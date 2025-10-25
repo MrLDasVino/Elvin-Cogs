@@ -1925,7 +1925,6 @@ class Vania(commands.Cog):
             if is_interaction:
                 responded = False
                 try:
-                    # discord.py exposes response.is_done; fall back safely if attribute missing.
                     responded = bool(getattr(ctx_or_interaction.response, "is_done", False))
                 except Exception:
                     responded = False
@@ -1934,13 +1933,11 @@ class Vania(commands.Cog):
                     try:
                         await ctx_or_interaction.followup.send(msg, ephemeral=True)
                     except Exception:
-                        # ignore followup send errors
                         pass
                 else:
                     try:
                         await ctx_or_interaction.response.send_message(msg, ephemeral=True)
                     except Exception:
-                        # fallback to followup if send_message unexpectedly fails
                         try:
                             await ctx_or_interaction.followup.send(msg, ephemeral=True)
                         except Exception:
@@ -1948,23 +1945,8 @@ class Vania(commands.Cog):
             else:
                 await ctx_or_interaction.send(msg)
         except Exception:
-            # best-effort: ignore send errors
             pass
 
-                else:
-                    try:
-                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-                    except Exception:
-                        # if response.send_message fails, try followup as a fallback
-                        try:
-                            await ctx_or_interaction.followup.send(msg, ephemeral=True)
-                        except Exception:
-                            pass
-            else:
-                await ctx_or_interaction.send(msg)
-        except Exception:
-            # best-effort: ignore send errors
-            pass
 
 
         # Return the friendly message so callers can reuse it if needed
