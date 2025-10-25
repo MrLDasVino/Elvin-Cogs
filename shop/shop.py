@@ -1281,6 +1281,8 @@ class ShopEmbedSelect(Select):
         guild_id: int,
         user_id: int,
         mode: str = "buy",
+        *,
+        cog: Optional["Shop"] = None,        
     ):
         super().__init__(
             placeholder="Choose a shop…",
@@ -1292,6 +1294,7 @@ class ShopEmbedSelect(Select):
         self.guild_id = guild_id
         self.user_id = user_id
         self.mode = mode
+        self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
