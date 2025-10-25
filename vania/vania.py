@@ -13,6 +13,21 @@ STAGE_GEAR_RANGES = globals().get("STAGE_GEAR_RANGES", {}) or {}
 
 class Vania(commands.Cog):
     """Belmont’s Legacy: Hunter progression with XP, skills, inventory, and raids."""
+    
+    async def _safe_send(self, ctx_or_interaction, content=None, **kwargs):
+        from discord import Interaction
+        if isinstance(ctx_or_interaction, Interaction):
+            if ctx_or_interaction.response.is_done():
+                await ctx_or_interaction.followup.send(content, **kwargs)
+            else:
+                await ctx_or_interaction.response.send_message(content, **kwargs)
+        else:
+            await ctx_or_interaction.send(content, **kwargs)   
+
+    _logger.debug("safe_send: type=%s response_done=%s",
+                  type(ctx_or_interaction),
+                  getattr(getattr(ctx_or_interaction, "response", None), "is_done", lambda: False)())
+    # then call safe send or followup as above            
 
     # ----------------- World Event Effects -----------------    
     EVENT_EFFECTS = {
