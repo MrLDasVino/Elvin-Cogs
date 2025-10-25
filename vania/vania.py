@@ -409,14 +409,22 @@ class Vania(commands.Cog):
         Returns (instance_id, instance_meta).
         """
         base = dict(equip_meta)  # shallow copy
-        # Resolve stage_name safely if not already computed
-        stage_name = stage.get("name") or stage.get("id") or "default"
+        # Resolve stage_name robustly from the provided param (supports string or dict/object)
+        resolved_stage_name = "default"
+        if isinstance(stage_name, str):
+            resolved_stage_name = stage_name or resolved_stage_name
+        else:
+            s = stage_name
+            if isinstance(s, dict):
+                resolved_stage_name = s.get("name") or s.get("id") or resolved_stage_name
+            else:
+                resolved_stage_name = getattr(s, "name", None) or getattr(s, "id", None) or resolved_stage_name
 
         # Prefer instance attribute, then module-level constant, else empty dict
         ranges_source = getattr(self, "STAGE_GEAR_RANGES", None) or globals().get("STAGE_GEAR_RANGES", {})
         if not isinstance(ranges_source, dict):
             ranges_source = {}
-        ranges = ranges_source.get(stage_name, {}) or {}
+        ranges = ranges_source.get(resolved_stage_name, {}) or {}
         # weapon
         if base.get("category") == "weapon":
             wmin_rng = ranges.get("weapon_min", (max(1, int(base.get("min_damage", 1))), int(base.get("min_damage", 1) + 2)))
