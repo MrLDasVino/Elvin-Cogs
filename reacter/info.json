@@ -1,0 +1,9 @@
+{
+  "name": "Reacter",
+  "author": ["Elvin"],
+  "description": "Randomly reacts to messages with server emojis (includes animated emojis). Admin commands to enable/disable and set frequency and amount.",
+  "short": "Random emoji reactions",
+  "install_msg": "Reacter loaded. Use `[p]reacter enable` to enable per-guild reactions.",
+  "requirements": [],
+  "tags": ["fun", "emoji", "reaction"]
+}
