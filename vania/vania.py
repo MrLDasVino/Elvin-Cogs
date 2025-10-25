@@ -1909,21 +1909,37 @@ class Vania(commands.Cog):
 
         msg = f"You equipped **{equip_meta.get('name', item_id)}** into **{chosen_slot}**. (XP×{xp_mod}, DMG×{dmg_mod}, DEF {defense})"
 
-        # Send immediate response back to the caller (ephemeral for interactions where appropriate)
+        # Send immediate response back to the caller (ephemeral for interactions where appropriate).
+        # Use followup.send if the Interaction has already been responded to or deferred.
         try:
             if is_interaction:
-                # If the Interaction response has already been used (deferred or responded),
-                # send an ephemeral followup instead of calling response.send_message again.
+                responded = False
                 try:
-                    responded = getattr(ctx_or_interaction.response, "is_done", False)
+                    # discord.py exposes response.is_done; fall back safely if attribute missing.
+                    responded = bool(getattr(ctx_or_interaction.response, "is_done", False))
                 except Exception:
                     responded = False
+
                 if responded:
                     try:
                         await ctx_or_interaction.followup.send(msg, ephemeral=True)
                     except Exception:
-                        # best-effort fallback to ignore followup errors
+                        # ignore followup send errors
                         pass
+                else:
+                    try:
+                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                    except Exception:
+                        # fallback to followup if send_message unexpectedly fails
+                        try:
+                            await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                        except Exception:
+                            pass
+            else:
+                await ctx_or_interaction.send(msg)
+        except Exception:
+            # best-effort: ignore send errors
+            pass
                 else:
                     try:
                         await ctx_or_interaction.response.send_message(msg, ephemeral=True)
