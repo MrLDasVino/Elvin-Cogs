@@ -289,6 +289,68 @@ class Vania(commands.Cog):
             return json.loads(path.read_text())
         except json.JSONDecodeError:
             raise ValueError(f"{path.name} contains invalid JSON")
+            
+    async def _reply(self, ctx_or_interaction, content: str, *, ephemeral: bool = True):
+        """
+        Robust send helper for Context or Interaction.
+        Uses response.send_message when available and not yet used, otherwise uses followup.send.
+        Falls back to ctx.send for Contexts and to followup for interactions that were deferred/responded.
+        """
+        # Interaction path
+        if isinstance(ctx_or_interaction, discord.Interaction):
+            try:
+                # prefer response.send_message when it's safe to use
+                if getattr(ctx_or_interaction.response, "is_done", False) is False:
+                    await ctx_or_interaction.response.send_message(content, ephemeral=ephemeral)
+                else:
+                    await ctx_or_interaction.followup.send(content, ephemeral=ephemeral)
+                return
+            except discord.errors.InteractionResponded:
+                try:
+                    await ctx_or_interaction.followup.send(content, ephemeral=ephemeral)
+                except Exception:
+                    pass
+                return
+            except Exception:
+                # fallback to followup for any failure
+                try:
+                    await ctx_or_interaction.followup.send(content, ephemeral=ephemeral)
+                except Exception:
+                    pass
+                return
+
+        # duck-typed interaction objects (some callers pass objects with .response)
+        if hasattr(ctx_or_interaction, "response") and isinstance(getattr(ctx_or_interaction, "response"), object):
+            try:
+                if getattr(ctx_or_interaction.response, "is_done", False) is False:
+                    await ctx_or_interaction.response.send_message(content, ephemeral=ephemeral)
+                else:
+                    await ctx_or_interaction.followup.send(content, ephemeral=ephemeral)
+                return
+            except discord.errors.InteractionResponded:
+                try:
+                    await ctx_or_interaction.followup.send(content, ephemeral=ephemeral)
+                except Exception:
+                    pass
+                return
+            except Exception:
+                try:
+                    await ctx_or_interaction.followup.send(content, ephemeral=ephemeral)
+                except Exception:
+                    pass
+                return
+
+        # Context or fallback
+        try:
+            await ctx_or_interaction.send(content)
+        except Exception:
+            try:
+                # last resort: try followup if attribute exists
+                if hasattr(ctx_or_interaction, "followup"):
+                    await ctx_or_interaction.followup.send(content, ephemeral=ephemeral)
+            except Exception:
+                pass
+            
 
     # ----------------- Profiles and Raids (thread-safe saves) -----------------
     def _load_profiles(self) -> dict:
@@ -1817,30 +1879,7 @@ class Vania(commands.Cog):
         await self._save_profiles(profiles)
 
         msg = "\n".join(result_lines)
-        try:
-            if is_interaction:
-                # If the interaction was already responded to or deferred, use followup
-                try:
-                    if getattr(ctx_or_interaction.response, "is_done", False):
-                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
-                    else:
-                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-                except discord.errors.InteractionResponded:
-                    # Race: it became responded in-between; use followup
-                    try:
-                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
-                    except Exception:
-                        pass
-                except Exception:
-                    # Last-resort fallback to followup if response failed
-                    try:
-                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
-                    except Exception:
-                        pass
-            else:
-                await ctx_or_interaction.send(msg)
-        except Exception:
-            pass
+        await self._reply(ctx_or_interaction, msg, ephemeral=True)
 
     # internal equip performer (used by InventoryView Equip button)
     async def _do_equip_item(self, ctx_or_interaction, uid: str, item_id: str, announce: bool = False):
@@ -1930,27 +1969,7 @@ class Vania(commands.Cog):
         msg = f"You equipped **{equip_meta.get('name', item_id)}** into **{chosen_slot}**. (XP×{xp_mod}, DMG×{dmg_mod}, DEF {defense})"
 
         # Send immediate response back to the caller (ephemeral for interactions where appropriate)
-        try:
-            if is_interaction:
-                try:
-                    if getattr(ctx_or_interaction.response, "is_done", False):
-                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
-                    else:
-                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-                except discord.errors.InteractionResponded:
-                    try:
-                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
-                    except Exception:
-                        pass
-                except Exception:
-                    try:
-                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
-                    except Exception:
-                        pass
-            else:
-                await ctx_or_interaction.send(msg)
-        except Exception:
-            pass
+        await self._reply(ctx_or_interaction, msg, ephemeral=True)
 
 
 
