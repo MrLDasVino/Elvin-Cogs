@@ -11,24 +11,26 @@ from redbot.core.data_manager import cog_data_path
 
 STAGE_GEAR_RANGES = globals().get("STAGE_GEAR_RANGES", {}) or {}
 
+_logger = logging.getLogger("red.vania")
+
 
 class Vania(commands.Cog):
     """Belmont’s Legacy: Hunter progression with XP, skills, inventory, and raids."""
     
     async def _safe_send(self, ctx_or_interaction, content=None, **kwargs):
         from discord import Interaction
-        if isinstance(ctx_or_interaction, Interaction):
-            if ctx_or_interaction.response.is_done():
-                await ctx_or_interaction.followup.send(content, **kwargs)
+        try:
+            if isinstance(ctx_or_interaction, Interaction):
+                if ctx_or_interaction.response.is_done():
+                    await ctx_or_interaction.followup.send(content, **kwargs)
+                else:
+                    await ctx_or_interaction.response.send_message(content, **kwargs)
             else:
-                await ctx_or_interaction.response.send_message(content, **kwargs)
-        else:
-            await ctx_or_interaction.send(content, **kwargs)   
-
-    _logger.debug("safe_send: type=%s response_done=%s",
-                  type(ctx_or_interaction),
-                  getattr(getattr(ctx_or_interaction, "response", None), "is_done", lambda: False)())
-    # then call safe send or followup as above            
+                await ctx_or_interaction.send(content, **kwargs)
+        except Exception:
+            _logger.exception("Error in _safe_send")
+            raise  
+           
 
     # ----------------- World Event Effects -----------------    
     EVENT_EFFECTS = {
@@ -1899,6 +1901,10 @@ class Vania(commands.Cog):
 
     # internal equip performer (used by InventoryView Equip button)
     async def _do_equip_item(self, ctx_or_interaction, uid: str, item_id: str, announce: bool = False):
+    _logger.debug("_do_equip_item entered; type=%s response_done=%s user=%s",
+                  type(ctx_or_interaction),
+                  getattr(getattr(ctx_or_interaction, "response", None), "is_done", lambda: False)(),
+                  getattr(ctx_or_interaction, "user", getattr(ctx_or_interaction, "author", None)))    
         is_interaction = hasattr(ctx_or_interaction, "response") and isinstance(ctx_or_interaction, discord.Interaction)
         profiles = self._load_profiles()
         profile = profiles.get(uid)
@@ -1989,7 +1995,7 @@ class Vania(commands.Cog):
             if ctx_or_interaction.response.is_done():
                 await ctx_or_interaction.followup.send(msg, ephemeral=True)
             else:
-                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                await self._safe_send(ctx_or_interaction, msg, ephemeral=True)
         else:
             await ctx_or_interaction.send(msg)
 
