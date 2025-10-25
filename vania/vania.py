@@ -1950,6 +1950,7 @@ class Vania(commands.Cog):
         except Exception:
             # best-effort: ignore send errors
             pass
+
                 else:
                     try:
                         await ctx_or_interaction.response.send_message(msg, ephemeral=True)
