@@ -1236,7 +1236,7 @@ class DeleteItemConfirmationModal(Modal, title="Confirm Item Deletion"):
         
 class ShopEmbedView(View):
     """First dropdown: pick which shop to browse (buy vs gift)."""
-    def __init__(self, config: Config, guild_id: int, user_id: int, mode: str = "buy", *, cog: "Shop" | None = None):
+    def __init__(self, config: Config, guild_id: int, user_id: int, mode: str = "buy", *, cog: Optional["Shop"] = None):
         super().__init__(timeout=60)
         self.config = config
         self.guild_id = guild_id
