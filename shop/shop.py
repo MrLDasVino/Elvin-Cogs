@@ -1,5 +1,6 @@
 import asyncio
 import discord
+import datetime
 from typing import Dict
 
 from redbot.core import commands, Config, checks, bank
@@ -13,7 +14,8 @@ class Shop(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=9876543210)
         default_guild = {
-            "shops": {}
+            "shops": {},
+            "log_channel": None,  # channel ID to post shop logs in (or None)
         }  # shop_name → {description, stock: {item: {price, amount, role_id?}}}
         default_user = {"inventory": {}}  # item_name → count
         self.config.register_guild(**default_guild)
@@ -107,7 +109,51 @@ class Shop(commands.Cog):
         view = DeleteShopView(self.config, ctx.guild.id, timeout=60)
         await view.populate()
         msg = await ctx.send(embed=embed, view=view)
-        view.message = msg     
+        view.message = msg 
+
+    # --------------------
+    # Logging configuration
+    # --------------------
+
+    @shop.group(name="log", invoke_without_command=True)
+    @checks.admin()
+    async def shop_log(self, ctx):
+        """Manage shop logging channel."""
+        if not ctx.invoked_subcommand:
+            await ctx.send_help(ctx.command)
+
+    @shop_log.command(name="set")
+    @checks.admin()
+    async def shop_log_set(self, ctx, channel: discord.TextChannel):
+        """Set a channel to receive shop purchase/gift logs."""
+        guild_conf = self.config.guild(ctx.guild)
+        await guild_conf.log_channel.set(channel.id)
+        await ctx.send(f"✅ Shop logs will be posted in {channel.mention}.")
+
+    @shop_log.command(name="clear")
+    @checks.admin()
+    async def shop_log_clear(self, ctx):
+        """Clear the shop log channel."""
+        guild_conf = self.config.guild(ctx.guild)
+        await guild_conf.log_channel.set(None)
+        await ctx.send("✅ Shop logging cleared.")
+
+    async def _send_shop_log(self, guild_id: int, embed: discord.Embed):
+        """Send a log embed to the configured channel for guild_id if set."""
+        guild_conf = self.config.guild_from_id(guild_id)
+        ch_id = await guild_conf.log_channel()
+        if not ch_id:
+            return
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            return
+        channel = guild.get_channel(ch_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            return
+        try:
+            await channel.send(embed=embed)
+        except Exception:
+            pass        
 
     # --------------------
     # USER COMMANDS
@@ -126,7 +172,7 @@ class Shop(commands.Cog):
             description="Select a shop from the dropdown below:",
             color=discord.Color.random()
         )
-        view = ShopEmbedView(self.config, ctx.guild.id, ctx.author.id)
+        view = ShopEmbedView(self.config, ctx.guild.id, ctx.author.id, cog=self)
         await view.populate_shops(shops)
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg
@@ -146,7 +192,7 @@ class Shop(commands.Cog):
             description="Select a shop from the dropdown below:",
             color=discord.Color.random()
         )
-        view = ShopEmbedView(self.config, ctx.guild.id, ctx.author.id, mode="gift")
+        view = ShopEmbedView(self.config, ctx.guild.id, ctx.author.id, mode="gift", cog=self)
         await view.populate_shops(shops)
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg
@@ -504,6 +550,8 @@ class GiftModal(Modal, title="Gift Item"):
         shop_name: str,
         item_name: str,
         price: int,
+        *,
+        cog: "Shop" | None = None,        
     ):
         super().__init__()
         self.config = config
@@ -512,6 +560,7 @@ class GiftModal(Modal, title="Gift Item"):
         self.shop_name = shop_name
         self.item_name = item_name
         self.price = price
+        self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
         if interaction.user.id != self.gifting_user:
@@ -600,6 +649,32 @@ class GiftModal(Modal, title="Gift Item"):
             pass
 
         # Ephemeral confirmation to gifter
+        try:
+            if self.cog:
+                log_embed = discord.Embed(
+                    title="🎁 Gift",
+                    description=f"{interaction.user.mention} gifted **{amount}× {self.item_name}** to {member.mention}",
+                    color=discord.Color.purple(),
+                )
+                log_embed.add_field(name="Gifter", value=f"{interaction.user} ({interaction.user.id})", inline=False)
+                log_embed.add_field(name="Recipient", value=f"{member} ({member.id})", inline=False)
+                log_embed.add_field(name="Shop", value=self.shop_name, inline=True)
+                log_embed.add_field(name="Item", value=self.item_name, inline=True)
+                log_embed.add_field(name="Quantity", value=str(amount), inline=True)
+                log_embed.add_field(name="Total cost", value=str(total_cost), inline=True)
+                entry = (await self.config.guild_from_id(self.guild_id).shops())[self.shop_name]["stock"].get(self.item_name, {})
+                if entry.get("role_id"):
+                    role = interaction.guild.get_role(entry["role_id"])
+                    role_text = f"{role} ({entry['role_id']})" if role else str(entry["role_id"])
+                    log_embed.add_field(name="Role granted", value=role_text, inline=False)
+                if entry.get("amount") is not None:
+                    log_embed.add_field(name="Remaining stock", value=str(entry["amount"]), inline=True)
+                log_embed.set_footer(text=f"Guild ID: {interaction.guild.id}")
+                log_embed.timestamp = datetime.datetime.utcnow()
+                await self.cog._send_shop_log(self.guild_id, log_embed)
+        except Exception:
+            pass
+
         await interaction.response.send_message(
             f"✅ Gifted {amount}× `{self.item_name}` to {member.mention}.",
             ephemeral=True,
@@ -642,7 +717,7 @@ class ShopSelectView(View):
             await interaction.response.edit_message(
                 content=f"**{shop_name}** – Select an item to {self.mode}:",
                 view=ItemListView(
-                    self.config, self.guild_id, self.user_id, self.mode, shop_name
+                    self.config, self.guild_id, self.user_id, self.mode, shop_name, cog=self.cog
                 ),
             )
         return callback
@@ -669,6 +744,8 @@ class ItemListView(View):
         user_id: int,
         mode: str,
         shop_name: str,
+        *,
+        cog: "Shop" | None = None,        
     ):
         super().__init__(timeout=60)
         self.config = config
@@ -676,6 +753,7 @@ class ItemListView(View):
         self.user_id = user_id
         self.mode = mode
         self.shop_name = shop_name
+        self.cog = cog
 
 
     async def populate_items(self):
@@ -711,6 +789,7 @@ class ItemListView(View):
                         self.shop_name,
                         item_name,
                         price,
+                        cog=self.cog,
                     )
                 )
             else:  # gift
@@ -722,6 +801,7 @@ class ItemListView(View):
                         self.shop_name,
                         item_name,
                         price,
+                        cog=self.cog,
                     )
                 )
         return callback
@@ -761,6 +841,8 @@ class BuyModal(Modal, title="Buy Item"):
         shop_name: str,
         item_name: str,
         price: int,
+        *,
+        cog: "Shop" | None = None,        
     ):
         super().__init__()
         self.config = config
@@ -769,6 +851,7 @@ class BuyModal(Modal, title="Buy Item"):
         self.shop_name = shop_name
         self.item_name = item_name
         self.price = price
+        self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
         if interaction.user.id != self.buyer_id:
@@ -808,6 +891,31 @@ class BuyModal(Modal, title="Buy Item"):
             entry["amount"] -= qty
         shops[self.shop_name]["stock"][self.item_name] = entry
         await guild_conf.shops.set(shops)
+
+        # Build log embed and send to configured channel if possible
+        try:
+            if self.cog:
+                log_embed = discord.Embed(
+                    title="🛒 Purchase",
+                    description=f"{interaction.user.mention} bought **{qty}× {self.item_name}**",
+                    color=discord.Color.blue(),
+                )
+                log_embed.add_field(name="Buyer", value=f"{interaction.user} ({interaction.user.id})", inline=False)
+                log_embed.add_field(name="Shop", value=self.shop_name, inline=True)
+                log_embed.add_field(name="Item", value=self.item_name, inline=True)
+                log_embed.add_field(name="Quantity", value=str(qty), inline=True)
+                log_embed.add_field(name="Total cost", value=str(total_cost), inline=True)
+                if entry.get("role_id"):
+                    role = interaction.guild.get_role(entry["role_id"])
+                    role_text = f"{role} ({entry['role_id']})" if role else str(entry["role_id"])
+                    log_embed.add_field(name="Role granted", value=role_text, inline=False)
+                if entry.get("amount") is not None:
+                    log_embed.add_field(name="Remaining stock", value=str(entry["amount"]), inline=True)
+                log_embed.set_footer(text=f"Guild ID: {interaction.guild.id}")
+                log_embed.timestamp = datetime.datetime.utcnow()
+                await self.cog._send_shop_log(self.guild_id, log_embed)
+        except Exception:
+            pass
 
         await interaction.response.send_message(
             f"✅ You bought {qty}× `{self.item_name}` for {total_cost} credits.",
@@ -1128,12 +1236,13 @@ class DeleteItemConfirmationModal(Modal, title="Confirm Item Deletion"):
         
 class ShopEmbedView(View):
     """First dropdown: pick which shop to browse (buy vs gift)."""
-    def __init__(self, config: Config, guild_id: int, user_id: int, mode: str = "buy"):
+    def __init__(self, config: Config, guild_id: int, user_id: int, mode: str = "buy", *, cog: "Shop" | None = None):
         super().__init__(timeout=60)
         self.config = config
         self.guild_id = guild_id
         self.user_id = user_id
         self.mode = mode
+        self.cog = cog
         
     async def on_timeout(self):
         # disable all buttons/selects
@@ -1225,6 +1334,7 @@ class ShopEmbedSelect(Select):
             shop_name,
             currency,
             self.mode,
+            cog=self.cog,
         )
         await view.populate_items()
         await interaction.response.edit_message(embed=embed, view=view)
@@ -1239,6 +1349,8 @@ class ItemEmbedView(View):
         shop_name: str,
         currency: str,
         mode: str = "buy",
+        *,
+        cog: "Shop" | None = None,        
     ):
         super().__init__(timeout=60)
         self.config = config
@@ -1247,6 +1359,7 @@ class ItemEmbedView(View):
         self.shop_name = shop_name
         self.currency = currency
         self.mode = mode
+        self.cog = cog
         
     async def on_timeout(self):
         # disable all buttons/selects
@@ -1275,6 +1388,7 @@ class ItemEmbedView(View):
                 self.shop_name,
                 self.currency,
                 self.mode,
+                cog=self.cog,
             )
         )
 
@@ -1297,6 +1411,8 @@ class ItemEmbedSelect(Select):
         shop_name: str,
         currency: str,
         mode: str = "buy",
+        *,
+        cog: "Shop" | None = None,        
     ):
         super().__init__(
             placeholder="Select an item to buy…",
@@ -1309,7 +1425,8 @@ class ItemEmbedSelect(Select):
         self.user_id = user_id
         self.shop_name = shop_name
         self.currency = currency
-        self.mode = mode        
+        self.mode = mode   
+        self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.user_id:
@@ -1330,6 +1447,7 @@ class ItemEmbedSelect(Select):
                     self.shop_name,
                     item_name,
                     price,
+                    cog=self.cog,
                 )
             )
         else:  # gift
@@ -1341,6 +1459,7 @@ class ItemEmbedSelect(Select):
                     self.shop_name,
                     item_name,
                     price,
+                    cog=self.cog,
                 )
             )
 
