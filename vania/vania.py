@@ -1969,8 +1969,13 @@ class Vania(commands.Cog):
         msg = f"You equipped **{equip_meta.get('name', item_id)}** into **{chosen_slot}**. (XP×{xp_mod}, DMG×{dmg_mod}, DEF {defense})"
 
         # Send immediate response back to the caller (ephemeral for interactions where appropriate)
-        await self._reply(ctx_or_interaction, msg, ephemeral=True)
-
+        if isinstance(ctx_or_interaction, discord.Interaction):
+            if ctx_or_interaction.response.is_done():
+                await ctx_or_interaction.followup.send(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+        else:
+            await ctx_or_interaction.send(msg)
 
 
         # Return the friendly message so callers can reuse it if needed
