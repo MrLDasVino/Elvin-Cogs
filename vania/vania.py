@@ -1160,9 +1160,9 @@ class Vania(commands.Cog):
         if new_level > old_level:
             levels_gained = new_level - old_level
             profile["level"] = new_level
-            profile["max_hp"] = profile.get("max_hp", 100) + 5 * levels_gained
+            profile["max_hp"] = profile.get("max_hp", 100) + 2 * levels_gained
             player_hp = min(player_hp + 10 * levels_gained, profile["max_hp"])
-            log_lines.append(f"You reached level {new_level}! Max HP +{5 * levels_gained}.")
+            log_lines.append(f"You reached level {new_level}! Max HP +{2 * levels_gained}.")
 
         profile["hp"] = player_hp
         profiles[uid] = profile
