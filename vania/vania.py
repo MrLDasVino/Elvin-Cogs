@@ -1912,7 +1912,27 @@ class Vania(commands.Cog):
         # Send immediate response back to the caller (ephemeral for interactions where appropriate)
         try:
             if is_interaction:
-                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                # If the Interaction response has already been used (deferred or responded),
+                # send an ephemeral followup instead of calling response.send_message again.
+                try:
+                    responded = getattr(ctx_or_interaction.response, "is_done", False)
+                except Exception:
+                    responded = False
+                if responded:
+                    try:
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    except Exception:
+                        # best-effort fallback to ignore followup errors
+                        pass
+                else:
+                    try:
+                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                    except Exception:
+                        # if response.send_message fails, try followup as a fallback
+                        try:
+                            await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                        except Exception:
+                            pass
             else:
                 await ctx_or_interaction.send(msg)
         except Exception:
