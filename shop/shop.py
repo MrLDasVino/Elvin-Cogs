@@ -1,7 +1,7 @@
 import asyncio
 import discord
 import datetime
-from typing import Dict
+from typing import Dict, Optional
 
 from redbot.core import commands, Config, checks, bank
 from discord.ui import View, button, Button, Modal, TextInput, Select
@@ -551,7 +551,7 @@ class GiftModal(Modal, title="Gift Item"):
         item_name: str,
         price: int,
         *,
-        cog: "Shop" | None = None,        
+        cog: Optional["Shop"] = None,        
     ):
         super().__init__()
         self.config = config
@@ -745,7 +745,7 @@ class ItemListView(View):
         mode: str,
         shop_name: str,
         *,
-        cog: "Shop" | None = None,        
+        cog: Optional["Shop"] = None,        
     ):
         super().__init__(timeout=60)
         self.config = config
@@ -842,7 +842,7 @@ class BuyModal(Modal, title="Buy Item"):
         item_name: str,
         price: int,
         *,
-        cog: "Shop" | None = None,        
+        cog: Optional["Shop"] = None,        
     ):
         super().__init__()
         self.config = config
@@ -1350,7 +1350,7 @@ class ItemEmbedView(View):
         currency: str,
         mode: str = "buy",
         *,
-        cog: "Shop" | None = None,        
+        cog: Optional["Shop"] = None,        
     ):
         super().__init__(timeout=60)
         self.config = config
@@ -1412,7 +1412,7 @@ class ItemEmbedSelect(Select):
         currency: str,
         mode: str = "buy",
         *,
-        cog: "Shop" | None = None,        
+        cog: Optional["Shop"] = None,        
     ):
         super().__init__(
             placeholder="Select an item to buy…",
