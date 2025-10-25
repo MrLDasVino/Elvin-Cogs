@@ -967,7 +967,17 @@ class Vania(commands.Cog):
         if not profile:
             msg = "No profile found. Start hunting with `vania hunt`."
             if is_interaction:
-                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                # if response already used, send via followup
+                try:
+                    if ctx_or_interaction.response.is_done():
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    else:
+                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                except discord.errors.InteractionResponded:
+                    try:
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    except Exception:
+                        pass
             else:
                 await ctx_or_interaction.send(msg)
             return
@@ -977,7 +987,16 @@ class Vania(commands.Cog):
         if qty <= 0:
             msg = f"You don't have any `{item_id}` to use."
             if is_interaction:
-                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                try:
+                    if ctx_or_interaction.response.is_done():
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    else:
+                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                except discord.errors.InteractionResponded:
+                    try:
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    except Exception:
+                        pass
             else:
                 await ctx_or_interaction.send(msg)
             return
@@ -1031,14 +1050,23 @@ class Vania(commands.Cog):
         _logger.debug("_do_equip_item entered; type=%s response_done=%s user=%s",
                       type(ctx_or_interaction),
                       getattr(getattr(ctx_or_interaction, "response", None), "is_done", lambda: False)(),
-                      getattr(ctx_or_interaction, "user", getattr(ctx_or_interaction, "author", None))) 
+                      getattr(ctx_or_interaction, "user", getattr(ctx_or_interaction, "author", None)))
         is_interaction = hasattr(ctx_or_interaction, "response") and isinstance(ctx_or_interaction, discord.Interaction)
         profiles = self._load_profiles()
         profile = profiles.get(user_id)
         if not profile:
             msg = "No profile found. Start hunting with `vania hunt`."
             if is_interaction:
-                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                try:
+                    if ctx_or_interaction.response.is_done():
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    else:
+                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                except discord.errors.InteractionResponded:
+                    try:
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    except Exception:
+                        pass
             else:
                 await ctx_or_interaction.send(msg)
             return
@@ -1047,7 +1075,16 @@ class Vania(commands.Cog):
         if not equip_meta:
             msg = f"`{chosen_id}` is not equippable."
             if is_interaction:
-                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                try:
+                    if ctx_or_interaction.response.is_done():
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    else:
+                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                except discord.errors.InteractionResponded:
+                    try:
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    except Exception:
+                        pass
             else:
                 await ctx_or_interaction.send(msg)
             return
@@ -1119,12 +1156,21 @@ class Vania(commands.Cog):
         # Send immediate response back to the caller (ephemeral for interactions where appropriate)
         try:
             if isinstance(ctx_or_interaction, discord.Interaction):
+                # Do NOT call response.send_message if the interaction was already responded to (deferred).
                 if ctx_or_interaction.response.is_done():
                     await ctx_or_interaction.followup.send(msg, ephemeral=True)
                 else:
-                    await self._safe_send(ctx_or_interaction, msg, ephemeral=True)
+                    await ctx_or_interaction.response.send_message(msg, ephemeral=True)
             else:
                 await ctx_or_interaction.send(msg)
+        except discord.errors.InteractionResponded:
+            try:
+                if isinstance(ctx_or_interaction, discord.Interaction) and getattr(ctx_or_interaction, "followup", None):
+                    await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                else:
+                    await ctx_or_interaction.send(msg)
+            except Exception:
+                pass
         except Exception:
             # best-effort fallback
             try:
@@ -1150,7 +1196,16 @@ class Vania(commands.Cog):
         if not profile:
             msg = "No profile found. Start hunting with `vania hunt`."
             if is_interaction:
-                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                try:
+                    if ctx_or_interaction.response.is_done():
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    else:
+                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                except discord.errors.InteractionResponded:
+                    try:
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    except Exception:
+                        pass
             else:
                 await ctx_or_interaction.send(msg)
             return msg
@@ -1159,7 +1214,16 @@ class Vania(commands.Cog):
         if not current:
             msg = f"No item is equipped in **{slot}**."
             if is_interaction:
-                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                try:
+                    if ctx_or_interaction.response.is_done():
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    else:
+                        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                except discord.errors.InteractionResponded:
+                    try:
+                        await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                    except Exception:
+                        pass
             else:
                 await ctx_or_interaction.send(msg)
             return msg
@@ -1182,9 +1246,20 @@ class Vania(commands.Cog):
         # immediate response (ephemeral for interactions)
         try:
             if is_interaction:
-                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+                if ctx_or_interaction.response.is_done():
+                    await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                else:
+                    await ctx_or_interaction.response.send_message(msg, ephemeral=True)
             else:
                 await ctx_or_interaction.send(msg)
+        except discord.errors.InteractionResponded:
+            try:
+                if is_interaction and getattr(ctx_or_interaction, "followup", None):
+                    await ctx_or_interaction.followup.send(msg, ephemeral=True)
+                else:
+                    await ctx_or_interaction.send(msg)
+            except Exception:
+                pass
         except Exception:
             pass
     
@@ -1432,9 +1507,11 @@ class InventoryView(discord.ui.View):
                     await select_interaction.response.send_message("You cannot equip for someone else.", ephemeral=True)
                     return
                 await select_interaction.response.defer()
+                # have the cog perform the equip and also post a public announcement
                 try:
                     await self.parent_view.cog._do_equip_item(select_interaction, str(select_interaction.user.id), chosen_id)
                 except TypeError:
+                    # fallback for older signature that expects announce parameter
                     try:
                         await self.parent_view.cog._do_equip_item(select_interaction, str(select_interaction.user.id), chosen_id, announce=False)
                     except Exception:
@@ -1446,6 +1523,7 @@ class InventoryView(discord.ui.View):
                 self.parent_view.page_index = min(self.parent_view.page_index, max(0, len(self.parent_view.pages) - 1))
                 await self.parent_view.update_message()
                 try:
+                    # resolve display name for friendly ack
                     meta = next((m for m in self.parent_view.cog.items if m.get("id") == chosen_id), None) or next((e for e in self.parent_view.cog.equipment if e.get("id") == chosen_id), None)
                     display = meta.get("name", chosen_id) if meta else chosen_id
                     await select_interaction.followup.send(f"Equipped **{display}**.", ephemeral=True)
