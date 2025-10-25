@@ -1261,7 +1261,7 @@ class ShopEmbedView(View):
         ]
         self.add_item(
             ShopEmbedSelect(
-                options, self.config, self.guild_id, self.user_id, self.mode
+                options, self.config, self.guild_id, self.user_id, self.mode, cog=self.cog
             )
         )
         cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
