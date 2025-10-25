@@ -8,6 +8,8 @@ import discord
 from redbot.core import commands
 from redbot.core.data_manager import cog_data_path
 
+STAGE_GEAR_RANGES = globals().get("STAGE_GEAR_RANGES", {}) or {}
+
 
 class Vania(commands.Cog):
     """Belmont’s Legacy: Hunter progression with XP, skills, inventory, and raids."""
@@ -144,7 +146,13 @@ class Vania(commands.Cog):
         self.bot = bot
         self._write_lock = asyncio.Lock()
         # Event used to wake the _cycle_events loop early (e.g., when a channel is configured)
-        self._wake_event: asyncio.Event = asyncio.Event()        
+        self._wake_event: asyncio.Event = asyncio.Event()
+
+        self.STAGE_GEAR_RANGES = {}
+        seed = globals().get("STAGE_GEAR_RANGES")
+        if isinstance(seed, dict):
+            self.STAGE_GEAR_RANGES.update(seed)
+        self._validate_stage_ranges(self.STAGE_GEAR_RANGES)        
 
         # Data folder inside cog package
         data_pkg = Path(__file__).parent / "data"
@@ -318,7 +326,34 @@ class Vania(commands.Cog):
         tmp = self.settings_file.with_suffix(".tmp")
         async with self._write_lock:
             tmp.write_text(json.dumps(data, indent=2))
-            tmp.replace(self.settings_file)            
+            tmp.replace(self.settings_file)     
+
+    def _validate_stage_ranges(self, ranges_map):
+        """Normalize and remove invalid stage range entries in-place."""
+        if not isinstance(ranges_map, dict):
+            return
+        for key, entry in list(ranges_map.items()):
+            if not isinstance(entry, dict):
+                ranges_map.pop(key, None)
+                continue
+            # Normalize min/max to ints with safe defaults
+            mn = entry.get("min")
+            mx = entry.get("max")
+            try:
+                mn = int(mn)
+                mx = int(mx)
+            except Exception:
+                entry["min"] = 1
+                entry["max"] = 1
+            else:
+                if mn > mx:
+                    entry["min"], entry["max"] = mx, mn
+                else:
+                    entry["min"], entry["max"] = mn, mx
+            # Ensure weights exists and is a dict
+            if not isinstance(entry.get("weights"), dict):
+                entry["weights"] = {"common": 100}
+            
 
     # ----------------- Utilities -----------------
     def _default_profile(self) -> dict:
@@ -374,7 +409,14 @@ class Vania(commands.Cog):
         Returns (instance_id, instance_meta).
         """
         base = dict(equip_meta)  # shallow copy
-        ranges = STAGE_GEAR_RANGES.get(stage_name) or {}
+        # Resolve stage_name safely if not already computed
+        stage_name = stage.get("name") or stage.get("id") or "default"
+
+        # Prefer instance attribute, then module-level constant, else empty dict
+        ranges_source = getattr(self, "STAGE_GEAR_RANGES", None) or globals().get("STAGE_GEAR_RANGES", {})
+        if not isinstance(ranges_source, dict):
+            ranges_source = {}
+        ranges = ranges_source.get(stage_name, {}) or {}
         # weapon
         if base.get("category") == "weapon":
             wmin_rng = ranges.get("weapon_min", (max(1, int(base.get("min_damage", 1))), int(base.get("min_damage", 1) + 2)))
