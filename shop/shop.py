@@ -1395,6 +1395,26 @@ class ItemEmbedView(View):
             )
         )
 
+        # Back button: return to the shop selection (ShopEmbedView)
+        back = Button(label="Back", style=discord.ButtonStyle.success)
+        async def _back(inter: discord.Interaction):
+            if inter.user.id != self.user_id:
+                return await inter.response.send_message("Not your menu.", ephemeral=True)
+            guild_conf = self.config.guild_from_id(self.guild_id)
+            shops = await guild_conf.shops()
+            view = ShopEmbedView(self.config, self.guild_id, self.user_id, mode=self.mode, cog=self.cog)
+            await view.populate_shops(shops)
+            await inter.response.edit_message(
+                embed=discord.Embed(
+                    title="🛒 Browse Shops",
+                    description="Select a shop from the dropdown below:",
+                    color=discord.Color.random()
+                ),
+                view=view,
+            )
+        back.callback = _back
+        self.add_item(back)
+
         cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
         async def _cancel(inter: discord.Interaction):
             for c in self.children:
@@ -1402,6 +1422,7 @@ class ItemEmbedView(View):
             await inter.response.edit_message(content="Cancelled.", view=self)
         cancel.callback = _cancel
         self.add_item(cancel)
+
 
 class ItemEmbedSelect(Select):
     """Dropdown of items → send Buy or Gift modal."""
