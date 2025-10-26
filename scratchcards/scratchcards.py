@@ -460,9 +460,10 @@ class ScratchCardExtended(commands.Cog):
 
         await interaction.followup.send(f"Card manager opened for {card_key}.", view=view, ephemeral=True)
 
-    @manage.command(name="remove")
+    @scratch.command(name="manage_remove")
+    @checks.mod_or_permissions(manage_guild=True)
     async def manage_remove(self, ctx: commands.Context, key: str):
-        """Remove a card by key"""
+        """Remove a card by key (admin)"""
         gc = await self.get_guild_conf(ctx.guild)
         cards = gc.get("cards", {})
         if key not in cards:
@@ -472,6 +473,7 @@ class ScratchCardExtended(commands.Cog):
         gc["cards"] = cards
         await self.config.guild(ctx.guild).set(gc)
         await ctx.send(f"Removed card {key}.")
+
 
     @scratch.command()
     @checks.mod_or_permissions(manage_guild=True)
