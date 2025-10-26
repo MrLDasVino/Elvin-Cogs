@@ -104,26 +104,47 @@ class Reacter(commands.Cog):
         if not usable_emojis:
             return
 
-        # Deterministically avoid reacting to very short messages (optional but helpful)
+        # Avoid reacting to empty messages
         if len(message.content or "") <= 0 and not message.attachments:
             return
 
-        # For each potential roll up to 'amount', roll the frequency
         chosen_emojis = []
-        for _ in range(amount):
+
+        # First roll: must succeed to continue
+        first_roll = random.randint(1, 100)
+        if first_roll > frequency:
+            return  # do not attempt any reactions if the first roll fails
+
+        # Pick first emoji (unique)
+        tries = 0
+        emoji = None
+        while tries < 6:
+            candidate = random.choice(usable_emojis)
+            if candidate not in chosen_emojis:
+                emoji = candidate
+                break
+            tries += 1
+        if not emoji:
+            return
+        chosen_emojis.append(emoji)
+
+        # Remaining rolls: each independent; if roll succeeds, pick a new unique emoji
+        for _ in range(amount - 1):
             roll = random.randint(1, 100)
-            if roll <= frequency:
-                # pick a random emoji not already chosen (try several times)
-                tries = 0
-                emoji = None
-                while tries < 6:
-                    candidate = random.choice(usable_emojis)
-                    if candidate not in chosen_emojis:
-                        emoji = candidate
-                        break
-                    tries += 1
-                if emoji:
-                    chosen_emojis.append(emoji)
+            if roll > frequency:
+                continue  # independent chance; failing this roll doesn't stop the others
+            tries = 0
+            emoji = None
+            while tries < 6:
+                candidate = random.choice(usable_emojis)
+                if candidate not in chosen_emojis:
+                    emoji = candidate
+                    break
+                tries += 1
+            if emoji:
+                chosen_emojis.append(emoji)
+            else:
+                break  # no new emoji available, stop trying
 
         # Attempt to react with each chosen emoji
         for emoji in chosen_emojis:
