@@ -4,7 +4,7 @@ import os
 import random
 import re
 import time
-from typing import Dict, List
+from typing import Dict, List, Union
 
 from redbot.core import commands, checks
 from discord import Message, Forbidden
@@ -191,10 +191,30 @@ class ChatBot(commands.Cog):
         if not content:
             return
 
-        # Determine prefixes for this message
+        # Determine prefixes for this message (robust to callables returned by get_prefix)
         try:
             prefixes = await self.bot.get_prefix(message)
         except Exception:
+            prefixes = []
+
+        # If get_prefix returned a callable, call it to obtain actual prefixes
+        if callable(prefixes):
+            try:
+                maybe = prefixes(self.bot, message)
+                if asyncio.iscoroutine(maybe):
+                    prefixes = await maybe
+                else:
+                    prefixes = maybe
+            except Exception:
+                prefixes = []
+
+        # Normalize prefixes to a list we can iterate
+        if isinstance(prefixes, str):
+            prefixes = [prefixes]
+        elif prefixes is None:
+            prefixes = []
+        elif not isinstance(prefixes, (list, tuple)):
+            # fallback: make empty list if unexpected type
             prefixes = []
 
         # If this message starts with any configured prefix or is a direct mention,
