@@ -191,39 +191,44 @@ class ChatBot(commands.Cog):
         if message.guild is None:
             return
 
-        # Ensure commands are still processed when this listener is present
-        try:
-            await self.bot.process_commands(message)
-        except Exception:
-            pass
-
         content = (message.content or "").strip()
         if not content:
             return
+
+        # Determine prefixes for this message
+        try:
+            prefixes = await self.bot.get_prefix(message)
+        except Exception:
+            prefixes = []
+
+        # If this message starts with any configured prefix or is a direct mention,
+        # process it as a command and then return immediately to avoid learning/replying.
+        is_cmd = False
+        if isinstance(prefixes, (list, tuple)):
+            for p in prefixes:
+                if p and content.startswith(p):
+                    is_cmd = True
+                    break
+        else:
+            if prefixes and content.startswith(prefixes):
+                is_cmd = True
+
+        if content.startswith(f"<@{self.bot.user.id}>") or content.startswith(f"<@!{self.bot.user.id}>"):
+            is_cmd = True
+
+        if is_cmd:
+            try:
+                await self.bot.process_commands(message)
+            except Exception:
+                pass
+            return
+
+        # Not a command message: continue normal ignores for learning/replying
         # Ignore messages with attachments or files
         if message.attachments:
             return
         # Ignore messages containing links
         if LINK_RE.search(content):
-            return
-
-        # Ignore messages that look like commands for the bot (by prefix)
-        try:
-            prefixes = await self.bot.get_prefix(message)
-        except Exception:
-            prefixes = []
-        if isinstance(prefixes, (list, tuple)):
-            for p in prefixes:
-                if not p:
-                    continue
-                if content.startswith(p):
-                    return
-        else:
-            if prefixes and content.startswith(prefixes):
-                return
-
-        # Ignore messages that are direct mentions to the bot to avoid training on commands
-        if content.strip().startswith(f"<@{self.bot.user.id}>") or content.strip().startswith(f"<@!{self.bot.user.id}>"):
             return
 
         # Learn from message
