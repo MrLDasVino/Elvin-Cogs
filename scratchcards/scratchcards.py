@@ -10,7 +10,7 @@ import typing
 # Unique identifier for this cog's Config
 CONFIG_ID = 0xBADA55C0FFEE1234
 
-COG_VERSION = "1.1.2"
+COG_VERSION = "1.1.3"
 
 DEFAULT_GUILD = {
     "enabled": True,
@@ -460,23 +460,8 @@ class ScratchCardExtended(commands.Cog):
 
         await interaction.followup.send(f"Card manager opened for {card_key}.", view=view, ephemeral=True)
 
-    @scratch.command(name="manage_remove")
     @checks.mod_or_permissions(manage_guild=True)
-    async def manage_remove(self, ctx: commands.Context, key: str):
-        """Remove a card by key (admin)"""
-        gc = await self.get_guild_conf(ctx.guild)
-        cards = gc.get("cards", {})
-        if key not in cards:
-            await ctx.send("Card key not found.")
-            return
-        cards.pop(key)
-        gc["cards"] = cards
-        await self.config.guild(ctx.guild).set(gc)
-        await ctx.send(f"Removed card {key}.")
-
-
     @scratch.command()
-    @checks.mod_or_permissions(manage_guild=True)
     async def setenabled(self, ctx: commands.Context, enabled: bool):
         """Enable or disable scratch cards on this guild"""
         gc = await self.get_guild_conf(ctx.guild)
