@@ -185,18 +185,29 @@ class ChatBot(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: Message):
+        # Basic filters
         if message.author.bot:
             return
         if message.guild is None:
             return
+
+        # Ensure commands are still processed when this listener is present
+        try:
+            await self.bot.process_commands(message)
+        except Exception:
+            pass
+
         content = (message.content or "").strip()
         if not content:
             return
+        # Ignore messages with attachments or files
         if message.attachments:
             return
+        # Ignore messages containing links
         if LINK_RE.search(content):
             return
 
+        # Ignore messages that look like commands for the bot (by prefix)
         try:
             prefixes = await self.bot.get_prefix(message)
         except Exception:
@@ -211,14 +222,17 @@ class ChatBot(commands.Cog):
             if prefixes and content.startswith(prefixes):
                 return
 
+        # Ignore messages that are direct mentions to the bot to avoid training on commands
         if content.strip().startswith(f"<@{self.bot.user.id}>") or content.strip().startswith(f"<@!{self.bot.user.id}>"):
             return
 
+        # Learn from message
         try:
             await self._learn_from_message(message.guild.id, content)
         except Exception:
             return
 
+        # Decide whether to reply
         try:
             data = await self._read_data(message.guild.id)
         except Exception:
