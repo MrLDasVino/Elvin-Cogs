@@ -4,7 +4,7 @@ import os
 import random
 import re
 import time
-from typing import Dict, List, Union
+from typing import Dict, List
 
 from redbot.core import commands, checks
 from discord import Message, Forbidden
@@ -35,10 +35,36 @@ class ChatBot(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        # per-guild locks for file IO
         self._locks: Dict[int, asyncio.Lock] = {}
         # per-guild mapping of message.id -> timestamp when handled
         self._recent_handled: Dict[int, Dict[int, float]] = {}
         self.debug_global = False  # set True with chatbot debug on
+
+        # Primary-instance guard:
+        # If multiple ChatBot objects are instantiated, only the one that sets
+        # itself as primary will actively handle on_message. This prevents duplicate
+        # listeners from different loaded copies of the cog causing double responses.
+        primary_attr = "_chatbot_primary_instance"
+        if not hasattr(self.bot, primary_attr):
+            setattr(self.bot, primary_attr, self)
+            self._is_primary = True
+        else:
+            # there is already a primary instance; this instance becomes inert
+            self._is_primary = False
+
+    def cog_unload(self):
+        # When the cog is unloaded, if this instance was primary release the marker.
+        primary_attr = "_chatbot_primary_instance"
+        try:
+            if getattr(self.bot, primary_attr, None) is self:
+                delattr(self.bot, primary_attr)
+        except Exception:
+            # best-effort; don't raise on unload
+            try:
+                delattr(self.bot, primary_attr)
+            except Exception:
+                pass
 
     # ---------- Commands ----------
 
@@ -170,6 +196,10 @@ class ChatBot(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: Message):
+        # If this instance is not the primary, become inert (prevent duplicate handling)
+        if not getattr(self, "_is_primary", False):
+            return
+
         # Ignore bots and DMs early
         if message.author.bot:
             return
@@ -214,7 +244,6 @@ class ChatBot(commands.Cog):
         elif prefixes is None:
             prefixes = []
         elif not isinstance(prefixes, (list, tuple)):
-            # fallback: make empty list if unexpected type
             prefixes = []
 
         # If this message starts with any configured prefix or is a direct mention,
