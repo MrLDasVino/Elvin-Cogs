@@ -1,6 +1,6 @@
 {
   "name": "ScratchCards",
-  "author": "Elvin",
+  "author": ["Elvin"],
   "short": "Weighted multi-prize scratch card game integrated with Red's bank",
   "description": "ScratchCards: buy configurable scratch cards, win weighted prizes deposited to Red's bank. Includes an admin UI to create/edit cards and prizes via buttons and modals.",
   "install_msg": "ScratchCards loaded. Use [p]scratch admin panel to create cards. Requires Red's bank to be enabled.",

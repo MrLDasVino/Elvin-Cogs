@@ -29,16 +29,17 @@ class ConfirmView(ui.View):
         return interaction.user.id == self.author.id
 
     @ui.button(label="Confirm", style=discord.ButtonStyle.green)
-    async def confirm(self, button: ui.Button, interaction: discord.Interaction):
+    async def confirm(self, interaction: discord.Interaction, button: ui.Button):
         self.result = True
         await interaction.response.defer()
         self.stop()
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.red)
-    async def cancel(self, button: ui.Button, interaction: discord.Interaction):
+    async def cancel(self, interaction: discord.Interaction, button: ui.Button):
         self.result = False
         await interaction.response.defer()
         self.stop()
+
 
 class CardSelect(ui.Select):
     def __init__(self, author: discord.User, options: typing.List[discord.SelectOption]):
