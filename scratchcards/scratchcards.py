@@ -10,7 +10,7 @@ import typing
 # Unique identifier for this cog's Config
 CONFIG_ID = 0xBADA55C0FFEE1234
 
-COG_VERSION = "1.1.1"
+COG_VERSION = "1.1.2"
 
 DEFAULT_GUILD = {
     "enabled": True,
@@ -18,6 +18,7 @@ DEFAULT_GUILD = {
     "instant_reveal": True,
     "cards": {}
 }
+
 
 class ConfirmView(ui.View):
     def __init__(self, author: discord.User, timeout: int = 60):
@@ -55,6 +56,7 @@ class CardSelect(ui.Select):
         await interaction.response.defer()
         self.view.stop()
 
+
 class CardModal(ui.Modal, title="Create / Edit Card"):
     key = ui.TextInput(label="Card key (internal, no spaces)", placeholder="basic", required=True, max_length=32)
     display = ui.TextInput(label="Display name", placeholder="Basic Scratch", required=True, max_length=64)
@@ -78,6 +80,7 @@ class CardModal(ui.Modal, title="Create / Edit Card"):
         }
         await interaction.response.defer()
         self.stop()
+
 
 class PrizeModal(ui.Modal, title="Create / Edit Prize"):
     name = ui.TextInput(label="Prize name", placeholder="Small Win", required=True, max_length=64)
@@ -105,6 +108,7 @@ class PrizeModal(ui.Modal, title="Create / Edit Prize"):
         }
         await interaction.response.defer()
         self.stop()
+
 
 class ScratchCardExtended(commands.Cog):
     """Scratch Card extended cog — multi-prize cards with admin UI and bank integration"""
@@ -221,13 +225,9 @@ class ScratchCardExtended(commands.Cog):
             currency = await bank.get_currency_name(ctx.guild)
             await ctx.send(f"You bought **{card.get('name')}** for **{price} {currency}** and won **{prize_value} {currency}** ({prize_name})!")
 
-    @scratch.group()
+    @scratch.command(name="manage")
     @checks.mod_or_permissions(manage_guild=True)
     async def manage(self, ctx: commands.Context):
-        """Manage scratch cards (admin panel, create/edit/remove)"""
-
-    @manage.command(name="panel")
-    async def manage_panel(self, ctx: commands.Context):
         """Open the admin panel to create/edit cards and manage prizes"""
         guild_conf = await self.get_guild_conf(ctx.guild)
         cards = guild_conf.get("cards", {})
@@ -241,7 +241,7 @@ class ScratchCardExtended(commands.Cog):
 
         view = ui.View(timeout=300)
 
-        async def create_card_cb(interaction: discord.Interaction):
+        async def create_card_cb(interaction: discord.Interaction, button: ui.Button):
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
@@ -267,7 +267,7 @@ class ScratchCardExtended(commands.Cog):
             await self.config.guild(ctx.guild).set(gc)
             await interaction.followup.send(f"Created card {key}.", ephemeral=True)
 
-        async def manage_card_cb(interaction: discord.Interaction):
+        async def manage_card_cb(interaction: discord.Interaction, button: ui.Button):
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
@@ -289,7 +289,7 @@ class ScratchCardExtended(commands.Cog):
             await interaction.followup.send(f"Opening card manager for {chosen_key}...", ephemeral=True)
             await self._card_manager(interaction, ctx, chosen_key)
 
-        async def remove_card_cb(interaction: discord.Interaction):
+        async def remove_card_cb(interaction: discord.Interaction, button: ui.Button):
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
@@ -348,7 +348,7 @@ class ScratchCardExtended(commands.Cog):
 
         view = ui.View(timeout=300)
 
-        async def add_prize_cb(i: discord.Interaction):
+        async def add_prize_cb(i: discord.Interaction, button: ui.Button):
             if i.user.id != ctx.author.id:
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
@@ -367,7 +367,7 @@ class ScratchCardExtended(commands.Cog):
             await self.config.guild(ctx.guild).set(gc)
             await i.followup.send(f"Added prize {prize_id}.", ephemeral=True)
 
-        async def edit_prize_cb(i: discord.Interaction):
+        async def edit_prize_cb(i: discord.Interaction, button: ui.Button):
             if i.user.id != ctx.author.id:
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
@@ -411,7 +411,7 @@ class ScratchCardExtended(commands.Cog):
             await self.config.guild(ctx.guild).set(gc)
             await i.followup.send(f"Updated prize {chosen_id}.", ephemeral=True)
 
-        async def remove_prize_cb(i: discord.Interaction):
+        async def remove_prize_cb(i: discord.Interaction, button: ui.Button):
             if i.user.id != ctx.author.id:
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
@@ -437,7 +437,7 @@ class ScratchCardExtended(commands.Cog):
             await self.config.guild(ctx.guild).set(gc)
             await i.followup.send(f"Removed {len(remove_ids)} prize(s).", ephemeral=True)
 
-        async def view_details_cb(i: discord.Interaction):
+        async def view_details_cb(i: discord.Interaction, button: ui.Button):
             if i.user.id != ctx.author.id:
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
