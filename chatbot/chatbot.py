@@ -3,6 +3,7 @@ import json
 import os
 import random
 import re
+import time
 from typing import Dict, List
 
 from redbot.core import commands, checks
@@ -23,17 +24,21 @@ DEFAULT_DATA = {
     "starts": []   # list of first tokens observed
 }
 
+# How long we keep seen message ids to prevent duplicate handling (seconds)
+_HANDLED_RETENTION_SECONDS = 10
+
 class ChatBot(commands.Cog):
     """
     Chatbot that stores models and settings in per-guild JSON files.
-    Learns without trimming and ignores links and messages with attachments.
-    Commands are admin-only. Provides purge, forget and debug toggle commands.
+    Added duplicate-handling guard and strict command-first behavior.
     """
 
     def __init__(self, bot):
         self.bot = bot
         self._locks: Dict[int, asyncio.Lock] = {}
-        self.debug_global = False  # set True to enable debug messages across guilds
+        # per-guild mapping of message.id -> timestamp when handled
+        self._recent_handled: Dict[int, Dict[int, float]] = {}
+        self.debug_global = False  # set True with chatbot debug on
 
     # ---------- Commands ----------
 
@@ -46,7 +51,6 @@ class ChatBot(commands.Cog):
     @chatbot.command(name="enable")
     @checks.admin_or_permissions(administrator=True)
     async def chatbot_enable(self, ctx, state: str):
-        """Enable or disable the chatbot for this guild. Usage: [p]chatbot enable on|off"""
         state_lower = state.lower()
         if state_lower not in ("on", "off", "enable", "disable", "true", "false"):
             await ctx.send("Please specify on or off.")
@@ -60,7 +64,6 @@ class ChatBot(commands.Cog):
     @chatbot.command(name="frequency")
     @checks.admin_or_permissions(administrator=True)
     async def chatbot_frequency(self, ctx, percent: int):
-        """Set reply frequency as a percent 0-100"""
         if percent < 0 or percent > 100:
             await ctx.send("Frequency must be between 0 and 100.")
             return
@@ -72,18 +75,11 @@ class ChatBot(commands.Cog):
     @chatbot.command(name="purge")
     @checks.admin_or_permissions(administrator=True)
     async def chatbot_purge(self, ctx, confirm: str = ""):
-        """
-        Purge this guild's chatbot database.
-        Usage: [p]chatbot purge confirm
-        You must pass the literal word 'confirm' to perform the purge.
-        """
         if confirm.lower() != "confirm":
             await ctx.send("This will delete the chatbot database for this server. To confirm, run: `chatbot purge confirm`.")
             return
-
         guild_id = ctx.guild.id
         path = self._data_path(guild_id)
-
         lock = await self._get_lock(guild_id)
         async with lock:
             try:
@@ -97,99 +93,69 @@ class ChatBot(commands.Cog):
             except Exception:
                 await ctx.send("Purge completed but failed to reinitialize data file.")
                 return
-
         await ctx.send("Chatbot database purged and reset to defaults for this server.")
 
     @chatbot.command(name="forget")
     @checks.admin_or_permissions(administrator=True)
     async def chatbot_forget(self, ctx, mode: str = None, *args):
-        """
-        Forget learned data.
-        Modes:
-          token <word>               - remove a token entirely from model and starts
-          transition <from> <to>     - remove a single transition from model[from]
-        Examples:
-          chatbot forget token hello
-          chatbot forget transition hello world
-        """
         if not mode:
             await ctx.send("Usage: chatbot forget token <word> OR chatbot forget transition <from> <to>")
             return
-
         guild_id = ctx.guild.id
         lock = await self._get_lock(guild_id)
         async with lock:
             data = await self._read_data(guild_id)
             model: Dict[str, List[str]] = data.get("model", {}) or {}
             starts: List[str] = data.get("starts", []) or []
-
             if mode == "token":
                 if len(args) < 1:
                     await ctx.send("Usage: chatbot forget token <word>")
                     return
                 token = args[0].lower()
-
                 removed_any = False
-                # remove key from model
                 if token in model:
                     del model[token]
                     removed_any = True
-
-                # remove all occurrences in successor lists
                 for k in list(model.keys()):
                     newlist = [x for x in model[k] if x != token]
                     if len(newlist) != len(model[k]):
                         model[k] = newlist
                         removed_any = True
-
-                # remove from starts
                 new_starts = [s for s in starts if s != token]
                 if len(new_starts) != len(starts):
                     starts = new_starts
                     removed_any = True
-
                 data["model"] = model
                 data["starts"] = starts
                 await self._write_data(guild_id, data)
-
                 if removed_any:
                     await ctx.send(f"Token {token!r} removed from model and starts where present.")
                 else:
                     await ctx.send(f"Token {token!r} not found in model or starts.")
-
             elif mode == "transition":
                 if len(args) < 2:
                     await ctx.send("Usage: chatbot forget transition <from> <to>")
                     return
                 frm = args[0].lower()
                 to = args[1].lower()
-
                 if frm not in model:
                     await ctx.send(f"No transitions found for {frm!r}.")
                     return
-
                 old_len = len(model[frm])
                 model[frm] = [x for x in model[frm] if x != to]
                 new_len = len(model[frm])
                 data["model"] = model
                 await self._write_data(guild_id, data)
-
                 if new_len < old_len:
                     await ctx.send(f"Removed {old_len - new_len} occurrence(s) of transition {frm!r} -> {to!r}.")
                 else:
                     await ctx.send(f"No transitions {frm!r} -> {to!r} were found.")
-
             else:
                 await ctx.send("Unknown mode. Use 'token' or 'transition'.")
 
     @chatbot.command(name="debug")
     @checks.admin_or_permissions(administrator=True)
     async def chatbot_debug(self, ctx, state: str = None):
-        """
-        Toggle small debug messages that help identify duplicate sources.
-        Usage: chatbot debug on/off
-        When enabled the cog will send a short debug line when replying indicating process id.
-        """
         if state is None:
             await ctx.send("Usage: chatbot debug on|off")
             return
@@ -200,14 +166,25 @@ class ChatBot(commands.Cog):
         self.debug_global = st in ("on", "true", "enable")
         await ctx.send(f"Chatbot debug messages {'enabled' if self.debug_global else 'disabled'}.")
 
-    # ---------- Listener ----------
+    # ---------- Listener with strict command-first and duplicate guard ----------
 
     @commands.Cog.listener()
     async def on_message(self, message: Message):
-        # Basic filters
+        # Ignore bots and DMs early
         if message.author.bot:
             return
         if message.guild is None:
+            return
+
+        guild_id = message.guild.id
+        msg_id = message.id
+
+        # Cleanup old handled entries occasionally
+        self._cleanup_recent_handled(guild_id)
+
+        # If we've already handled this message recently, skip
+        recent = self._recent_handled.get(guild_id, {})
+        if msg_id in recent:
             return
 
         content = (message.content or "").strip()
@@ -237,28 +214,33 @@ class ChatBot(commands.Cog):
 
         if is_cmd:
             try:
+                # process commands and then mark the message as handled to ensure no reply path runs
                 await self.bot.process_commands(message)
             except Exception:
                 pass
+            # mark handled so other potential duplicate listeners in same process don't re-run
+            self._mark_handled(guild_id, msg_id)
             return
 
         # Not a command message: continue normal ignores for learning/replying
-        # Ignore messages with attachments or files
         if message.attachments:
             return
-        # Ignore messages containing links
         if LINK_RE.search(content):
             return
 
+        # Mark handled early to avoid races where two coroutines might both decide to reply
+        self._mark_handled(guild_id, msg_id)
+
         # Learn from message
         try:
-            await self._learn_from_message(message.guild.id, content)
+            await self._learn_from_message(guild_id, content)
         except Exception:
-            return
+            # learning errors shouldn't crash listener
+            pass
 
         # Decide whether to reply
         try:
-            data = await self._read_data(message.guild.id)
+            data = await self._read_data(guild_id)
         except Exception:
             return
 
@@ -285,7 +267,7 @@ class ChatBot(commands.Cog):
 
         # Optional small debug line to help identify duplicate sources
         if self.debug_global:
-            debug_line = f"[chatbot debug pid:{os.getpid()}]" 
+            debug_line = f"[chatbot debug pid:{os.getpid()}]"
             try:
                 await message.channel.send(debug_line)
             except Exception:
@@ -298,7 +280,7 @@ class ChatBot(commands.Cog):
         except Exception:
             return
 
-    # ---------- Storage and learning ----------
+    # ---------- Helpers ----------
 
     async def _get_lock(self, guild_id: int) -> asyncio.Lock:
         lock = self._locks.get(guild_id)
@@ -348,18 +330,13 @@ class ChatBot(commands.Cog):
             data = await self._read_data(guild_id)
             model: Dict[str, List[str]] = data.get("model", {}) or {}
             starts: List[str] = data.get("starts", []) or []
-
             starts.append(words[0])
-
             for a, b in zip(words, words[1:]):
                 model.setdefault(a, []).append(b)
-
             last = words[-1]
             model.setdefault(last, [])
-
             data["model"] = model
             data["starts"] = starts
-
             await self._write_data(guild_id, data)
 
     def _tokenize(self, content: str) -> List[str]:
@@ -401,3 +378,17 @@ class ChatBot(commands.Cog):
                 else:
                     s += t + " "
         return s.strip()
+
+    # mark message handled for a short time to prevent duplicate handling
+    def _mark_handled(self, guild_id: int, msg_id: int):
+        now = time.time()
+        d = self._recent_handled.setdefault(guild_id, {})
+        d[msg_id] = now
+
+    # cleanup entries older than retention window
+    def _cleanup_recent_handled(self, guild_id: int):
+        now = time.time()
+        d = self._recent_handled.setdefault(guild_id, {})
+        to_del = [m for m, ts in d.items() if now - ts > _HANDLED_RETENTION_SECONDS]
+        for m in to_del:
+            del d[m]
