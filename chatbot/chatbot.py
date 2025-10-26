@@ -27,12 +27,13 @@ class ChatBot(commands.Cog):
     """
     Chatbot that stores models and settings in per-guild JSON files.
     Learns without trimming and ignores links and messages with attachments.
-    Commands are admin-only. Provides purge and forget commands.
+    Commands are admin-only. Provides purge, forget and debug toggle commands.
     """
 
     def __init__(self, bot):
         self.bot = bot
         self._locks: Dict[int, asyncio.Lock] = {}
+        self.debug_global = False  # set True to enable debug messages across guilds
 
     # ---------- Commands ----------
 
@@ -181,6 +182,24 @@ class ChatBot(commands.Cog):
             else:
                 await ctx.send("Unknown mode. Use 'token' or 'transition'.")
 
+    @chatbot.command(name="debug")
+    @checks.admin_or_permissions(administrator=True)
+    async def chatbot_debug(self, ctx, state: str = None):
+        """
+        Toggle small debug messages that help identify duplicate sources.
+        Usage: chatbot debug on/off
+        When enabled the cog will send a short debug line when replying indicating process id.
+        """
+        if state is None:
+            await ctx.send("Usage: chatbot debug on|off")
+            return
+        st = state.lower()
+        if st not in ("on", "off", "true", "false", "enable", "disable"):
+            await ctx.send("Please pass on or off.")
+            return
+        self.debug_global = st in ("on", "true", "enable")
+        await ctx.send(f"Chatbot debug messages {'enabled' if self.debug_global else 'disabled'}.")
+
     # ---------- Listener ----------
 
     @commands.Cog.listener()
@@ -263,6 +282,14 @@ class ChatBot(commands.Cog):
 
         if not resp:
             return
+
+        # Optional small debug line to help identify duplicate sources
+        if self.debug_global:
+            debug_line = f"[chatbot debug pid:{os.getpid()}]" 
+            try:
+                await message.channel.send(debug_line)
+            except Exception:
+                pass
 
         try:
             await message.channel.send(resp)
