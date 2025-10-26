@@ -10,7 +10,7 @@ import typing
 # Unique identifier for this cog's Config
 CONFIG_ID = 0xBADA55C0FFEE1234
 
-COG_VERSION = "1.1.4"
+COG_VERSION = "1.1.5"
 
 DEFAULT_GUILD = {
     "enabled": True,
@@ -242,11 +242,15 @@ class ScratchCardExtended(commands.Cog):
         view = ui.View(timeout=300)
 
         async def create_card_cb(interaction: discord.Interaction):
+            # acknowledge quickly
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
+            await interaction.response.defer(ephemeral=True)
+
             modal = CardModal()
-            await interaction.response.send_modal(modal)
+            await interaction.followup.send("Opening create modal...", ephemeral=True)
+            await interaction.followup.send_modal(modal)
             await modal.wait()
             if not getattr(modal, "result_payload", None):
                 await interaction.followup.send("Creation cancelled or timed out.", ephemeral=True)
@@ -268,41 +272,51 @@ class ScratchCardExtended(commands.Cog):
             await interaction.followup.send(f"Created card {key}.", ephemeral=True)
 
         async def manage_card_cb(interaction: discord.Interaction):
+            # acknowledge quickly
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
+            await interaction.response.defer(ephemeral=True)
+
             gc = await self.get_guild_conf(ctx.guild)
             cards_local = gc.get("cards", {})
             if not cards_local:
-                await interaction.response.send_message("No cards to edit.", ephemeral=True)
+                await interaction.followup.send("No cards to edit.", ephemeral=True)
                 return
             opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
             sel = ui.Select(placeholder="Select a card to manage", options=opts, min_values=1, max_values=1)
             sel_view = ui.View(timeout=60)
             sel_view.add_item(sel)
-            await interaction.response.send_message("Select a card to manage:", view=sel_view, ephemeral=True)
+
+            await interaction.followup.send("Select a card to manage:", view=sel_view, ephemeral=True)
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 await interaction.followup.send("Selection timed out.", ephemeral=True)
                 return
             chosen_key = sel.values[0]
             await interaction.followup.send(f"Opening card manager for {chosen_key}...", ephemeral=True)
-            await self._card_manager(interaction, ctx, chosen_key)
+
+            # run card manager (it will send its own followups). run in background to return fast
+            asyncio.create_task(self._card_manager(interaction, ctx, chosen_key))
 
         async def remove_card_cb(interaction: discord.Interaction):
+            # acknowledge quickly
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
+            await interaction.response.defer(ephemeral=True)
+
             gc = await self.get_guild_conf(ctx.guild)
             cards_local = gc.get("cards", {})
             if not cards_local:
-                await interaction.response.send_message("No cards to remove.", ephemeral=True)
+                await interaction.followup.send("No cards to remove.", ephemeral=True)
                 return
             opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
             sel = ui.Select(placeholder="Select a card to remove", options=opts, min_values=1, max_values=1)
             sel_view = ui.View(timeout=60)
             sel_view.add_item(sel)
-            await interaction.response.send_message("Select a card to remove:", view=sel_view, ephemeral=True)
+
+            await interaction.followup.send("Select a card to remove:", view=sel_view, ephemeral=True)
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 await interaction.followup.send("Selection timed out.", ephemeral=True)
@@ -328,11 +342,15 @@ class ScratchCardExtended(commands.Cog):
         await ctx.send(msg, view=view)
 
     async def _card_manager(self, interaction: discord.Interaction, ctx: commands.Context, card_key: str):
+        # card manager acknowledges via followups; this function runs in background if created as a task
         gc = await self.get_guild_conf(ctx.guild)
         cards_local = gc.get("cards", {})
         card = cards_local.get(card_key)
         if not card:
-            await interaction.followup.send("Card not found.", ephemeral=True)
+            try:
+                await interaction.followup.send("Card not found.", ephemeral=True)
+            except Exception:
+                pass
             return
 
         def build_desc():
@@ -352,8 +370,10 @@ class ScratchCardExtended(commands.Cog):
             if i.user.id != ctx.author.id:
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
+            await i.response.defer(ephemeral=True)
             modal = PrizeModal()
-            await i.response.send_modal(modal)
+            await i.followup.send("Opening prize modal...", ephemeral=True)
+            await i.followup.send_modal(modal)
             await modal.wait()
             if not getattr(modal, "result_payload", None):
                 await i.followup.send("Prize creation cancelled.", ephemeral=True)
@@ -371,15 +391,16 @@ class ScratchCardExtended(commands.Cog):
             if i.user.id != ctx.author.id:
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
+            await i.response.defer(ephemeral=True)
             prizes = card.get("prizes", [])
             if not prizes:
-                await i.response.send_message("No prizes to edit.", ephemeral=True)
+                await i.followup.send("No prizes to edit.", ephemeral=True)
                 return
             opts = [discord.SelectOption(label=f"{p.get('name')} ({p.get('id')})", value=p.get('id')) for p in prizes]
             sel = ui.Select(placeholder="Select prize to edit", options=opts, min_values=1, max_values=1)
             sel_view = ui.View(timeout=60)
             sel_view.add_item(sel)
-            await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
+            await i.followup.send("Select a prize to edit:", view=sel_view, ephemeral=True)
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 await i.followup.send("Timed out.", ephemeral=True)
@@ -415,15 +436,16 @@ class ScratchCardExtended(commands.Cog):
             if i.user.id != ctx.author.id:
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
+            await i.response.defer(ephemeral=True)
             prizes = card.get("prizes", [])
             if not prizes:
-                await i.response.send_message("No prizes to remove.", ephemeral=True)
+                await i.followup.send("No prizes to remove.", ephemeral=True)
                 return
             opts = [discord.SelectOption(label=f"{p.get('name')} ({p.get('id')})", value=p.get('id')) for p in prizes]
             sel = ui.Select(placeholder="Select prize(s) to remove", options=opts, min_values=1, max_values=25)
             sel_view = ui.View(timeout=60)
             sel_view.add_item(sel)
-            await i.response.send_message("Select prize(s) to remove:", view=sel_view, ephemeral=True)
+            await i.followup.send("Select prize(s) to remove:", view=sel_view, ephemeral=True)
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 await i.followup.send("Timed out.", ephemeral=True)
@@ -458,7 +480,15 @@ class ScratchCardExtended(commands.Cog):
         view.add_item(remove_btn)
         view.add_item(view_btn)
 
-        await interaction.followup.send(f"Card manager opened for {card_key}.", view=view, ephemeral=True)
+        # send manager as followup (ephemeral)
+        try:
+            await interaction.followup.send(f"Card manager opened for {card_key}.", view=view, ephemeral=True)
+        except Exception:
+            # fallback to normal send if followup fails for any reason
+            try:
+                await interaction.channel.send(f"Card manager opened for {card_key}.", view=view)
+            except Exception:
+                pass
 
     @checks.mod_or_permissions(manage_guild=True)
     @scratch.command()
