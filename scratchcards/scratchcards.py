@@ -243,8 +243,7 @@ class PrizeSelect(ui.Select):
             return
         modal = PrizeEditModal(self.cog, self.guild, self.card_key, prize_id, prize)
         await interaction.response.send_modal(modal)
-        # stop the selection view so the ephemeral select UI closes
-        self.view.stop()
+
 
 
 class ScratchCardExtended(commands.Cog):
