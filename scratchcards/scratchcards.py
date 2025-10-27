@@ -8,7 +8,7 @@ import random
 import typing
 
 CONFIG_ID = 0xBADA55C0FFEE1234
-COG_VERSION = "1.1.6"
+COG_VERSION = "1.2.0"
 
 DEFAULT_GUILD = {
     "enabled": True,
@@ -227,7 +227,8 @@ class CardModal(ui.Modal, title="Create / Edit Card"):
 class PrizeModal(ui.Modal, title="Create / Edit Prize"):
     name = ui.TextInput(label="Prize name", placeholder="Small Win", required=True, max_length=64)
     value = ui.TextInput(label="Prize value (int)", placeholder="50", required=True, max_length=20)
-    weight = ui.TextInput(label="Weight (int)", placeholder="100", required=True, max_length=10)
+    # now accepts percentage chance (float) between 0 and 100
+    chance = ui.TextInput(label="Chance (%)", placeholder="1.0", required=True, max_length=20)
     tag = ui.TextInput(label="Rarity tag (optional)", placeholder="common", required=False, max_length=32)
 
     def __init__(self, cog=None, guild: discord.Guild = None, card_key: str = None, existing: dict = None):
@@ -240,9 +241,13 @@ class PrizeModal(ui.Modal, title="Create / Edit Prize"):
     async def on_submit(self, interaction: discord.Interaction):
         try:
             val = int(self.value.value.strip())
-            w = int(self.weight.value.strip())
+            chance_val = float(self.chance.value.strip())
         except Exception:
-            await interaction.response.send_message("Invalid numeric input.", ephemeral=True)
+            await interaction.response.send_message("Invalid numeric input for value or chance.", ephemeral=True)
+            return
+
+        if not (0.0 <= chance_val <= 100.0):
+            await interaction.response.send_message("Chance must be between 0 and 100.", ephemeral=True)
             return
 
         if not self.cog or not self.guild or not self.card_key:
@@ -254,7 +259,8 @@ class PrizeModal(ui.Modal, title="Create / Edit Prize"):
             "id": prize_id,
             "name": self.name.value.strip(),
             "value": max(0, val),
-            "weight": max(1, w),
+            # store percent in weight for backward compatibility
+            "weight": float(round(chance_val, 6)),
             "tag": self.tag.value.strip() or None
         }
 
@@ -275,7 +281,7 @@ class PrizeModal(ui.Modal, title="Create / Edit Prize"):
 class PrizeEditModal(ui.Modal, title="Edit Prize (will save on submit)"):
     name = ui.TextInput(label="Prize name", required=True, max_length=64)
     value = ui.TextInput(label="Prize value (int)", required=True, max_length=20)
-    weight = ui.TextInput(label="Weight (int)", required=True, max_length=10)
+    chance = ui.TextInput(label="Chance (%)", required=True, max_length=20)
     tag = ui.TextInput(label="Rarity tag (optional)", required=False, max_length=32)
 
     def __init__(self, cog, guild: discord.Guild, card_key: str, prize_id: str, existing: dict):
@@ -287,16 +293,22 @@ class PrizeEditModal(ui.Modal, title="Edit Prize (will save on submit)"):
         self.existing = existing
         self.name.default = existing.get("name", "")
         self.value.default = str(existing.get("value", 0))
-        self.weight.default = str(existing.get("weight", 1))
+        # existing weight stored as percent; default display
+        self.chance.default = str(existing.get("weight", 0.0))
         self.tag.default = existing.get("tag") or ""
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
             val = int(self.value.value.strip())
-            w = int(self.weight.value.strip())
+            chance_val = float(self.chance.value.strip())
         except Exception:
-            await interaction.response.send_message("Invalid numeric input.", ephemeral=True)
+            await interaction.response.send_message("Invalid numeric input for value or chance.", ephemeral=True)
             return
+
+        if not (0.0 <= chance_val <= 100.0):
+            await interaction.response.send_message("Chance must be between 0 and 100.", ephemeral=True)
+            return
+
         gc = await self.cog.get_guild_conf(self.guild)
         cards = gc.get("cards", {})
         card = cards.get(self.card_key)
@@ -309,7 +321,7 @@ class PrizeEditModal(ui.Modal, title="Edit Prize (will save on submit)"):
             if p.get("id") == self.prize_id:
                 p["name"] = self.name.value.strip()
                 p["value"] = max(0, val)
-                p["weight"] = max(1, w)
+                p["weight"] = float(round(chance_val, 6))
                 p["tag"] = self.tag.value.strip() or None
                 updated = True
                 break
@@ -366,11 +378,29 @@ class ScratchCardExtended(commands.Cog):
         return opts
 
     def _weighted_prize_choice(self, prizes: typing.List[dict]) -> dict:
+        """Select prize using stored percent chances in 'weight'. If total < 100, remaining chance is 'No Prize'."""
         if not prizes:
-            return {"name": "No Prize", "value": 0, "weight": 1, "tag": None, "id": "none"}
-        weights = [p.get("weight", 1) for p in prizes]
-        chosen = random.choices(prizes, weights=weights, k=1)[0]
-        return chosen
+            return {"name": "No Prize", "value": 0, "weight": 0.0, "tag": None, "id": "none"}
+        # normalize prize chance values, ensure numeric
+        entries = []
+        total = 0.0
+        for p in prizes:
+            try:
+                chance = float(p.get("weight", 0.0))
+            except Exception:
+                chance = 0.0
+            chance = max(0.0, min(100.0, chance))
+            entries.append((p, chance))
+            total += chance
+        # pick a random number in [0,100)
+        pick = random.random() * 100.0
+        cum = 0.0
+        for p, chance in entries:
+            cum += chance
+            if pick < cum:
+                return p
+        # no prize selected (either pick falls into leftover chance or total==0)
+        return {"name": "No Prize", "value": 0, "weight": 0.0, "tag": None, "id": "none"}
 
     @commands.group()
     async def scratch(self, ctx: commands.Context):
@@ -456,7 +486,12 @@ class ScratchCardExtended(commands.Cog):
                 return
 
             currency = await bank.get_currency_name(ctx.guild)
-            await ctx.send(f"You bought **{card.get('name')}** for **{price} {currency}** and won **{prize_value} {currency}** ({prize_name})!")
+            # show the stored percent chance for the prize if available
+            chance_display = chosen.get("weight")
+            if chance_display is not None:
+                await ctx.send(f"You bought **{card.get('name')}** for **{price} {currency}** and won **{prize_value} {currency}** ({prize_name}) with chance {chance_display}%!")
+            else:
+                await ctx.send(f"You bought **{card.get('name')}** for **{price} {currency}** and won **{prize_value} {currency}** ({prize_name})!")
 
     @scratch.command(name="manage")
     @checks.mod_or_permissions(manage_guild=True)
@@ -496,7 +531,6 @@ class ScratchCardExtended(commands.Cog):
             sel_view.add_item(sel)
 
             follow_msg = None
-            # prefer a channel message so it can be edited to disable components later
             try:
                 follow_msg = await interaction.channel.send("Select a card to remove:", view=sel_view)
             except Exception:
@@ -565,7 +599,7 @@ class ScratchCardExtended(commands.Cog):
             else:
                 lines.append("Prizes:")
                 for p in prizes:
-                    lines.append(f"- {p.get('id')} | {p.get('name')} | value {p.get('value')} | weight {p.get('weight')} | tag {p.get('tag')}")
+                    lines.append(f"- {p.get('id')} | {p.get('name')} | value {p.get('value')} | chance {p.get('weight')}% | tag {p.get('tag')}")
             return "\n".join(lines)
 
         view = TimedView(timeout=60)
@@ -589,11 +623,9 @@ class ScratchCardExtended(commands.Cog):
                 await i.response.send_message("No prizes to edit.", ephemeral=True)
                 return
 
-            # defer quickly so we don't hit the interaction timeout
             try:
                 await i.response.defer(ephemeral=True)
             except Exception:
-                # if defer fails, continue to attempt sending
                 pass
 
             sel = PrizeSelect(self, guild, card_key, prizes, i.user)
@@ -601,11 +633,9 @@ class ScratchCardExtended(commands.Cog):
             sel_view.add_item(sel)
 
             follow_msg = None
-            # prefer followup (after defer) so we get a Message object when possible
             try:
                 follow_msg = await i.followup.send("Select a prize to edit:", view=sel_view, ephemeral=True)
             except Exception:
-                # fallback to channel send so it can be edited later
                 try:
                     follow_msg = await i.channel.send("Select a prize to edit:", view=sel_view)
                 except Exception:
