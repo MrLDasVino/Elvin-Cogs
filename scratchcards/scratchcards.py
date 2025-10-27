@@ -139,6 +139,43 @@ class ConfirmView(TimedView):
             pass
 
 
+class SimpleSelect(ui.Select):
+    """A Select with built-in callback handling that defers, disables view, and stops the view.
+
+    - author: only allow the invoking author to interact
+    - values will be set on self.values as usual
+    """
+
+    def __init__(self, author: discord.User, options: typing.List[discord.SelectOption], placeholder: str = "Select...", min_values: int = 1, max_values: int = 1):
+        super().__init__(placeholder=placeholder, options=options, min_values=min_values, max_values=max_values)
+        self.author = author
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return
+        # Acknowledge so Discord doesn't time out
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
+        # Disable view items and edit the original message to reflect disabled state
+        if self.view:
+            try:
+                disable_view_items(self.view)
+            except Exception:
+                pass
+            if getattr(self.view, "message", None):
+                try:
+                    await self.view.message.edit(view=self.view)
+                except Exception:
+                    pass
+            try:
+                self.view.stop()
+            except Exception:
+                pass
+
+
 class CardSelect(ui.Select):
     def __init__(self, author: discord.User, options: typing.List[discord.SelectOption], timeout: int = 60):
         super().__init__(placeholder="Choose a scratch card...", min_values=1, max_values=1, options=options)
@@ -719,7 +756,7 @@ class ScratchCardExtended(commands.Cog):
                 return
 
             opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
-            sel = ui.Select(placeholder="Select a card to edit", options=opts, min_values=1, max_values=1)
+            sel = SimpleSelect(interaction.user, opts, placeholder="Select a card to edit", min_values=1, max_values=1)
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
 
@@ -773,7 +810,7 @@ class ScratchCardExtended(commands.Cog):
                 await interaction.followup.send("No cards to remove.", ephemeral=True)
                 return
             opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
-            sel = ui.Select(placeholder="Select a card to remove", options=opts, min_values=1, max_values=1)
+            sel = SimpleSelect(interaction.user, opts, placeholder="Select a card to remove", min_values=1, max_values=1)
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
 
@@ -872,11 +909,9 @@ class ScratchCardExtended(commands.Cog):
             if not prizes:
                 await i.response.send_message("No prizes to edit.", ephemeral=True)
                 return
-            try:
-                await i.response.defer(ephemeral=True)
-            except Exception:
-                pass
-            sel = PrizeSelect(self, guild, card_key, prizes, i.user)
+            # Use SimpleSelect to present prize choices
+            opts = [discord.SelectOption(label=f"{p.get('name')} ({p.get('id')})", value=p.get('id')) for p in prizes]
+            sel = SimpleSelect(i.user, opts, placeholder="Select a prize to edit", min_values=1, max_values=1)
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
             follow_msg = None
@@ -890,6 +925,29 @@ class ScratchCardExtended(commands.Cog):
             if follow_msg:
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
+            await sel_view.wait()
+            if not getattr(sel, "values", None):
+                return
+            prize_id = sel.values[0]
+            prize = next((p for p in prizes if p.get("id") == prize_id), None)
+            if not prize:
+                try:
+                    await i.followup.send("Prize not found.", ephemeral=True)
+                except Exception:
+                    pass
+                return
+            modal = PrizeEditModal(self, guild, card_key, prize_id, prize)
+            try:
+                await i.followup.send("Opening edit modal...", ephemeral=True)
+            except Exception:
+                pass
+            try:
+                await i.response.send_modal(modal)
+            except Exception:
+                try:
+                    await i.followup.send("Failed to open modal; try again.", ephemeral=True)
+                except Exception:
+                    pass
 
         async def remove_prize_cb(i: discord.Interaction):
             opener_id = interaction.user.id if interaction else (ctx.author.id if ctx else None)
@@ -901,7 +959,7 @@ class ScratchCardExtended(commands.Cog):
                 await i.response.send_message("No prizes to remove.", ephemeral=True)
                 return
             opts = [discord.SelectOption(label=f"{p.get('name')} ({p.get('id')})", value=p.get('id')) for p in prizes]
-            sel = ui.Select(placeholder="Select prize(s) to remove", options=opts, min_values=1, max_values=25)
+            sel = SimpleSelect(i.user, opts, placeholder="Select prize(s) to remove", min_values=1, max_values=len(opts))
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
             follow_msg = None
