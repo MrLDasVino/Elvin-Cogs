@@ -71,12 +71,9 @@ class AdminCardSelect(ui.Select):
             await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
             return
         chosen_key = self.values[0]
-        # Acknowledge immediately and then open card manager in background using followup
-        await interaction.response.defer(ephemeral=True)
-        try:
-            await interaction.followup.send(f"Opening card manager for {chosen_key}...", ephemeral=True)
-        except Exception:
-            pass
+        # Acknowledge immediately with a send_message so the interaction token is consumed correctly
+        await interaction.response.send_message(f"Opening card manager for {chosen_key}...", ephemeral=True)
+        # Run card manager in background; pass the interaction so followups work
         asyncio.create_task(self.cog._card_manager(interaction, None, chosen_key))
 
 
