@@ -188,6 +188,7 @@ class CardModal(ui.Modal, title="Create Card"):
     display = ui.TextInput(label="Display name", placeholder="Basic Scratch", required=True, max_length=64)
     price = ui.TextInput(label="Price (int)", placeholder="100", required=True, max_length=20)
     max_daily = ui.TextInput(label="Max buys per day (optional)", placeholder="Leave empty for no per-card limit", required=False, max_length=10)
+    thumbnail = ui.TextInput(label="Thumbnail URL (optional)", placeholder="https://example.com/image.png", required=False, max_length=200)
 
     def __init__(self, cog=None, guild: discord.Guild = None, existing: dict = None):
         super().__init__()
@@ -213,6 +214,11 @@ class CardModal(ui.Modal, title="Create Card"):
                 await interaction.response.send_message("Invalid numeric input for max buys per day. Use a non-negative integer or leave empty.", ephemeral=True)
                 return
 
+        # thumbnail may be empty or any string; store None if empty
+        thumb_val = None
+        if self.thumbnail.value and self.thumbnail.value.strip():
+            thumb_val = self.thumbnail.value.strip()
+
         if not self.cog or not self.guild:
             await interaction.response.send_message("Internal error: missing context.", ephemeral=True)
             return
@@ -221,7 +227,8 @@ class CardModal(ui.Modal, title="Create Card"):
             "key": self.key.value.strip(),
             "name": self.display.value.strip(),
             "price": max(0, price_val),
-            "max_daily": max_daily_val
+            "max_daily": max_daily_val,
+            "thumbnail": thumb_val
         }
 
         gc = await self.cog.get_guild_conf(self.guild)
@@ -236,7 +243,9 @@ class CardModal(ui.Modal, title="Create Card"):
             "price": payload["price"],
             "prizes": [],
             # store per-card max buys per day; None means no limit (uses guild default)
-            "max_daily": payload["max_daily"]
+            "max_daily": payload["max_daily"],
+            # optional thumbnail URL
+            "thumbnail": payload["thumbnail"]
         }
         gc["cards"] = cards_local
         await self.cog.config.guild(self.guild).set(gc)
@@ -399,8 +408,13 @@ def _rarity_emoji(tag: typing.Optional[str]) -> str:
 
 
 def _thumbnail_url_for_card(card: dict) -> typing.Optional[str]:
-    # placeholder decorative assets; return None to skip
-    return None
+    # Return configured thumbnail URL if present and non-empty, otherwise None
+    if not card:
+        return None
+    thumb = card.get("thumbnail")
+    if not thumb:
+        return None
+    return str(thumb)
 
 
 def _author_icon_for_member(member: typing.Optional[discord.Member]) -> typing.Optional[str]:
@@ -488,7 +502,10 @@ class ScratchCardExtended(commands.Cog):
 
         thumb = _thumbnail_url_for_card(card)
         if thumb:
-            embed.set_thumbnail(url=thumb)
+            try:
+                embed.set_thumbnail(url=thumb)
+            except Exception:
+                pass
 
         if buyer:
             icon = _author_icon_for_member(buyer)
@@ -535,8 +552,16 @@ class ScratchCardExtended(commands.Cog):
                 val = p.get("value", 0)
                 chance = p.get("weight", 0.0)
                 tag = p.get("tag") or "-"
-                lines.append(f"{cid}: {name} — {val} {currency if False else ''}{_format_chance(chance)} | {tag}")
+                lines.append(f"{cid}: {name} — {val} {_format_chance(chance)} | {tag}")
             embed.add_field(name="Prizes", value="\n".join(lines), inline=False)
+
+        thumb = _thumbnail_url_for_card(card)
+        if thumb:
+            try:
+                embed.set_thumbnail(url=thumb)
+            except Exception:
+                pass
+
         try:
             embed.set_footer(text=guild.name)
         except Exception:
