@@ -535,38 +535,55 @@ class ScratchCardExtended(commands.Cog):
         return embed
 
     def _view_details_embed(self, guild: discord.Guild, card_key: str, card: dict) -> discord.Embed:
-        embed = discord.Embed(title=f"Card Details — {card.get('name')}", color=0x3498DB)
-        embed.add_field(name="Internal Key", value=card_key, inline=True)
-        embed.add_field(name="Price", value=str(card.get("price", 0)), inline=True)
+        # Header and basic info
+        card_name = card.get("name") or "Scratch Card"
+        color = 0x3498DB
+        embed = discord.Embed(title=f"{card_name} — Card Details", color=color)
+    
+        # Top-line metadata as inline fields
+        price = card.get("price", 0)
         max_daily = card.get("max_daily")
         md_text = str(max_daily) if max_daily is not None else "Guild default / unlimited"
-        embed.add_field(name="Max buys per day", value=md_text, inline=True)
-        prizes = card.get("prizes", [])
+        embed.add_field(name="Internal Key", value=f"`{card_key}`", inline=True)
+        embed.add_field(name="Price", value=f"{price}", inline=True)
+        embed.add_field(name="Max buys / day", value=md_text, inline=True)
+    
+        # Prizes: build a compact, aligned list with emoji, name, value and chance
+        prizes = card.get("prizes", []) or []
         if not prizes:
             embed.add_field(name="Prizes", value="No prizes configured", inline=False)
         else:
             lines = []
+            # Column widths chosen for readability in Discord embeds
             for p in prizes:
-                cid = p.get("id")
-                name = p.get("name")
-                val = p.get("value", 0)
+                pid = p.get("id")
+                name = p.get("name") or "Unnamed"
+                val = int(p.get("value", 0))
                 chance = p.get("weight", 0.0)
                 tag = p.get("tag") or "-"
-                lines.append(f"{cid}: {name} — {val} {_format_chance(chance)} | {tag}")
-            embed.add_field(name="Prizes", value="\n".join(lines), inline=False)
-
+                emoji = _rarity_emoji(tag)
+                # Format: emoji name — value | chance% (id)
+                lines.append(f"{emoji} **{name}** — `{val}` ⸱ {_format_chance(chance)}\n`{pid}` • {tag}")
+    
+            # If many prizes, keep the field compact by joining with double newlines
+            embed.add_field(name=f"Prizes ({len(prizes)})", value="\n\n".join(lines), inline=False)
+    
+        # Thumbnail and footer
         thumb = _thumbnail_url_for_card(card)
         if thumb:
             try:
                 embed.set_thumbnail(url=thumb)
             except Exception:
                 pass
-
+    
+        footer_text = f"{guild.name} • Scratchcard"
         try:
-            embed.set_footer(text=guild.name)
+            embed.set_footer(text=footer_text)
         except Exception:
             pass
+    
         return embed
+
 
     @commands.group()
     async def scratch(self, ctx: commands.Context):
