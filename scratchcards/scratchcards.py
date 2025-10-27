@@ -19,6 +19,7 @@ DEFAULT_GUILD = {
 
 
 def disable_view_items(view: ui.View):
+    """Compatibility helper: mark all view children as disabled if possible."""
     if view is None:
         return
     for item in getattr(view, "children", []):
@@ -30,6 +31,7 @@ def disable_view_items(view: ui.View):
 
 
 async def _auto_disable_view_after(view: ui.View, message: typing.Optional[discord.Message], timeout: int):
+    """Sleep then disable the view and edit a fresh message; safe against ephemeral / stale message objects."""
     await asyncio.sleep(timeout)
     if view.is_finished():
         return
@@ -60,6 +62,8 @@ async def _auto_disable_view_after(view: ui.View, message: typing.Optional[disco
 
 
 class TimedView(ui.View):
+    """A View that stores an associated message and can be auto-disabled via helper."""
+
     def __init__(self, timeout: int = 60):
         super().__init__(timeout=timeout)
         self.message: typing.Optional[discord.Message] = None
@@ -136,25 +140,26 @@ class ConfirmView(TimedView):
 
 
 class SimpleSelect(ui.Select):
-    """Select that stores the triggering interaction for later modal send and defers/finishes properly."""
+    """A Select with built-in callback handling that defers, disables view, and stops the view.
+
+    - author: only allow the invoking author to interact
+    - values will be set on self.values as usual
+    """
 
     def __init__(self, author: discord.User, options: typing.List[discord.SelectOption], placeholder: str = "Select...", min_values: int = 1, max_values: int = 1):
         super().__init__(placeholder=placeholder, options=options, min_values=min_values, max_values=max_values)
         self.author = author
-        self._trigger_interaction: typing.Optional[discord.Interaction] = None
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.author.id:
             await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
             return
-        # store the interaction that actually triggered this select
-        self._trigger_interaction = interaction
-        # acknowledge so Discord does not time out
+        # Acknowledge so Discord doesn't time out
         try:
             await interaction.response.defer()
         except Exception:
             pass
-        # disable view and edit message to show disabled controls
+        # Disable view items and edit the original message to reflect disabled state
         if self.view:
             try:
                 disable_view_items(self.view)
@@ -438,7 +443,7 @@ class PrizeEditModal(ui.Modal, title="Edit Prize (will save on submit)"):
 
 class PrizeSelect(ui.Select):
     def __init__(self, cog, guild: discord.Guild, card_key: str, prizes: typing.List[dict], author: discord.User):
-        options = [discord.SelectOption(label=f"{p.get('name')} ({p.get('id')})", value=p.get('id')) for p in prizes]
+        options = [discord.SelectOption(label=f"{p.get('name')} ({p.get('id')})", value=p.get("id")) for p in prizes]
         super().__init__(placeholder="Select prize to edit", options=options, min_values=1, max_values=1)
         self.cog = cog
         self.guild = guild
@@ -484,6 +489,7 @@ def _rarity_emoji(tag: typing.Optional[str]) -> str:
 
 
 def _thumbnail_url_for_card(card: dict) -> typing.Optional[str]:
+    # placeholder decorative assets; return None to skip
     return None
 
 
@@ -521,6 +527,7 @@ class ScratchCardExtended(commands.Cog):
         return opts
 
     def _weighted_prize_choice(self, prizes: typing.List[dict]) -> dict:
+        """Select prize using stored percent chances in 'weight'. If total < 100, remaining chance is 'No Prize'."""
         if not prizes:
             return {"name": "No Prize", "value": 0, "weight": 0.0, "tag": None, "id": "none"}
         entries = []
@@ -615,7 +622,7 @@ class ScratchCardExtended(commands.Cog):
                 val = p.get("value", 0)
                 chance = p.get("weight", 0.0)
                 tag = p.get("tag") or "-"
-                lines.append(f"{cid}: {name} — {val} {_format_chance(chance)} | {tag}")
+                lines.append(f"{cid}: {name} — {val} {bank.get_currency_name.__name__ if False else ''}{_format_chance(chance)} | {tag}")
             embed.add_field(name="Prizes", value="\n".join(lines), inline=False)
         try:
             embed.set_footer(text=guild.name)
@@ -695,6 +702,7 @@ class ScratchCardExtended(commands.Cog):
             prizes = card.get("prizes", [])
             chosen = self._weighted_prize_choice(prizes)
             prize_value = int(chosen.get("value", 0))
+            prize_name = chosen.get("name", "Prize")
 
             try:
                 if prize_value > 0:
@@ -726,6 +734,8 @@ class ScratchCardExtended(commands.Cog):
 
         view = TimedView(timeout=60)
 
+        # --- define callbacks first to avoid NameError ---
+
         async def create_card_cb(interaction: discord.Interaction):
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
@@ -738,6 +748,7 @@ class ScratchCardExtended(commands.Cog):
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
 
+            # Fetch latest cards
             gc = await self.get_guild_conf(ctx.guild)
             cards_local = gc.get("cards", {})
             if not cards_local:
@@ -767,7 +778,7 @@ class ScratchCardExtended(commands.Cog):
                 return
 
             chosen = sel.values[0]
-            # fetch latest card data
+            # open modal with existing card data
             gc = await self.get_guild_conf(ctx.guild)
             card_data = gc.get("cards", {}).get(chosen)
             if not card_data:
@@ -779,19 +790,12 @@ class ScratchCardExtended(commands.Cog):
 
             modal = CardEditModal(cog=self, guild=ctx.guild, card_key=chosen, existing=card_data)
 
-            # open modal on the select's triggering interaction
-            trigger_i = getattr(sel, "_trigger_interaction", None)
-            if trigger_i:
+            # send the modal directly on the original interaction (do not defer earlier)
+            try:
+                await interaction.response.send_modal(modal)
+            except Exception:
                 try:
-                    await trigger_i.response.send_modal(modal)
-                except Exception:
-                    try:
-                        await trigger_i.followup.send("Failed to open modal; try again.", ephemeral=True)
-                    except Exception:
-                        pass
-            else:
-                try:
-                    await interaction.followup.send("Could not open edit modal (internal).", ephemeral=True)
+                    await interaction.followup.send("Failed to open modal here; try using the manage command again.", ephemeral=True)
                 except Exception:
                     pass
 
@@ -833,6 +837,7 @@ class ScratchCardExtended(commands.Cog):
             except Exception:
                 pass
 
+        # --- create buttons and assign callbacks after functions exist ---
         create_btn = ui.Button(label="Create Card", style=discord.ButtonStyle.green)
         edit_btn = ui.Button(label="Edit Card", style=discord.ButtonStyle.blurple)
         remove_btn = ui.Button(label="Remove Card", style=discord.ButtonStyle.red)
@@ -874,6 +879,17 @@ class ScratchCardExtended(commands.Cog):
                 pass
             return
 
+        def build_desc():
+            lines = [f"Managing card {card_key}: {card.get('name')} (Price {card.get('price')})"]
+            prizes = card.get("prizes", [])
+            if not prizes:
+                lines.append("No prizes configured yet.")
+            else:
+                lines.append("Prizes:")
+                for p in prizes:
+                    lines.append(f"- {p.get('id')} | {p.get('name')} | value {p.get('value')} | chance {p.get('weight')}% | tag {p.get('tag')}")
+            return "\n".join(lines)
+
         view = TimedView(timeout=60)
 
         async def add_prize_cb(i: discord.Interaction):
@@ -893,6 +909,7 @@ class ScratchCardExtended(commands.Cog):
             if not prizes:
                 await i.response.send_message("No prizes to edit.", ephemeral=True)
                 return
+            # Use SimpleSelect to present prize choices
             opts = [discord.SelectOption(label=f"{p.get('name')} ({p.get('id')})", value=p.get('id')) for p in prizes]
             sel = SimpleSelect(i.user, opts, placeholder="Select a prize to edit", min_values=1, max_values=1)
             sel_view = TimedView(timeout=60)
@@ -920,19 +937,15 @@ class ScratchCardExtended(commands.Cog):
                     pass
                 return
             modal = PrizeEditModal(self, guild, card_key, prize_id, prize)
-            # open modal on the select's triggering interaction
-            trigger_i = getattr(sel, "_trigger_interaction", None)
-            if trigger_i:
+            try:
+                await i.followup.send("Opening edit modal...", ephemeral=True)
+            except Exception:
+                pass
+            try:
+                await i.response.send_modal(modal)
+            except Exception:
                 try:
-                    await trigger_i.response.send_modal(modal)
-                except Exception:
-                    try:
-                        await trigger_i.followup.send("Failed to open modal; try again.", ephemeral=True)
-                    except Exception:
-                        pass
-            else:
-                try:
-                    await i.followup.send("Could not open edit modal (internal).", ephemeral=True)
+                    await i.followup.send("Failed to open modal; try again.", ephemeral=True)
                 except Exception:
                     pass
 
