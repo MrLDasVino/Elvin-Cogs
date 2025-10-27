@@ -57,6 +57,29 @@ class CardSelect(ui.Select):
         self.view.stop()
 
 
+class AdminCardSelect(ui.Select):
+    """Select shown on the admin panel to pick a card and open the card manager immediately."""
+
+    def __init__(self, cog, guild: discord.Guild, author: discord.User, options: typing.List[discord.SelectOption]):
+        super().__init__(placeholder="Select a card to manage", min_values=1, max_values=1, options=options)
+        self.cog = cog
+        self.guild = guild
+        self.author = author
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return
+        chosen_key = self.values[0]
+        # Acknowledge immediately and then open card manager in background using followup
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.followup.send(f"Opening card manager for {chosen_key}...", ephemeral=True)
+        except Exception:
+            pass
+        asyncio.create_task(self.cog._card_manager(interaction, None, chosen_key))
+
+
 class CardModal(ui.Modal, title="Create / Edit Card"):
     key = ui.TextInput(label="Card key (internal, no spaces)", placeholder="basic", required=True, max_length=32)
     display = ui.TextInput(label="Display name", placeholder="Basic Scratch", required=True, max_length=64)
@@ -364,33 +387,7 @@ class ScratchCardExtended(commands.Cog):
                 return
             modal = CardModal(cog=self, guild=ctx.guild)
             await interaction.response.send_modal(modal)
-            # do not await modal.wait() here; CardModal handles saving and followups
-
-        async def manage_card_cb(interaction: discord.Interaction):
-            if interaction.user.id != ctx.author.id:
-                await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
-                return
-            await interaction.response.defer(ephemeral=True)
-
-            gc = await self.get_guild_conf(ctx.guild)
-            cards_local = gc.get("cards", {})
-            if not cards_local:
-                await interaction.followup.send("No cards to edit.", ephemeral=True)
-                return
-            opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
-            sel = ui.Select(placeholder="Select a card to manage", options=opts, min_values=1, max_values=1)
-            sel_view = ui.View(timeout=60)
-            sel_view.add_item(sel)
-
-            await interaction.followup.send("Select a card to manage:", view=sel_view, ephemeral=True)
-            await sel_view.wait()
-            if not getattr(sel, "values", None):
-                await interaction.followup.send("Selection timed out.", ephemeral=True)
-                return
-            chosen_key = sel.values[0]
-            await interaction.followup.send(f"Opening card manager for {chosen_key}...", ephemeral=True)
-
-            asyncio.create_task(self._card_manager(interaction, ctx, chosen_key))
+            # CardModal.on_submit handles saving and reply
 
         async def remove_card_cb(interaction: discord.Interaction):
             if interaction.user.id != ctx.author.id:
@@ -420,22 +417,34 @@ class ScratchCardExtended(commands.Cog):
             await interaction.followup.send(f"Removed card {key}.", ephemeral=True)
 
         create_btn = ui.Button(label="Create Card", style=discord.ButtonStyle.green)
-        manage_btn = ui.Button(label="Manage Card", style=discord.ButtonStyle.blurple)
         remove_btn = ui.Button(label="Remove Card", style=discord.ButtonStyle.red)
 
         create_btn.callback = create_card_cb
-        manage_btn.callback = manage_card_cb
         remove_btn.callback = remove_card_cb
 
         view.add_item(create_btn)
-        view.add_item(manage_btn)
         view.add_item(remove_btn)
+
+        # Add an AdminCardSelect to the panel if there are cards
+        if cards:
+            opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards.items()]
+            admin_sel = AdminCardSelect(self, ctx.guild, ctx.author, opts)
+            view.add_item(admin_sel)
 
         await ctx.send(msg, view=view)
 
-    async def _card_manager(self, interaction: discord.Interaction, ctx: commands.Context, card_key: str):
+    async def _card_manager(self, interaction: discord.Interaction, ctx: typing.Optional[commands.Context], card_key: str):
         # card manager runs in background (called via create_task). Use followups for messages.
-        gc = await self.get_guild_conf(ctx.guild)
+        # If ctx is None, we still have interaction and can use followup messages.
+        guild = interaction.guild if interaction and interaction.guild else (ctx.guild if ctx else None)
+        if not guild:
+            try:
+                await interaction.followup.send("Internal error: missing guild context.", ephemeral=True)
+            except Exception:
+                pass
+            return
+
+        gc = await self.get_guild_conf(guild)
         cards_local = gc.get("cards", {})
         card = cards_local.get(card_key)
         if not card:
@@ -459,22 +468,22 @@ class ScratchCardExtended(commands.Cog):
         view = ui.View(timeout=300)
 
         async def add_prize_cb(i: discord.Interaction):
-            if i.user.id != ctx.author.id:
+            if i.user.id != (interaction.user.id if interaction else ctx.author.id):
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
-            modal = PrizeModal(cog=self, guild=ctx.guild, card_key=card_key)
+            modal = PrizeModal(cog=self, guild=guild, card_key=card_key)
             await i.response.send_modal(modal)
-            # do not await modal.wait(); PrizeModal.on_submit saves and replies
+            # PrizeModal.on_submit saves and replies
 
         async def edit_prize_cb(i: discord.Interaction):
-            if i.user.id != ctx.author.id:
+            if i.user.id != (interaction.user.id if interaction else ctx.author.id):
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
             prizes = card.get("prizes", [])
             if not prizes:
                 await i.response.send_message("No prizes to edit.", ephemeral=True)
                 return
-            sel = PrizeSelect(self, ctx.guild, card_key, prizes, i.user)
+            sel = PrizeSelect(self, guild, card_key, prizes, i.user)
             sel_view = ui.View(timeout=60)
             sel_view.add_item(sel)
             await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
@@ -482,7 +491,7 @@ class ScratchCardExtended(commands.Cog):
             await i.followup.send("If you submitted a modal, changes should be saved.", ephemeral=True)
 
         async def remove_prize_cb(i: discord.Interaction):
-            if i.user.id != ctx.author.id:
+            if i.user.id != (interaction.user.id if interaction else ctx.author.id):
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
             prizes = card.get("prizes", [])
@@ -500,15 +509,15 @@ class ScratchCardExtended(commands.Cog):
                 return
             remove_ids = set(sel.values)
             card["prizes"] = [p for p in prizes if p.get("id") not in remove_ids]
-            gc = await self.get_guild_conf(ctx.guild)
+            gc = await self.get_guild_conf(guild)
             cards_local = gc.get("cards", {})
             cards_local[card_key] = card
             gc["cards"] = cards_local
-            await self.config.guild(ctx.guild).set(gc)
+            await self.config.guild(guild).set(gc)
             await i.followup.send(f"Removed {len(remove_ids)} prize(s).", ephemeral=True)
 
         async def view_details_cb(i: discord.Interaction):
-            if i.user.id != ctx.author.id:
+            if i.user.id != (interaction.user.id if interaction else ctx.author.id):
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
             await i.response.send_message(box(build_desc()), ephemeral=True)
@@ -532,6 +541,7 @@ class ScratchCardExtended(commands.Cog):
             await interaction.followup.send(f"Card manager opened for {card_key}.", view=view, ephemeral=True)
         except Exception:
             try:
+                # fallback to channel send if followup fails
                 await interaction.channel.send(f"Card manager opened for {card_key}.", view=view)
             except Exception:
                 pass
