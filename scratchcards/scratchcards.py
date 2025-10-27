@@ -18,18 +18,25 @@ DEFAULT_GUILD = {
 }
 
 
-async def _disable_view_later(message: discord.Message, view: ui.View, timeout: int = 60):
-    await asyncio.sleep(timeout)
-    try:
-        view.stop()
-        view.disable_all_items()
-        await message.edit(view=view)
-    except Exception:
-        # ignore edit failures (message deleted, ephemeral gone, permissions, etc.)
-        pass
+class TimedView(ui.View):
+    """A View that disables itself and attempts to edit its associated message on timeout."""
+
+    def __init__(self, timeout: int = 60):
+        super().__init__(timeout=timeout)
+        self.message: typing.Optional[discord.Message] = None
+
+    async def on_timeout(self):
+        self.disable_all_items()
+        if not self.message:
+            return
+        try:
+            await self.message.edit(view=self)
+        except Exception:
+            # ignore edit failures (message deleted, ephemeral gone, permissions, etc.)
+            pass
 
 
-class ConfirmView(ui.View):
+class ConfirmView(TimedView):
     def __init__(self, author: discord.User, timeout: int = 60):
         super().__init__(timeout=timeout)
         self.author = author
@@ -42,12 +49,25 @@ class ConfirmView(ui.View):
     async def confirm(self, interaction: discord.Interaction, button: ui.Button):
         self.result = True
         await interaction.response.defer()
+        # disable UI immediately and update message if possible
+        self.disable_all_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
         self.stop()
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.red)
     async def cancel(self, interaction: discord.Interaction, button: ui.Button):
         self.result = False
         await interaction.response.defer()
+        self.disable_all_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
         self.stop()
 
 
@@ -63,7 +83,15 @@ class CardSelect(ui.Select):
             return
         self.selected_key = self.values[0]
         await interaction.response.defer()
-        self.view.stop()
+        # disable items and try to update the parent message
+        if self.view:
+            self.view.disable_all_items()
+            if getattr(self.view, "message", None):
+                try:
+                    await self.view.message.edit(view=self.view)
+                except Exception:
+                    pass
+            self.view.stop()
 
 
 class AdminCardSelect(ui.Select):
@@ -302,10 +330,10 @@ class ScratchCardExtended(commands.Cog):
 
         select_opts = self._card_options_from_conf(guild_conf)
         select = CardSelect(ctx.author, select_opts)
-        view = ui.View(timeout=60)
+        view = TimedView(timeout=60)
         view.add_item(select)
         msg = await ctx.send("Choose a scratch card to buy:", view=view)
-        asyncio.create_task(_disable_view_later(msg, view, 60))
+        view.message = msg
         await view.wait()
         if select.selected_key is None:
             return
@@ -325,7 +353,7 @@ class ScratchCardExtended(commands.Cog):
 
         confirm = ConfirmView(ctx.author, timeout=60)
         confirm_msg = await ctx.send(f"Confirm purchase of **{card.get('name')}** for **{price} {currency}**?", view=confirm)
-        asyncio.create_task(_disable_view_later(confirm_msg, confirm, 60))
+        confirm.message = confirm_msg
         await confirm.wait()
         if not confirm.result:
             return
@@ -369,7 +397,7 @@ class ScratchCardExtended(commands.Cog):
                 desc_lines.append(f"- {k}: {v.get('name')} (Price {v.get('price')}) Prizes: {len(v.get('prizes', []))}")
         msg_text = "\n".join(desc_lines)
 
-        view = ui.View(timeout=60)
+        view = TimedView(timeout=60)
 
         async def create_card_cb(interaction: discord.Interaction):
             if interaction.user.id != ctx.author.id:
@@ -390,11 +418,19 @@ class ScratchCardExtended(commands.Cog):
                 return
             opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
             sel = ui.Select(placeholder="Select a card to remove", options=opts, min_values=1, max_values=1)
-            sel_view = ui.View(timeout=60)
+            sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
 
-            follow_msg = await interaction.followup.send("Select a card to remove:", view=sel_view, ephemeral=True)
-            asyncio.create_task(_disable_view_later(follow_msg, sel_view, 60))
+            follow_msg = None
+            try:
+                follow_msg = await interaction.followup.send("Select a card to remove:", view=sel_view, ephemeral=True)
+            except Exception:
+                try:
+                    follow_msg = await interaction.channel.send("Select a card to remove:", view=sel_view)
+                except Exception:
+                    pass
+            if follow_msg:
+                sel_view.message = follow_msg
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 return
@@ -402,7 +438,10 @@ class ScratchCardExtended(commands.Cog):
             cards_local.pop(key, None)
             gc["cards"] = cards_local
             await self.config.guild(ctx.guild).set(gc)
-            await interaction.followup.send(f"Removed card {key}.", ephemeral=True)
+            try:
+                await interaction.followup.send(f"Removed card {key}.", ephemeral=True)
+            except Exception:
+                pass
 
         create_btn = ui.Button(label="Create Card", style=discord.ButtonStyle.green)
         remove_btn = ui.Button(label="Remove Card", style=discord.ButtonStyle.red)
@@ -419,7 +458,8 @@ class ScratchCardExtended(commands.Cog):
             view.add_item(admin_sel)
 
         panel_msg = await ctx.send(msg_text, view=view)
-        asyncio.create_task(_disable_view_later(panel_msg, view, 60))
+        view.message = panel_msg
+        await view.wait()
 
     async def _card_manager(self, interaction: discord.Interaction, ctx: typing.Optional[commands.Context], card_key: str):
         guild = interaction.guild if interaction and interaction.guild else (ctx.guild if ctx else None)
@@ -451,7 +491,7 @@ class ScratchCardExtended(commands.Cog):
                     lines.append(f"- {p.get('id')} | {p.get('name')} | value {p.get('value')} | weight {p.get('weight')} | tag {p.get('tag')}")
             return "\n".join(lines)
 
-        view = ui.View(timeout=60)
+        view = TimedView(timeout=60)
 
         async def add_prize_cb(i: discord.Interaction):
             opener_id = interaction.user.id if interaction else (ctx.author.id if ctx else None)
@@ -471,10 +511,18 @@ class ScratchCardExtended(commands.Cog):
                 await i.response.send_message("No prizes to edit.", ephemeral=True)
                 return
             sel = PrizeSelect(self, guild, card_key, prizes, i.user)
-            sel_view = ui.View(timeout=60)
+            sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
-            follow_msg = await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
-            asyncio.create_task(_disable_view_later(follow_msg, sel_view, 60))
+            follow_msg = None
+            try:
+                follow_msg = await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
+            except Exception:
+                try:
+                    follow_msg = await i.channel.send("Select a prize to edit:", view=sel_view)
+                except Exception:
+                    pass
+            if follow_msg:
+                sel_view.message = follow_msg
             # return immediately so select interaction and modal open correctly
 
         async def remove_prize_cb(i: discord.Interaction):
@@ -488,10 +536,18 @@ class ScratchCardExtended(commands.Cog):
                 return
             opts = [discord.SelectOption(label=f"{p.get('name')} ({p.get('id')})", value=p.get('id')) for p in prizes]
             sel = ui.Select(placeholder="Select prize(s) to remove", options=opts, min_values=1, max_values=25)
-            sel_view = ui.View(timeout=60)
+            sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
-            follow_msg = await i.response.send_message("Select prize(s) to remove:", view=sel_view, ephemeral=True)
-            asyncio.create_task(_disable_view_later(follow_msg, sel_view, 60))
+            follow_msg = None
+            try:
+                follow_msg = await i.response.send_message("Select prize(s) to remove:", view=sel_view, ephemeral=True)
+            except Exception:
+                try:
+                    follow_msg = await i.channel.send("Select prize(s) to remove:", view=sel_view)
+                except Exception:
+                    pass
+            if follow_msg:
+                sel_view.message = follow_msg
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 return
@@ -502,7 +558,10 @@ class ScratchCardExtended(commands.Cog):
             cards_local[card_key] = card
             gc["cards"] = cards_local
             await self.config.guild(guild).set(gc)
-            await i.followup.send(f"Removed {len(remove_ids)} prize(s).", ephemeral=True)
+            try:
+                await i.followup.send(f"Removed {len(remove_ids)} prize(s).", ephemeral=True)
+            except Exception:
+                pass
 
         async def view_details_cb(i: discord.Interaction):
             opener_id = interaction.user.id if interaction else (ctx.author.id if ctx else None)
@@ -526,16 +585,18 @@ class ScratchCardExtended(commands.Cog):
         view.add_item(remove_btn)
         view.add_item(view_btn)
 
+        manager_msg = None
         try:
             manager_msg = await interaction.followup.send(f"Card manager opened for {card_key}.", view=view, ephemeral=True)
-            asyncio.create_task(_disable_view_later(manager_msg, view, 60))
         except Exception:
             try:
-                # fallback to channel send if followup fails
                 manager_msg = await interaction.channel.send(f"Card manager opened for {card_key}.", view=view)
-                asyncio.create_task(_disable_view_later(manager_msg, view, 60))
             except Exception:
                 pass
+
+        if manager_msg:
+            view.message = manager_msg
+            await view.wait()
 
     @checks.mod_or_permissions(manage_guild=True)
     @scratch.command()
