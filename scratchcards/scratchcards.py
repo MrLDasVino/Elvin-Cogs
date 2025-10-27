@@ -437,28 +437,34 @@ class ScratchCardExtended(commands.Cog):
                 return p
         return {"name": "No Prize", "value": 0, "weight": 0.0, "tag": None, "id": "none"}
 
-    def _buy_result_embed(self, guild: discord.Guild, card: dict, price: int, prize: dict, buyer: typing.Optional[discord.Member] = None) -> discord.Embed:
-        """Richer, emoji-forward embed for buy results."""
+    def _random_embed_color(self) -> int:
+        """Return a visually pleasing random color as an integer."""
+        # choose from a curated palette to avoid ugly colors
+        palette = [0x1ABC9C, 0x2ECC71, 0x3498DB, 0x9B59B6, 0xE91E63, 0xE67E22, 0xF1C40F, 0x95A5A6, 0x34495E]
+        return random.choice(palette)
+
+    def _buy_result_embed(self, guild: discord.Guild, card: dict, price: int, prize: dict, currency: str, buyer: typing.Optional[discord.Member] = None) -> discord.Embed:
+        """Richer, emoji-forward embed for buy results using the server currency and random color."""
         won = int(prize.get("value", 0)) > 0
         prize_name = prize.get("name", "No Prize")
         prize_value = int(prize.get("value", 0))
         chance = prize.get("weight", None)
 
         title = "🎉 You Won!" if won else "😢 Better Luck Next Time"
-        color = 0xF1C40F if won else 0x95A5A6
+        color = self._random_embed_color() if True else (0xF1C40F if won else 0x95A5A6)
         embed = discord.Embed(title=title, color=color)
 
         card_name = card.get("name") or "Scratch Card"
-        embed.description = f"**{card_name}** — Cost: **{price}**"
+        embed.description = f"**{card_name}** — Cost: **{price} {currency}**"
 
         if won:
-            embed.add_field(name=f"{_rarity_emoji(prize.get('tag'))} Prize", value=f"**{prize_name}**\n💰 {prize_value} credits", inline=False)
+            embed.add_field(name=f"{_rarity_emoji(prize.get('tag'))} Prize", value=f"**{prize_name}**\n💰 {prize_value} {currency}", inline=False)
             embed.add_field(name="Chance", value=_format_chance(chance), inline=True)
-            embed.add_field(name="Card Price", value=f"{price}", inline=True)
+            embed.add_field(name="Card Price", value=f"{price} {currency}", inline=True)
         else:
             embed.add_field(name="Prize", value="No payout this time", inline=False)
             embed.add_field(name="Chance", value=_format_chance(chance), inline=True)
-            embed.add_field(name="Card Price", value=f"{price}", inline=True)
+            embed.add_field(name="Card Price", value=f"{price} {currency}", inline=True)
 
         thumb = _thumbnail_url_for_card(card)
         if thumb:
@@ -483,8 +489,12 @@ class ScratchCardExtended(commands.Cog):
             except Exception:
                 pass
 
+        # slightly adjust color for win to keep palette but emphasize
         if won:
-            embed.colour = 0x2ECC71
+            try:
+                embed.colour = 0x2ECC71
+            except Exception:
+                pass
 
         return embed
 
@@ -503,7 +513,7 @@ class ScratchCardExtended(commands.Cog):
                 val = p.get("value", 0)
                 chance = p.get("weight", 0.0)
                 tag = p.get("tag") or "-"
-                lines.append(f"{cid}: {name} — {val} credits | {_format_chance(chance)} | {tag}")
+                lines.append(f"{cid}: {name} — {val} {bank.get_currency_name.__name__ if False else ''}{_format_chance(chance)} | {tag}")
             embed.add_field(name="Prizes", value="\n".join(lines), inline=False)
         try:
             embed.set_footer(text=guild.name)
@@ -594,7 +604,7 @@ class ScratchCardExtended(commands.Cog):
                 await ctx.send(f"Award failed, purchase refunded: {e}")
                 return
 
-            embed = self._buy_result_embed(ctx.guild, card, price, chosen, buyer=ctx.author)
+            embed = self._buy_result_embed(ctx.guild, card, price, chosen, currency, buyer=ctx.author)
             await ctx.send(embed=embed)
 
     @scratch.command(name="manage")
