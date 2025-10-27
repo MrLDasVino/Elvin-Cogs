@@ -179,11 +179,10 @@ class AdminCardSelect(ui.Select):
             await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
             return
         chosen_key = self.values[0]
-        # Use follow-up task to avoid blocking the interaction; defer ephemeral so the manager can send followups
+        # defer ephemeral to allow followups from the manager; not deferring here caused race in some flows
         try:
             await interaction.response.defer(ephemeral=True)
         except Exception:
-            # best-effort: if defer fails, continue without it
             pass
         asyncio.create_task(self.cog._card_manager(interaction, None, chosen_key))
 
@@ -704,6 +703,7 @@ class ScratchCardExtended(commands.Cog):
             # Send the selection view immediately as the interaction response so it's usable right away
             try:
                 await interaction.response.send_message("Select a card to remove:", view=sel_view, ephemeral=True)
+                # retrieve the message object for the ephemeral response
                 follow_msg = await interaction.original_response()
             except Exception:
                 # fallback to channel send if the response failed
@@ -711,6 +711,7 @@ class ScratchCardExtended(commands.Cog):
                     follow_msg = await interaction.channel.send("Select a card to remove:", view=sel_view)
                 except Exception:
                     try:
+                        # inform the admin ephemeral if possible
                         await interaction.followup.send("Failed to open removal menu.", ephemeral=True)
                     except Exception:
                         pass
@@ -720,6 +721,7 @@ class ScratchCardExtended(commands.Cog):
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
 
+            # wait for the select view to finish (either selection or timeout)
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 try:
@@ -812,7 +814,7 @@ class ScratchCardExtended(commands.Cog):
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
 
-            # send the select immediately
+            # send the select immediately as the interaction response
             try:
                 await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
                 follow_msg = await i.original_response()
@@ -829,6 +831,9 @@ class ScratchCardExtended(commands.Cog):
             if follow_msg:
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
+
+            await sel_view.wait()
+            # when PrizeSelect triggers a modal, it will handle it itself; no further action required here
 
         async def remove_prize_cb(i: discord.Interaction):
             opener_id = interaction.user.id if interaction else (ctx.author.id if ctx else None)
