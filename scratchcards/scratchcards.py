@@ -8,7 +8,7 @@ import random
 import typing
 
 CONFIG_ID = 0xBADA55C0FFEE1234
-COG_VERSION = "1.2.2"
+COG_VERSION = "1.2.3"
 
 DEFAULT_GUILD = {
     "enabled": True,
@@ -235,12 +235,65 @@ class CardModal(ui.Modal, title="Create Card"):
             "name": payload["name"],
             "price": payload["price"],
             "prizes": [],
-            # store per-card max buys per day; None means no limit (uses guild default)
             "max_daily": payload["max_daily"]
         }
         gc["cards"] = cards_local
         await self.cog.config.guild(self.guild).set(gc)
         await interaction.response.send_message(f"Created card {key}.", ephemeral=True)
+
+
+class CardEditModal(ui.Modal, title="Edit Card"):
+    display = ui.TextInput(label="Display name", required=True, max_length=64)
+    price = ui.TextInput(label="Price (int)", required=True, max_length=20)
+    max_daily = ui.TextInput(label="Max buys per day (optional)", required=False, max_length=10)
+
+    def __init__(self, cog=None, guild: discord.Guild = None, card_key: str = None, existing: dict = None):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+        self.card_key = card_key
+        self.existing = existing or {}
+        self.display.default = self.existing.get("name", "")
+        self.price.default = str(self.existing.get("price", 0))
+        md = self.existing.get("max_daily")
+        self.max_daily.default = "" if md is None else str(md)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            price_val = int(self.price.value.strip())
+        except Exception:
+            await interaction.response.send_message("Invalid numeric input for price.", ephemeral=True)
+            return
+
+        max_daily_val = None
+        if self.max_daily.value and self.max_daily.value.strip():
+            try:
+                md = int(self.max_daily.value.strip())
+                if md < 0:
+                    raise ValueError()
+                max_daily_val = md
+            except Exception:
+                await interaction.response.send_message("Invalid numeric input for max buys per day. Use a non-negative integer or leave empty.", ephemeral=True)
+                return
+
+        if not self.cog or not self.guild or not self.card_key:
+            await interaction.response.send_message("Internal error: missing context.", ephemeral=True)
+            return
+
+        gc = await self.cog.get_guild_conf(self.guild)
+        cards_local = gc.get("cards", {})
+        card = cards_local.get(self.card_key)
+        if not card:
+            await interaction.response.send_message("Card no longer exists.", ephemeral=True)
+            return
+
+        card["name"] = self.display.value.strip()
+        card["price"] = max(0, price_val)
+        card["max_daily"] = max_daily_val
+        cards_local[self.card_key] = card
+        gc["cards"] = cards_local
+        await self.cog.config.guild(self.guild).set(gc)
+        await interaction.response.send_message(f"Updated card {self.card_key}.", ephemeral=True)
 
 
 class PrizeModal(ui.Modal, title="Create / Edit Prize"):
@@ -459,12 +512,10 @@ class ScratchCardExtended(commands.Cog):
         return {"name": "No Prize", "value": 0, "weight": 0.0, "tag": None, "id": "none"}
 
     def _random_embed_color(self) -> int:
-        """Return a visually pleasing random color as an integer."""
         palette = [0x1ABC9C, 0x2ECC71, 0x3498DB, 0x9B59B6, 0xE91E63, 0xE67E22, 0xF1C40F, 0x95A5A6, 0x34495E]
         return random.choice(palette)
 
     def _buy_result_embed(self, guild: discord.Guild, card: dict, price: int, prize: dict, currency: str, buyer: typing.Optional[discord.Member] = None) -> discord.Embed:
-        """Richer, emoji-forward embed for buy results using the server currency and random color."""
         won = int(prize.get("value", 0)) > 0
         prize_name = prize.get("name", "No Prize")
         prize_value = int(prize.get("value", 0))
@@ -479,12 +530,11 @@ class ScratchCardExtended(commands.Cog):
 
         if won:
             embed.add_field(name=f"{_rarity_emoji(prize.get('tag'))} Prize", value=f"**{prize_name}**\n💰 {prize_value} {currency}", inline=False)
-            embed.add_field(name="Chance", value=_format_chance(chance), inline=True)
-            embed.add_field(name="Card Price", value=f"{price} {currency}", inline=True)
         else:
             embed.add_field(name="Prize", value="No payout this time", inline=False)
-            embed.add_field(name="Chance", value=_format_chance(chance), inline=True)
-            embed.add_field(name="Card Price", value=f"{price} {currency}", inline=True)
+
+        embed.add_field(name="Chance", value=_format_chance(chance), inline=True)
+        embed.add_field(name="Card Price", value=f"{price} {currency}", inline=True)
 
         thumb = _thumbnail_url_for_card(card)
         if thumb:
@@ -535,7 +585,7 @@ class ScratchCardExtended(commands.Cog):
                 val = p.get("value", 0)
                 chance = p.get("weight", 0.0)
                 tag = p.get("tag") or "-"
-                lines.append(f"{cid}: {name} — {val} {currency if False else ''}{_format_chance(chance)} | {tag}")
+                lines.append(f"{cid}: {name} — {val} {bank.get_currency_name.__name__ if False else ''}{_format_chance(chance)} | {tag}")
             embed.add_field(name="Prizes", value="\n".join(lines), inline=False)
         try:
             embed.set_footer(text=guild.name)
@@ -628,7 +678,6 @@ class ScratchCardExtended(commands.Cog):
                 await ctx.send(f"Award failed, purchase refunded: {e}")
                 return
 
-            # fetch currency name once and pass into embed
             currency = await bank.get_currency_name(ctx.guild)
             embed = self._buy_result_embed(ctx.guild, card, price, chosen, currency, buyer=ctx.author)
             await ctx.send(embed=embed)
@@ -639,7 +688,7 @@ class ScratchCardExtended(commands.Cog):
         guild_conf = await self.get_guild_conf(ctx.guild)
         cards = guild_conf.get("cards", {})
 
-        desc_lines = ["Admin panel — create or edit cards and manage prizes."]
+        desc_lines = ["Admin panel — create, edit, or remove cards and manage prizes."]
         if cards:
             desc_lines.append("Existing cards:")
             for k, v in cards.items():
@@ -655,6 +704,74 @@ class ScratchCardExtended(commands.Cog):
             modal = CardModal(cog=self, guild=ctx.guild)
             await interaction.response.send_modal(modal)
 
+        async def edit_card_cb(interaction: discord.Interaction):
+            if interaction.user.id != ctx.author.id:
+                await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
+                return
+            await interaction.response.defer(ephemeral=True)
+
+            gc = await self.get_guild_conf(ctx.guild)
+            cards_local = gc.get("cards", {})
+            if not cards_local:
+                await interaction.followup.send("No cards to edit.", ephemeral=True)
+                return
+
+            opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
+            sel = ui.Select(placeholder="Select a card to edit", options=opts, min_values=1, max_values=1)
+            sel_view = TimedView(timeout=60)
+            sel_view.add_item(sel)
+
+            follow_msg = None
+            try:
+                follow_msg = await interaction.channel.send("Select a card to edit:", view=sel_view)
+            except Exception:
+                try:
+                    follow_msg = await interaction.followup.send("Select a card to edit:", view=sel_view, ephemeral=False)
+                except Exception:
+                    pass
+
+            if follow_msg:
+                sel_view.message = follow_msg
+                asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
+            await sel_view.wait()
+            if not getattr(sel, "values", None):
+                return
+            chosen = sel.values[0]
+            # open modal with existing card data
+            gc = await self.get_guild_conf(ctx.guild)
+            card_data = gc.get("cards", {}).get(chosen)
+            if not card_data:
+                try:
+                    await interaction.followup.send("Card not found after selection.", ephemeral=True)
+                except Exception:
+                    pass
+                return
+            modal = CardEditModal(cog=self, guild=ctx.guild, card_key=chosen, existing=card_data)
+            try:
+                await interaction.followup.send("Opening edit modal...", ephemeral=True)
+            except Exception:
+                pass
+            await interaction.followup.send("Please use the modal that appeared.", ephemeral=True)
+            # send modal to user
+            try:
+                await interaction.user.send("If the edit modal did not appear, try again in the channel.")
+            except Exception:
+                pass
+            await interaction.response.send_message("Edit modal triggered (if supported by your client).", ephemeral=True)
+            # Actually open modal on the interaction that started the flow (some Discord clients require direct modal on original interaction)
+            try:
+                await interaction.followup.send("Use the modal to edit the card.", ephemeral=True)
+            except Exception:
+                pass
+            # Finally present the edit modal directly (best-effort)
+            try:
+                await interaction.response.send_modal(modal)
+            except Exception:
+                try:
+                    await interaction.followup.send("Failed to open modal here; try using the manage command again.", ephemeral=True)
+                except Exception:
+                    pass
+
         async def remove_card_cb(interaction: discord.Interaction):
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
@@ -664,6 +781,7 @@ class ScratchCardExtended(commands.Cog):
             gc = await self.get_guild_conf(ctx.guild)
             cards_local = gc.get("cards", {})
             if not cards_local:
+                await interaction.followup.send("No cards to remove.", ephemeral=True)
                 return
             opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
             sel = ui.Select(placeholder="Select a card to remove", options=opts, min_values=1, max_values=1)
@@ -694,12 +812,15 @@ class ScratchCardExtended(commands.Cog):
                 pass
 
         create_btn = ui.Button(label="Create Card", style=discord.ButtonStyle.green)
+        edit_btn = ui.Button(label="Edit Card", style=discord.ButtonStyle.blurple)
         remove_btn = ui.Button(label="Remove Card", style=discord.ButtonStyle.red)
 
         create_btn.callback = create_card_cb
+        edit_btn.callback = edit_card_cb
         remove_btn.callback = remove_card_cb
 
         view.add_item(create_btn)
+        view.add_item(edit_btn)
         view.add_item(remove_btn)
 
         if cards:
@@ -757,21 +878,17 @@ class ScratchCardExtended(commands.Cog):
             if i.user.id != opener_id:
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
-
             prizes = card.get("prizes", [])
             if not prizes:
                 await i.response.send_message("No prizes to edit.", ephemeral=True)
                 return
-
             try:
                 await i.response.defer(ephemeral=True)
             except Exception:
                 pass
-
             sel = PrizeSelect(self, guild, card_key, prizes, i.user)
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
-
             follow_msg = None
             try:
                 follow_msg = await i.followup.send("Select a prize to edit:", view=sel_view, ephemeral=True)
@@ -780,7 +897,6 @@ class ScratchCardExtended(commands.Cog):
                     follow_msg = await i.channel.send("Select a prize to edit:", view=sel_view)
                 except Exception:
                     pass
-
             if follow_msg:
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
