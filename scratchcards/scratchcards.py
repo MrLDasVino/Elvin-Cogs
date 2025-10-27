@@ -697,22 +697,33 @@ class ScratchCardExtended(commands.Cog):
 
         view = TimedView(timeout=60)
 
+        # --- define callbacks first to avoid NameError ---
+
+        async def create_card_cb(interaction: discord.Interaction):
+            if interaction.user.id != ctx.author.id:
+                await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
+                return
+            modal = CardModal(cog=self, guild=ctx.guild)
+            await interaction.response.send_modal(modal)
+
         async def edit_card_cb(interaction: discord.Interaction):
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
-        
+
+            # Fetch latest cards
             gc = await self.get_guild_conf(ctx.guild)
             cards_local = gc.get("cards", {})
             if not cards_local:
                 await interaction.response.send_message("No cards to edit.", ephemeral=True)
                 return
-        
+
             opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
             sel = ui.Select(placeholder="Select a card to edit", options=opts, min_values=1, max_values=1)
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
-        
+
+            follow_msg = None
             try:
                 follow_msg = await interaction.channel.send("Select a card to edit:", view=sel_view)
             except Exception:
@@ -720,15 +731,15 @@ class ScratchCardExtended(commands.Cog):
                     follow_msg = await interaction.followup.send("Select a card to edit:", view=sel_view, ephemeral=False)
                 except Exception:
                     follow_msg = None
-        
+
             if follow_msg:
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
-        
+
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 return
-        
+
             chosen = sel.values[0]
             # open modal with existing card data
             gc = await self.get_guild_conf(ctx.guild)
@@ -739,9 +750,9 @@ class ScratchCardExtended(commands.Cog):
                 except Exception:
                     pass
                 return
-        
+
             modal = CardEditModal(cog=self, guild=ctx.guild, card_key=chosen, existing=card_data)
-        
+
             # send the modal directly on the original interaction (do not defer earlier)
             try:
                 await interaction.response.send_modal(modal)
@@ -751,13 +762,11 @@ class ScratchCardExtended(commands.Cog):
                 except Exception:
                     pass
 
-
         async def remove_card_cb(interaction: discord.Interaction):
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
             await interaction.response.defer(ephemeral=True)
-
             gc = await self.get_guild_conf(ctx.guild)
             cards_local = gc.get("cards", {})
             if not cards_local:
@@ -791,6 +800,7 @@ class ScratchCardExtended(commands.Cog):
             except Exception:
                 pass
 
+        # --- create buttons and assign callbacks after functions exist ---
         create_btn = ui.Button(label="Create Card", style=discord.ButtonStyle.green)
         edit_btn = ui.Button(label="Edit Card", style=discord.ButtonStyle.blurple)
         remove_btn = ui.Button(label="Remove Card", style=discord.ButtonStyle.red)
