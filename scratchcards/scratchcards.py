@@ -8,7 +8,7 @@ import random
 import typing
 
 CONFIG_ID = 0xBADA55C0FFEE1234
-COG_VERSION = "1.2.1"
+COG_VERSION = "1.2.2"
 
 DEFAULT_GUILD = {
     "enabled": True,
@@ -183,10 +183,11 @@ class AdminCardSelect(ui.Select):
         asyncio.create_task(self.cog._card_manager(interaction, None, chosen_key))
 
 
-class CardModal(ui.Modal, title="Create / Edit Card"):
+class CardModal(ui.Modal, title="Create Card"):
     key = ui.TextInput(label="Card key (internal, no spaces)", placeholder="basic", required=True, max_length=32)
     display = ui.TextInput(label="Display name", placeholder="Basic Scratch", required=True, max_length=64)
     price = ui.TextInput(label="Price (int)", placeholder="100", required=True, max_length=20)
+    max_daily = ui.TextInput(label="Max buys per day (optional)", placeholder="Leave empty for no per-card limit", required=False, max_length=10)
 
     def __init__(self, cog=None, guild: discord.Guild = None, existing: dict = None):
         super().__init__()
@@ -198,8 +199,19 @@ class CardModal(ui.Modal, title="Create / Edit Card"):
         try:
             price_val = int(self.price.value.strip())
         except Exception:
-            await interaction.response.send_message("Invalid numeric input.", ephemeral=True)
+            await interaction.response.send_message("Invalid numeric input for price.", ephemeral=True)
             return
+
+        max_daily_val = None
+        if self.max_daily.value and self.max_daily.value.strip():
+            try:
+                md = int(self.max_daily.value.strip())
+                if md < 0:
+                    raise ValueError()
+                max_daily_val = md
+            except Exception:
+                await interaction.response.send_message("Invalid numeric input for max buys per day. Use a non-negative integer or leave empty.", ephemeral=True)
+                return
 
         if not self.cog or not self.guild:
             await interaction.response.send_message("Internal error: missing context.", ephemeral=True)
@@ -208,7 +220,8 @@ class CardModal(ui.Modal, title="Create / Edit Card"):
         payload = {
             "key": self.key.value.strip(),
             "name": self.display.value.strip(),
-            "price": max(0, price_val)
+            "price": max(0, price_val),
+            "max_daily": max_daily_val
         }
 
         gc = await self.cog.get_guild_conf(self.guild)
@@ -218,7 +231,13 @@ class CardModal(ui.Modal, title="Create / Edit Card"):
             await interaction.response.send_message("Card key already exists.", ephemeral=True)
             return
 
-        cards_local[key] = {"name": payload["name"], "price": payload["price"], "prizes": []}
+        cards_local[key] = {
+            "name": payload["name"],
+            "price": payload["price"],
+            "prizes": [],
+            # store per-card max buys per day; None means no limit (uses guild default)
+            "max_daily": payload["max_daily"]
+        }
         gc["cards"] = cards_local
         await self.cog.config.guild(self.guild).set(gc)
         await interaction.response.send_message(f"Created card {key}.", ephemeral=True)
@@ -410,7 +429,9 @@ class ScratchCardExtended(commands.Cog):
         opts = []
         cards = guild_conf.get("cards", {})
         for k, v in cards.items():
-            label = f"{v.get('name')} — {v.get('price')}"
+            max_daily = v.get("max_daily")
+            md_text = f" ; max/day {max_daily}" if max_daily is not None else ""
+            label = f"{v.get('name')} — {v.get('price')}{md_text}"
             desc = f"prizes: {len(v.get('prizes', []))}; price {v.get('price')}"
             opts.append(discord.SelectOption(label=label[:100], value=k, description=desc[:100]))
         return opts
@@ -439,7 +460,6 @@ class ScratchCardExtended(commands.Cog):
 
     def _random_embed_color(self) -> int:
         """Return a visually pleasing random color as an integer."""
-        # choose from a curated palette to avoid ugly colors
         palette = [0x1ABC9C, 0x2ECC71, 0x3498DB, 0x9B59B6, 0xE91E63, 0xE67E22, 0xF1C40F, 0x95A5A6, 0x34495E]
         return random.choice(palette)
 
@@ -451,7 +471,7 @@ class ScratchCardExtended(commands.Cog):
         chance = prize.get("weight", None)
 
         title = "🎉 You Won!" if won else "😢 Better Luck Next Time"
-        color = self._random_embed_color() if True else (0xF1C40F if won else 0x95A5A6)
+        color = self._random_embed_color()
         embed = discord.Embed(title=title, color=color)
 
         card_name = card.get("name") or "Scratch Card"
@@ -489,7 +509,6 @@ class ScratchCardExtended(commands.Cog):
             except Exception:
                 pass
 
-        # slightly adjust color for win to keep palette but emphasize
         if won:
             try:
                 embed.colour = 0x2ECC71
@@ -502,6 +521,9 @@ class ScratchCardExtended(commands.Cog):
         embed = discord.Embed(title=f"Card Details — {card.get('name')}", color=0x3498DB)
         embed.add_field(name="Internal Key", value=card_key, inline=True)
         embed.add_field(name="Price", value=str(card.get("price", 0)), inline=True)
+        max_daily = card.get("max_daily")
+        md_text = str(max_daily) if max_daily is not None else "Guild default / unlimited"
+        embed.add_field(name="Max buys per day", value=md_text, inline=True)
         prizes = card.get("prizes", [])
         if not prizes:
             embed.add_field(name="Prizes", value="No prizes configured", inline=False)
@@ -513,7 +535,7 @@ class ScratchCardExtended(commands.Cog):
                 val = p.get("value", 0)
                 chance = p.get("weight", 0.0)
                 tag = p.get("tag") or "-"
-                lines.append(f"{cid}: {name} — {val} {bank.get_currency_name.__name__ if False else ''}{_format_chance(chance)} | {tag}")
+                lines.append(f"{cid}: {name} — {val} {currency if False else ''}{_format_chance(chance)} | {tag}")
             embed.add_field(name="Prizes", value="\n".join(lines), inline=False)
         try:
             embed.set_footer(text=guild.name)
@@ -535,7 +557,9 @@ class ScratchCardExtended(commands.Cog):
         lines = []
         for k, v in cards.items():
             prize_count = len(v.get("prizes", []))
-            lines.append(f"{k} | {v.get('name')} | Price: {v.get('price')} | Prizes: {prize_count}")
+            max_daily = v.get("max_daily")
+            md_text = f" | max/day {max_daily}" if max_daily is not None else ""
+            lines.append(f"{k} | {v.get('name')} | Price: {v.get('price')}{md_text} | Prizes: {prize_count}")
         await ctx.send(box("\n".join(lines)))
 
     @scratch.command()
@@ -604,6 +628,8 @@ class ScratchCardExtended(commands.Cog):
                 await ctx.send(f"Award failed, purchase refunded: {e}")
                 return
 
+            # fetch currency name once and pass into embed
+            currency = await bank.get_currency_name(ctx.guild)
             embed = self._buy_result_embed(ctx.guild, card, price, chosen, currency, buyer=ctx.author)
             await ctx.send(embed=embed)
 
