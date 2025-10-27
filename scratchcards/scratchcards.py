@@ -583,21 +583,34 @@ class ScratchCardExtended(commands.Cog):
             if i.user.id != opener_id:
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
+
             prizes = card.get("prizes", [])
             if not prizes:
                 await i.response.send_message("No prizes to edit.", ephemeral=True)
                 return
+
+            # defer quickly so we don't hit the interaction timeout
+            try:
+                await i.response.defer(ephemeral=True)
+            except Exception:
+                # if defer fails, continue to attempt sending
+                pass
+
             sel = PrizeSelect(self, guild, card_key, prizes, i.user)
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
+
             follow_msg = None
+            # prefer followup (after defer) so we get a Message object when possible
             try:
-                follow_msg = await i.channel.send("Select a prize to edit:", view=sel_view)
+                follow_msg = await i.followup.send("Select a prize to edit:", view=sel_view, ephemeral=True)
             except Exception:
+                # fallback to channel send so it can be edited later
                 try:
-                    follow_msg = await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=False)
+                    follow_msg = await i.channel.send("Select a prize to edit:", view=sel_view)
                 except Exception:
                     pass
+
             if follow_msg:
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
