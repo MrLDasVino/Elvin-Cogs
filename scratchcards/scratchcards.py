@@ -71,7 +71,6 @@ class AdminCardSelect(ui.Select):
             await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
             return
         chosen_key = self.values[0]
-        # acknowledge silently and run manager in background
         await interaction.response.defer(ephemeral=True)
         asyncio.create_task(self.cog._card_manager(interaction, None, chosen_key))
 
@@ -186,14 +185,12 @@ class PrizeEditModal(ui.Modal, title="Edit Prize (will save on submit)"):
         self.tag.default = existing.get("tag") or ""
 
     async def on_submit(self, interaction: discord.Interaction):
-        # validate and write directly to config
         try:
             val = int(self.value.value.strip())
             w = int(self.weight.value.strip())
         except Exception:
             await interaction.response.send_message("Invalid numeric input.", ephemeral=True)
             return
-        # load, update, save
         gc = await self.cog.get_guild_conf(self.guild)
         cards = gc.get("cards", {})
         card = cards.get(self.card_key)
@@ -243,7 +240,7 @@ class PrizeSelect(ui.Select):
             return
         modal = PrizeEditModal(self.cog, self.guild, self.card_key, prize_id, prize)
         await interaction.response.send_modal(modal)
-
+        # do NOT stop the view here so the select can be reused
 
 
 class ScratchCardExtended(commands.Cog):
@@ -326,7 +323,7 @@ class ScratchCardExtended(commands.Cog):
             await ctx.send(f"You need {price} {currency} but have {bal} {currency}.")
             return
 
-        confirm = ConfirmView(ctx.author)
+        confirm = ConfirmView(ctx.author, timeout=60)
         await ctx.send(f"Confirm purchase of **{card.get('name')}** for **{price} {currency}**?", view=confirm)
         await confirm.wait()
         if not confirm.result:
@@ -372,7 +369,7 @@ class ScratchCardExtended(commands.Cog):
                 desc_lines.append(f"- {k}: {v.get('name')} (Price {v.get('price')}) Prizes: {len(v.get('prizes', []))}")
         msg = "\n".join(desc_lines)
 
-        view = ui.View(timeout=300)
+        view = ui.View(timeout=60)
 
         async def create_card_cb(interaction: discord.Interaction):
             if interaction.user.id != ctx.author.id:
@@ -415,7 +412,6 @@ class ScratchCardExtended(commands.Cog):
         view.add_item(create_btn)
         view.add_item(remove_btn)
 
-        # Add an AdminCardSelect to the panel if there are cards
         if cards:
             opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards.items()]
             admin_sel = AdminCardSelect(self, ctx.guild, ctx.author, opts)
@@ -454,7 +450,7 @@ class ScratchCardExtended(commands.Cog):
                     lines.append(f"- {p.get('id')} | {p.get('name')} | value {p.get('value')} | weight {p.get('weight')} | tag {p.get('tag')}")
             return "\n".join(lines)
 
-        view = ui.View(timeout=300)
+        view = ui.View(timeout=60)
 
         async def add_prize_cb(i: discord.Interaction):
             opener_id = interaction.user.id if interaction else (ctx.author.id if ctx else None)
@@ -473,12 +469,11 @@ class ScratchCardExtended(commands.Cog):
             if not prizes:
                 await i.response.send_message("No prizes to edit.", ephemeral=True)
                 return
-            # Send the select and return immediately; the PrizeSelect will open the modal from its own interaction
             sel = PrizeSelect(self, guild, card_key, prizes, i.user)
             sel_view = ui.View(timeout=60)
             sel_view.add_item(sel)
             await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
-            # do not await sel_view.wait(); return immediately so interaction token isn't held
+            # do not await sel_view.wait(); allow PrizeSelect to open modal and keep select usable
 
         async def remove_prize_cb(i: discord.Interaction):
             opener_id = interaction.user.id if interaction else (ctx.author.id if ctx else None)
