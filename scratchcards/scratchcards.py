@@ -18,22 +18,46 @@ DEFAULT_GUILD = {
 }
 
 
+async def _auto_disable_view_after(view: ui.View, message: typing.Optional[discord.Message], timeout: int):
+    """Sleep then disable the view and edit a fresh message; safe against ephemeral / stale message objects."""
+    await asyncio.sleep(timeout)
+    if view.is_finished():
+        return
+    try:
+        view.disable_all_items()
+    except Exception:
+        pass
+    # try to fetch a fresh message and edit it so Discord shows disabled buttons
+    if message is not None:
+        try:
+            if getattr(message, "channel", None):
+                fresh = await message.channel.fetch_message(message.id)
+                await fresh.edit(view=view)
+                try:
+                    view.stop()
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+        # fallback: attempt to edit original message object
+        try:
+            await message.edit(view=view)
+        except Exception:
+            pass
+    # last resort: just stop the view so future interactions are blocked
+    try:
+        view.stop()
+    except Exception:
+        pass
+
+
 class TimedView(ui.View):
-    """A View that disables itself and attempts to edit its associated message on timeout."""
+    """A View that stores an associated message and can be auto-disabled via helper."""
 
     def __init__(self, timeout: int = 60):
         super().__init__(timeout=timeout)
         self.message: typing.Optional[discord.Message] = None
-
-    async def on_timeout(self):
-        self.disable_all_items()
-        if not self.message:
-            return
-        try:
-            await self.message.edit(view=self)
-        except Exception:
-            # ignore edit failures (message deleted, ephemeral gone, permissions, etc.)
-            pass
 
 
 class ConfirmView(TimedView):
@@ -49,9 +73,8 @@ class ConfirmView(TimedView):
     async def confirm(self, interaction: discord.Interaction, button: ui.Button):
         self.result = True
         await interaction.response.defer()
-        # disable UI immediately and update message if possible
         self.disable_all_items()
-        if self.message:
+        if getattr(self, "message", None):
             try:
                 await self.message.edit(view=self)
             except Exception:
@@ -63,7 +86,7 @@ class ConfirmView(TimedView):
         self.result = False
         await interaction.response.defer()
         self.disable_all_items()
-        if self.message:
+        if getattr(self, "message", None):
             try:
                 await self.message.edit(view=self)
             except Exception:
@@ -83,7 +106,6 @@ class CardSelect(ui.Select):
             return
         self.selected_key = self.values[0]
         await interaction.response.defer()
-        # disable items and try to update the parent message
         if self.view:
             self.view.disable_all_items()
             if getattr(self.view, "message", None):
@@ -271,7 +293,6 @@ class PrizeSelect(ui.Select):
             return
         modal = PrizeEditModal(self.cog, self.guild, self.card_key, prize_id, prize)
         await interaction.response.send_modal(modal)
-        # DO NOT stop the view so select remains reusable
 
 
 class ScratchCardExtended(commands.Cog):
@@ -334,6 +355,7 @@ class ScratchCardExtended(commands.Cog):
         view.add_item(select)
         msg = await ctx.send("Choose a scratch card to buy:", view=view)
         view.message = msg
+        asyncio.create_task(_auto_disable_view_after(view, msg, view.timeout or 60))
         await view.wait()
         if select.selected_key is None:
             return
@@ -354,6 +376,7 @@ class ScratchCardExtended(commands.Cog):
         confirm = ConfirmView(ctx.author, timeout=60)
         confirm_msg = await ctx.send(f"Confirm purchase of **{card.get('name')}** for **{price} {currency}**?", view=confirm)
         confirm.message = confirm_msg
+        asyncio.create_task(_auto_disable_view_after(confirm, confirm_msg, confirm.timeout or 60))
         await confirm.wait()
         if not confirm.result:
             return
@@ -431,6 +454,7 @@ class ScratchCardExtended(commands.Cog):
                     pass
             if follow_msg:
                 sel_view.message = follow_msg
+                asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 return
@@ -459,6 +483,7 @@ class ScratchCardExtended(commands.Cog):
 
         panel_msg = await ctx.send(msg_text, view=view)
         view.message = panel_msg
+        asyncio.create_task(_auto_disable_view_after(view, panel_msg, view.timeout or 60))
         await view.wait()
 
     async def _card_manager(self, interaction: discord.Interaction, ctx: typing.Optional[commands.Context], card_key: str):
@@ -523,6 +548,7 @@ class ScratchCardExtended(commands.Cog):
                     pass
             if follow_msg:
                 sel_view.message = follow_msg
+                asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
             # return immediately so select interaction and modal open correctly
 
         async def remove_prize_cb(i: discord.Interaction):
@@ -548,6 +574,7 @@ class ScratchCardExtended(commands.Cog):
                     pass
             if follow_msg:
                 sel_view.message = follow_msg
+                asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 return
@@ -596,6 +623,7 @@ class ScratchCardExtended(commands.Cog):
 
         if manager_msg:
             view.message = manager_msg
+            asyncio.create_task(_auto_disable_view_after(view, manager_msg, view.timeout or 60))
             await view.wait()
 
     @checks.mod_or_permissions(manage_guild=True)
