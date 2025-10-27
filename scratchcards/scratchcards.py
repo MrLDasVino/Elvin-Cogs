@@ -7,9 +7,7 @@ import uuid
 import random
 import typing
 
-# Unique identifier for this cog's Config
 CONFIG_ID = 0xBADA55C0FFEE1234
-
 COG_VERSION = "1.1.6"
 
 DEFAULT_GUILD = {
@@ -18,6 +16,17 @@ DEFAULT_GUILD = {
     "instant_reveal": True,
     "cards": {}
 }
+
+
+async def _disable_view_later(message: discord.Message, view: ui.View, timeout: int = 60):
+    await asyncio.sleep(timeout)
+    try:
+        view.stop()
+        view.disable_all_items()
+        await message.edit(view=view)
+    except Exception:
+        # ignore edit failures (message deleted, ephemeral gone, permissions, etc.)
+        pass
 
 
 class ConfirmView(ui.View):
@@ -43,7 +52,7 @@ class ConfirmView(ui.View):
 
 
 class CardSelect(ui.Select):
-    def __init__(self, author: discord.User, options: typing.List[discord.SelectOption]):
+    def __init__(self, author: discord.User, options: typing.List[discord.SelectOption], timeout: int = 60):
         super().__init__(placeholder="Choose a scratch card...", min_values=1, max_values=1, options=options)
         self.author = author
         self.selected_key: typing.Optional[str] = None
@@ -58,8 +67,6 @@ class CardSelect(ui.Select):
 
 
 class AdminCardSelect(ui.Select):
-    """Select shown on the admin panel to pick a card and open the card manager immediately."""
-
     def __init__(self, cog, guild: discord.Guild, author: discord.User, options: typing.List[discord.SelectOption]):
         super().__init__(placeholder="Select a card to manage", min_values=1, max_values=1, options=options)
         self.cog = cog
@@ -68,7 +75,7 @@ class AdminCardSelect(ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
             return
         chosen_key = self.values[0]
         await interaction.response.defer(ephemeral=True)
@@ -164,7 +171,6 @@ class PrizeModal(ui.Modal, title="Create / Edit Prize"):
         await interaction.response.send_message(f"Added prize {prize_id}.", ephemeral=True)
 
 
-# PrizeEditModal will update the specific prize inside Config directly on submit
 class PrizeEditModal(ui.Modal, title="Edit Prize (will save on submit)"):
     name = ui.TextInput(label="Prize name", required=True, max_length=64)
     value = ui.TextInput(label="Prize value (int)", required=True, max_length=20)
@@ -178,7 +184,6 @@ class PrizeEditModal(ui.Modal, title="Edit Prize (will save on submit)"):
         self.card_key = card_key
         self.prize_id = prize_id
         self.existing = existing
-        # prefill defaults
         self.name.default = existing.get("name", "")
         self.value.default = str(existing.get("value", 0))
         self.weight.default = str(existing.get("weight", 1))
@@ -218,8 +223,6 @@ class PrizeEditModal(ui.Modal, title="Edit Prize (will save on submit)"):
 
 
 class PrizeSelect(ui.Select):
-    """Select that opens a PrizeEditModal when a prize is chosen."""
-
     def __init__(self, cog, guild: discord.Guild, card_key: str, prizes: typing.List[dict], author: discord.User):
         options = [discord.SelectOption(label=f"{p.get('name')} ({p.get('id')})", value=p.get("id")) for p in prizes]
         super().__init__(placeholder="Select prize to edit", options=options, min_values=1, max_values=1)
@@ -240,12 +243,10 @@ class PrizeSelect(ui.Select):
             return
         modal = PrizeEditModal(self.cog, self.guild, self.card_key, prize_id, prize)
         await interaction.response.send_modal(modal)
-        # do NOT stop the view here so the select can be reused
+        # DO NOT stop the view so select remains reusable
 
 
 class ScratchCardExtended(commands.Cog):
-    """Scratch Card extended cog — multi-prize cards with admin UI and bank integration"""
-
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=CONFIG_ID)
@@ -277,7 +278,6 @@ class ScratchCardExtended(commands.Cog):
 
     @scratch.command()
     async def list(self, ctx: commands.Context):
-        """List available scratch cards"""
         guild_conf = await self.get_guild_conf(ctx.guild)
         cards = guild_conf.get("cards", {})
         if not cards:
@@ -291,7 +291,6 @@ class ScratchCardExtended(commands.Cog):
 
     @scratch.command()
     async def buy(self, ctx: commands.Context):
-        """Buy a scratch card — choose from a dropdown and confirm"""
         guild_conf = await self.get_guild_conf(ctx.guild)
         if not guild_conf.get("enabled", True):
             await ctx.send("Scratch cards are disabled in this server.")
@@ -305,7 +304,8 @@ class ScratchCardExtended(commands.Cog):
         select = CardSelect(ctx.author, select_opts)
         view = ui.View(timeout=60)
         view.add_item(select)
-        await ctx.send("Choose a scratch card to buy:", view=view)
+        msg = await ctx.send("Choose a scratch card to buy:", view=view)
+        asyncio.create_task(_disable_view_later(msg, view, 60))
         await view.wait()
         if select.selected_key is None:
             return
@@ -324,7 +324,8 @@ class ScratchCardExtended(commands.Cog):
             return
 
         confirm = ConfirmView(ctx.author, timeout=60)
-        await ctx.send(f"Confirm purchase of **{card.get('name')}** for **{price} {currency}**?", view=confirm)
+        confirm_msg = await ctx.send(f"Confirm purchase of **{card.get('name')}** for **{price} {currency}**?", view=confirm)
+        asyncio.create_task(_disable_view_later(confirm_msg, confirm, 60))
         await confirm.wait()
         if not confirm.result:
             return
@@ -358,7 +359,6 @@ class ScratchCardExtended(commands.Cog):
     @scratch.command(name="manage")
     @checks.mod_or_permissions(manage_guild=True)
     async def manage(self, ctx: commands.Context):
-        """Open the admin panel to create/edit cards and manage prizes"""
         guild_conf = await self.get_guild_conf(ctx.guild)
         cards = guild_conf.get("cards", {})
 
@@ -367,7 +367,7 @@ class ScratchCardExtended(commands.Cog):
             desc_lines.append("Existing cards:")
             for k, v in cards.items():
                 desc_lines.append(f"- {k}: {v.get('name')} (Price {v.get('price')}) Prizes: {len(v.get('prizes', []))}")
-        msg = "\n".join(desc_lines)
+        msg_text = "\n".join(desc_lines)
 
         view = ui.View(timeout=60)
 
@@ -393,7 +393,8 @@ class ScratchCardExtended(commands.Cog):
             sel_view = ui.View(timeout=60)
             sel_view.add_item(sel)
 
-            await interaction.followup.send("Select a card to remove:", view=sel_view, ephemeral=True)
+            follow_msg = await interaction.followup.send("Select a card to remove:", view=sel_view, ephemeral=True)
+            asyncio.create_task(_disable_view_later(follow_msg, sel_view, 60))
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 return
@@ -417,10 +418,10 @@ class ScratchCardExtended(commands.Cog):
             admin_sel = AdminCardSelect(self, ctx.guild, ctx.author, opts)
             view.add_item(admin_sel)
 
-        await ctx.send(msg, view=view)
+        panel_msg = await ctx.send(msg_text, view=view)
+        asyncio.create_task(_disable_view_later(panel_msg, view, 60))
 
     async def _card_manager(self, interaction: discord.Interaction, ctx: typing.Optional[commands.Context], card_key: str):
-        # card manager runs in background (called via create_task). Use followups for messages.
         guild = interaction.guild if interaction and interaction.guild else (ctx.guild if ctx else None)
         if not guild:
             try:
@@ -472,8 +473,9 @@ class ScratchCardExtended(commands.Cog):
             sel = PrizeSelect(self, guild, card_key, prizes, i.user)
             sel_view = ui.View(timeout=60)
             sel_view.add_item(sel)
-            await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
-            # do not await sel_view.wait(); allow PrizeSelect to open modal and keep select usable
+            follow_msg = await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
+            asyncio.create_task(_disable_view_later(follow_msg, sel_view, 60))
+            # return immediately so select interaction and modal open correctly
 
         async def remove_prize_cb(i: discord.Interaction):
             opener_id = interaction.user.id if interaction else (ctx.author.id if ctx else None)
@@ -488,7 +490,8 @@ class ScratchCardExtended(commands.Cog):
             sel = ui.Select(placeholder="Select prize(s) to remove", options=opts, min_values=1, max_values=25)
             sel_view = ui.View(timeout=60)
             sel_view.add_item(sel)
-            await i.response.send_message("Select prize(s) to remove:", view=sel_view, ephemeral=True)
+            follow_msg = await i.response.send_message("Select prize(s) to remove:", view=sel_view, ephemeral=True)
+            asyncio.create_task(_disable_view_later(follow_msg, sel_view, 60))
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 return
@@ -524,17 +527,19 @@ class ScratchCardExtended(commands.Cog):
         view.add_item(view_btn)
 
         try:
-            await interaction.followup.send(f"Card manager opened for {card_key}.", view=view, ephemeral=True)
+            manager_msg = await interaction.followup.send(f"Card manager opened for {card_key}.", view=view, ephemeral=True)
+            asyncio.create_task(_disable_view_later(manager_msg, view, 60))
         except Exception:
             try:
-                await interaction.channel.send(f"Card manager opened for {card_key}.", view=view)
+                # fallback to channel send if followup fails
+                manager_msg = await interaction.channel.send(f"Card manager opened for {card_key}.", view=view)
+                asyncio.create_task(_disable_view_later(manager_msg, view, 60))
             except Exception:
                 pass
 
     @checks.mod_or_permissions(manage_guild=True)
     @scratch.command()
     async def setenabled(self, ctx: commands.Context, enabled: bool):
-        """Enable or disable scratch cards on this guild"""
         gc = await self.get_guild_conf(ctx.guild)
         gc["enabled"] = bool(enabled)
         await self.config.guild(ctx.guild).set(gc)
@@ -542,5 +547,4 @@ class ScratchCardExtended(commands.Cog):
 
     @scratch.command()
     async def version(self, ctx: commands.Context):
-        """Show cog version"""
         await ctx.send(COG_VERSION)
