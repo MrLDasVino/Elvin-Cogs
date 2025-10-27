@@ -697,45 +697,38 @@ class ScratchCardExtended(commands.Cog):
 
         view = TimedView(timeout=60)
 
-        async def create_card_cb(interaction: discord.Interaction):
-            if interaction.user.id != ctx.author.id:
-                await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
-                return
-            modal = CardModal(cog=self, guild=ctx.guild)
-            await interaction.response.send_modal(modal)
-
         async def edit_card_cb(interaction: discord.Interaction):
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
-            await interaction.response.defer(ephemeral=True)
-
+        
             gc = await self.get_guild_conf(ctx.guild)
             cards_local = gc.get("cards", {})
             if not cards_local:
-                await interaction.followup.send("No cards to edit.", ephemeral=True)
+                await interaction.response.send_message("No cards to edit.", ephemeral=True)
                 return
-
+        
             opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
             sel = ui.Select(placeholder="Select a card to edit", options=opts, min_values=1, max_values=1)
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
-
-            follow_msg = None
+        
             try:
                 follow_msg = await interaction.channel.send("Select a card to edit:", view=sel_view)
             except Exception:
                 try:
                     follow_msg = await interaction.followup.send("Select a card to edit:", view=sel_view, ephemeral=False)
                 except Exception:
-                    pass
-
+                    follow_msg = None
+        
             if follow_msg:
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
+        
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 return
+        
             chosen = sel.values[0]
             # open modal with existing card data
             gc = await self.get_guild_conf(ctx.guild)
@@ -746,24 +739,10 @@ class ScratchCardExtended(commands.Cog):
                 except Exception:
                     pass
                 return
+        
             modal = CardEditModal(cog=self, guild=ctx.guild, card_key=chosen, existing=card_data)
-            try:
-                await interaction.followup.send("Opening edit modal...", ephemeral=True)
-            except Exception:
-                pass
-            await interaction.followup.send("Please use the modal that appeared.", ephemeral=True)
-            # send modal to user
-            try:
-                await interaction.user.send("If the edit modal did not appear, try again in the channel.")
-            except Exception:
-                pass
-            await interaction.response.send_message("Edit modal triggered (if supported by your client).", ephemeral=True)
-            # Actually open modal on the interaction that started the flow (some Discord clients require direct modal on original interaction)
-            try:
-                await interaction.followup.send("Use the modal to edit the card.", ephemeral=True)
-            except Exception:
-                pass
-            # Finally present the edit modal directly (best-effort)
+        
+            # send the modal directly on the original interaction (do not defer earlier)
             try:
                 await interaction.response.send_modal(modal)
             except Exception:
@@ -771,6 +750,7 @@ class ScratchCardExtended(commands.Cog):
                     await interaction.followup.send("Failed to open modal here; try using the manage command again.", ephemeral=True)
                 except Exception:
                     pass
+
 
         async def remove_card_cb(interaction: discord.Interaction):
             if interaction.user.id != ctx.author.id:
