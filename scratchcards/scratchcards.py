@@ -227,7 +227,6 @@ class CardModal(ui.Modal, title="Create / Edit Card"):
 class PrizeModal(ui.Modal, title="Create / Edit Prize"):
     name = ui.TextInput(label="Prize name", placeholder="Small Win", required=True, max_length=64)
     value = ui.TextInput(label="Prize value (int)", placeholder="50", required=True, max_length=20)
-    # now accepts percentage chance (float) between 0 and 100
     chance = ui.TextInput(label="Chance (%)", placeholder="1.0", required=True, max_length=20)
     tag = ui.TextInput(label="Rarity tag (optional)", placeholder="common", required=False, max_length=32)
 
@@ -259,7 +258,6 @@ class PrizeModal(ui.Modal, title="Create / Edit Prize"):
             "id": prize_id,
             "name": self.name.value.strip(),
             "value": max(0, val),
-            # store percent in weight for backward compatibility
             "weight": float(round(chance_val, 6)),
             "tag": self.tag.value.strip() or None
         }
@@ -293,7 +291,6 @@ class PrizeEditModal(ui.Modal, title="Edit Prize (will save on submit)"):
         self.existing = existing
         self.name.default = existing.get("name", "")
         self.value.default = str(existing.get("value", 0))
-        # existing weight stored as percent; default display
         self.chance.default = str(existing.get("weight", 0.0))
         self.tag.default = existing.get("tag") or ""
 
@@ -381,7 +378,6 @@ class ScratchCardExtended(commands.Cog):
         """Select prize using stored percent chances in 'weight'. If total < 100, remaining chance is 'No Prize'."""
         if not prizes:
             return {"name": "No Prize", "value": 0, "weight": 0.0, "tag": None, "id": "none"}
-        # normalize prize chance values, ensure numeric
         entries = []
         total = 0.0
         for p in prizes:
@@ -392,15 +388,51 @@ class ScratchCardExtended(commands.Cog):
             chance = max(0.0, min(100.0, chance))
             entries.append((p, chance))
             total += chance
-        # pick a random number in [0,100)
         pick = random.random() * 100.0
         cum = 0.0
         for p, chance in entries:
             cum += chance
             if pick < cum:
                 return p
-        # no prize selected (either pick falls into leftover chance or total==0)
         return {"name": "No Prize", "value": 0, "weight": 0.0, "tag": None, "id": "none"}
+
+    def _buy_result_embed(self, guild: discord.Guild, card: dict, price: int, prize: dict) -> discord.Embed:
+        """Return an embed summarizing buy result with appealing colors."""
+        won = prize.get("value", 0) > 0
+        title = "Scratchcard Result"
+        color = 0x2ECC71 if won else 0x95A5A6
+        embed = discord.Embed(title=title, color=color)
+        embed.add_field(name="Card", value=card.get("name"), inline=True)
+        embed.add_field(name="Price", value=str(price), inline=True)
+        prize_name = prize.get("name", "No Prize")
+        prize_value = prize.get("value", 0)
+        embed.add_field(name="Prize", value=f"{prize_name} — {prize_value}", inline=False)
+        chance = prize.get("weight")
+        if chance is not None:
+            embed.add_field(name="Chance", value=f"{chance}%", inline=True)
+        embed.set_footer(text=guild.name)
+        return embed
+
+    def _view_details_embed(self, guild: discord.Guild, card_key: str, card: dict) -> discord.Embed:
+        embed = discord.Embed(title=f"Card Details — {card.get('name')}", color=0x3498DB)
+        embed.add_field(name="Internal Key", value=card_key, inline=True)
+        embed.add_field(name="Price", value=str(card.get("price", 0)), inline=True)
+        prizes = card.get("prizes", [])
+        if not prizes:
+            embed.add_field(name="Prizes", value="No prizes configured", inline=False)
+        else:
+            # build a compact block listing prizes; keep each line short
+            lines = []
+            for p in prizes:
+                cid = p.get("id")
+                name = p.get("name")
+                val = p.get("value", 0)
+                chance = p.get("weight", 0.0)
+                tag = p.get("tag") or "-"
+                lines.append(f"{cid}: {name} — {val} ({chance}%) | {tag}")
+            embed.add_field(name="Prizes", value="\n".join(lines), inline=False)
+        embed.set_footer(text=guild.name)
+        return embed
 
     @commands.group()
     async def scratch(self, ctx: commands.Context):
@@ -485,13 +517,8 @@ class ScratchCardExtended(commands.Cog):
                 await ctx.send(f"Award failed, purchase refunded: {e}")
                 return
 
-            currency = await bank.get_currency_name(ctx.guild)
-            # show the stored percent chance for the prize if available
-            chance_display = chosen.get("weight")
-            if chance_display is not None:
-                await ctx.send(f"You bought **{card.get('name')}** for **{price} {currency}** and won **{prize_value} {currency}** ({prize_name}) with chance {chance_display}%!")
-            else:
-                await ctx.send(f"You bought **{card.get('name')}** for **{price} {currency}** and won **{prize_value} {currency}** ({prize_name})!")
+            embed = self._buy_result_embed(ctx.guild, card, price, chosen)
+            await ctx.send(embed=embed)
 
     @scratch.command(name="manage")
     @checks.mod_or_permissions(manage_guild=True)
@@ -689,7 +716,14 @@ class ScratchCardExtended(commands.Cog):
             if i.user.id != opener_id:
                 await i.response.send_message("This manager is for the admin who opened it.", ephemeral=True)
                 return
-            await i.response.send_message(box(build_desc()), ephemeral=True)
+            embed = self._view_details_embed(i.guild, card_key, card)
+            try:
+                await i.response.send_message(embed=embed, ephemeral=True)
+            except Exception:
+                try:
+                    await i.channel.send(embed=embed)
+                except Exception:
+                    pass
 
         add_btn = ui.Button(label="Add Prize", style=discord.ButtonStyle.green)
         edit_btn = ui.Button(label="Edit Prize", style=discord.ButtonStyle.blurple)
@@ -727,7 +761,3 @@ class ScratchCardExtended(commands.Cog):
         gc["enabled"] = bool(enabled)
         await self.config.guild(ctx.guild).set(gc)
         await ctx.send(f"Enabled set to {bool(enabled)}")
-
-    @scratch.command()
-    async def version(self, ctx: commands.Context):
-        await ctx.send(COG_VERSION)
