@@ -71,7 +71,7 @@ class AdminCardSelect(ui.Select):
             await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
             return
         chosen_key = self.values[0]
-        # acknowledge immediately (no visible followup message) and run manager in background
+        # acknowledge silently and run manager in background
         await interaction.response.defer(ephemeral=True)
         asyncio.create_task(self.cog._card_manager(interaction, None, chosen_key))
 
@@ -243,6 +243,7 @@ class PrizeSelect(ui.Select):
             return
         modal = PrizeEditModal(self.cog, self.guild, self.card_key, prize_id, prize)
         await interaction.response.send_modal(modal)
+        # stop the selection view so the ephemeral select UI closes
         self.view.stop()
 
 
@@ -473,12 +474,12 @@ class ScratchCardExtended(commands.Cog):
             if not prizes:
                 await i.response.send_message("No prizes to edit.", ephemeral=True)
                 return
+            # Send the select and return immediately; the PrizeSelect will open the modal from its own interaction
             sel = PrizeSelect(self, guild, card_key, prizes, i.user)
             sel_view = ui.View(timeout=60)
             sel_view.add_item(sel)
             await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
-            await sel_view.wait()
-            # silent on timeout; PrizeSelect handles modal and saving
+            # do not await sel_view.wait(); return immediately so interaction token isn't held
 
         async def remove_prize_cb(i: discord.Interaction):
             opener_id = interaction.user.id if interaction else (ctx.author.id if ctx else None)
