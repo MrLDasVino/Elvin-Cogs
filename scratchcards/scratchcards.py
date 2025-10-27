@@ -8,7 +8,7 @@ import random
 import typing
 
 CONFIG_ID = 0xBADA55C0FFEE1234
-COG_VERSION = "1.2.3"
+COG_VERSION = "1.2.4"
 
 DEFAULT_GUILD = {
     "enabled": True,
@@ -179,7 +179,6 @@ class AdminCardSelect(ui.Select):
             await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
             return
         chosen_key = self.values[0]
-        # Defer ephemeral to allow followups from the manager; not deferring here caused race in some flows
         try:
             await interaction.response.defer(ephemeral=True)
         except Exception:
@@ -218,7 +217,6 @@ class CardModal(ui.Modal, title="Create Card"):
                 await interaction.response.send_message("Invalid numeric input for max buys per day. Use a non-negative integer or leave empty.", ephemeral=True)
                 return
 
-        # thumbnail may be empty or any string; store None if empty
         thumb_val = None
         if self.thumbnail.value and self.thumbnail.value.strip():
             thumb_val = self.thumbnail.value.strip()
@@ -246,9 +244,7 @@ class CardModal(ui.Modal, title="Create Card"):
             "name": payload["name"],
             "price": payload["price"],
             "prizes": [],
-            # store per-card max buys per day; None means no limit (uses guild default)
             "max_daily": payload["max_daily"],
-            # optional thumbnail URL
             "thumbnail": payload["thumbnail"]
         }
         gc["cards"] = cards_local
@@ -699,14 +695,10 @@ class ScratchCardExtended(commands.Cog):
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
 
-            # IMPORTANT FIX: attach a callback to the plain Select so the selection interaction is handled immediately.
             async def sel_callback(sel_interaction: discord.Interaction):
-                # Only allow the original invoker to use this select
                 if sel_interaction.user.id != interaction.user.id:
                     await sel_interaction.response.send_message("This menu isn't for you.", ephemeral=True)
                     return
-                # store selection and defer
-                # sel.values is already populated
                 await sel_interaction.response.defer()
                 try:
                     disable_view_items(sel_view)
@@ -725,7 +717,6 @@ class ScratchCardExtended(commands.Cog):
             sel.callback = sel_callback
 
             try:
-                # respond immediately so the menu appears without delay
                 await interaction.response.send_message("Select a card to remove:", view=sel_view, ephemeral=True)
                 follow_msg = await interaction.original_response()
             except Exception:
@@ -742,10 +733,7 @@ class ScratchCardExtended(commands.Cog):
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
 
-            # wait for the select view to finish (either selection or timeout)
             await sel_view.wait()
-
-            # If the select was used, sel.values will be set. If it's None or empty, it timed out.
             if not getattr(sel, "values", None):
                 try:
                     await interaction.followup.send("No selection made (timed out).", ephemeral=True)
@@ -870,6 +858,28 @@ class ScratchCardExtended(commands.Cog):
             sel = ui.Select(placeholder="Select prize(s) to remove", options=opts, min_values=1, max_values=min(25, len(opts)))
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
+
+            # Attach callback to handle selection immediately (fixes delayed posting)
+            async def sel_callback(sel_interaction: discord.Interaction):
+                if sel_interaction.user.id != i.user.id:
+                    await sel_interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+                    return
+                await sel_interaction.response.defer()
+                try:
+                    disable_view_items(sel_view)
+                except Exception:
+                    pass
+                if getattr(sel_view, "message", None):
+                    try:
+                        await sel_view.message.edit(view=sel_view)
+                    except Exception:
+                        pass
+                try:
+                    sel_view.stop()
+                except Exception:
+                    pass
+
+            sel.callback = sel_callback
 
             try:
                 await i.response.send_message("Select prize(s) to remove:", view=sel_view, ephemeral=True)
