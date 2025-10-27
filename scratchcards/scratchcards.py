@@ -8,7 +8,7 @@ import random
 import typing
 
 CONFIG_ID = 0xBADA55C0FFEE1234
-COG_VERSION = "1.2.2"
+COG_VERSION = "1.2.3"
 
 DEFAULT_GUILD = {
     "enabled": True,
@@ -179,7 +179,7 @@ class AdminCardSelect(ui.Select):
             await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
             return
         chosen_key = self.values[0]
-        # defer ephemeral to allow followups from the manager; not deferring here caused race in some flows
+        # Defer ephemeral to allow followups from the manager; not deferring can cause race in some flows
         try:
             await interaction.response.defer(ephemeral=True)
         except Exception:
@@ -218,7 +218,6 @@ class CardModal(ui.Modal, title="Create Card"):
                 await interaction.response.send_message("Invalid numeric input for max buys per day. Use a non-negative integer or leave empty.", ephemeral=True)
                 return
 
-        # thumbnail may be empty or any string; store None if empty
         thumb_val = None
         if self.thumbnail.value and self.thumbnail.value.strip():
             thumb_val = self.thumbnail.value.strip()
@@ -246,9 +245,7 @@ class CardModal(ui.Modal, title="Create Card"):
             "name": payload["name"],
             "price": payload["price"],
             "prizes": [],
-            # store per-card max buys per day; None means no limit (uses guild default)
             "max_daily": payload["max_daily"],
-            # optional thumbnail URL
             "thumbnail": payload["thumbnail"]
         }
         gc["cards"] = cards_local
@@ -657,7 +654,6 @@ class ScratchCardExtended(commands.Cog):
                 await ctx.send(f"Award failed, purchase refunded: {e}")
                 return
 
-            # fetch currency name once and pass into embed
             currency = await bank.get_currency_name(ctx.guild)
             embed = self._buy_result_embed(ctx.guild, card, price, chosen, currency, buyer=ctx.author)
             await ctx.send(embed=embed)
@@ -700,18 +696,15 @@ class ScratchCardExtended(commands.Cog):
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
 
-            # Send the selection view immediately as the interaction response so it's usable right away
             try:
+                # Respond immediately so the dropdown appears and is usable right away
                 await interaction.response.send_message("Select a card to remove:", view=sel_view, ephemeral=True)
-                # retrieve the message object for the ephemeral response
                 follow_msg = await interaction.original_response()
             except Exception:
-                # fallback to channel send if the response failed
                 try:
                     follow_msg = await interaction.channel.send("Select a card to remove:", view=sel_view)
                 except Exception:
                     try:
-                        # inform the admin ephemeral if possible
                         await interaction.followup.send("Failed to open removal menu.", ephemeral=True)
                     except Exception:
                         pass
@@ -721,7 +714,6 @@ class ScratchCardExtended(commands.Cog):
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
 
-            # wait for the select view to finish (either selection or timeout)
             await sel_view.wait()
             if not getattr(sel, "values", None):
                 try:
@@ -814,7 +806,6 @@ class ScratchCardExtended(commands.Cog):
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
 
-            # send the select immediately as the interaction response
             try:
                 await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
                 follow_msg = await i.original_response()
@@ -833,7 +824,7 @@ class ScratchCardExtended(commands.Cog):
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
 
             await sel_view.wait()
-            # when PrizeSelect triggers a modal, it will handle it itself; no further action required here
+            # When PrizeSelect triggers a modal, it handles it itself.
 
         async def remove_prize_cb(i: discord.Interaction):
             opener_id = interaction.user.id if interaction else (ctx.author.id if ctx else None)
