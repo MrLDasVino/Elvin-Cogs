@@ -179,7 +179,12 @@ class AdminCardSelect(ui.Select):
             await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
             return
         chosen_key = self.values[0]
-        await interaction.response.defer(ephemeral=True)
+        # Use follow-up task to avoid blocking the interaction; defer ephemeral so the manager can send followups
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except Exception:
+            # best-effort: if defer fails, continue without it
+            pass
         asyncio.create_task(self.cog._card_manager(interaction, None, chosen_key))
 
 
@@ -684,58 +689,54 @@ class ScratchCardExtended(commands.Cog):
             if interaction.user.id != ctx.author.id:
                 await interaction.response.send_message("This panel is for the invoker only.", ephemeral=True)
                 return
-        
+
             gc = await self.get_guild_conf(ctx.guild)
             cards_local = gc.get("cards", {})
             if not cards_local:
                 await interaction.response.send_message("No cards to remove.", ephemeral=True)
                 return
-        
+
             opts = [discord.SelectOption(label=f"{v.get('name')} ({k})", value=k) for k, v in cards_local.items()]
             sel = ui.Select(placeholder="Select a card to remove", options=opts, min_values=1, max_values=1)
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
-        
+
             # Send the selection view immediately as the interaction response so it's usable right away
             try:
                 await interaction.response.send_message("Select a card to remove:", view=sel_view, ephemeral=True)
                 follow_msg = await interaction.original_response()
             except Exception:
-                # fallback to channel send if the response failed (for example in older bots)
+                # fallback to channel send if the response failed
                 try:
                     follow_msg = await interaction.channel.send("Select a card to remove:", view=sel_view)
                 except Exception:
-                    # if both fail, inform the admin and abort
                     try:
                         await interaction.followup.send("Failed to open removal menu.", ephemeral=True)
                     except Exception:
                         pass
                     return
-        
+
             if follow_msg:
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
-        
+
             await sel_view.wait()
-            # If user didn't select anything (timed out), silently return
             if not getattr(sel, "values", None):
                 try:
-                    # clean up the ephemeral interaction if still possible (best-effort)
                     await interaction.followup.send("No selection made (timed out).", ephemeral=True)
                 except Exception:
                     pass
                 return
-        
+
             key = sel.values[0]
             cards_local.pop(key, None)
             gc["cards"] = cards_local
             await self.config.guild(ctx.guild).set(gc)
-        
+
             try:
                 await interaction.followup.send(f"Removed card {key}.", ephemeral=True)
             except Exception:
                 pass
-
 
         create_btn = ui.Button(label="Create Card", style=discord.ButtonStyle.green)
         remove_btn = ui.Button(label="Remove Card", style=discord.ButtonStyle.red)
@@ -807,23 +808,23 @@ class ScratchCardExtended(commands.Cog):
                 await i.response.send_message("No prizes to edit.", ephemeral=True)
                 return
 
-            try:
-                await i.response.defer(ephemeral=True)
-            except Exception:
-                pass
-
             sel = PrizeSelect(self, guild, card_key, prizes, i.user)
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
 
-            follow_msg = None
+            # send the select immediately
             try:
-                follow_msg = await i.followup.send("Select a prize to edit:", view=sel_view, ephemeral=True)
+                await i.response.send_message("Select a prize to edit:", view=sel_view, ephemeral=True)
+                follow_msg = await i.original_response()
             except Exception:
                 try:
                     follow_msg = await i.channel.send("Select a prize to edit:", view=sel_view)
                 except Exception:
-                    pass
+                    try:
+                        await i.followup.send("Failed to open prize editor.", ephemeral=True)
+                    except Exception:
+                        pass
+                    return
 
             if follow_msg:
                 sel_view.message = follow_msg
@@ -839,23 +840,35 @@ class ScratchCardExtended(commands.Cog):
                 await i.response.send_message("No prizes to remove.", ephemeral=True)
                 return
             opts = [discord.SelectOption(label=f"{p.get('name')} ({p.get('id')})", value=p.get('id')) for p in prizes]
-            sel = ui.Select(placeholder="Select prize(s) to remove", options=opts, min_values=1, max_values=25)
+            sel = ui.Select(placeholder="Select prize(s) to remove", options=opts, min_values=1, max_values=min(25, len(opts)))
             sel_view = TimedView(timeout=60)
             sel_view.add_item(sel)
-            follow_msg = None
+
             try:
-                follow_msg = await i.channel.send("Select prize(s) to remove:", view=sel_view)
+                await i.response.send_message("Select prize(s) to remove:", view=sel_view, ephemeral=True)
+                follow_msg = await i.original_response()
             except Exception:
                 try:
-                    follow_msg = await i.response.send_message("Select prize(s) to remove:", view=sel_view, ephemeral=False)
+                    follow_msg = await i.channel.send("Select prize(s) to remove:", view=sel_view)
                 except Exception:
-                    pass
+                    try:
+                        await i.followup.send("Failed to open remove-prize menu.", ephemeral=True)
+                    except Exception:
+                        pass
+                    return
+
             if follow_msg:
                 sel_view.message = follow_msg
                 asyncio.create_task(_auto_disable_view_after(sel_view, follow_msg, sel_view.timeout or 60))
+
             await sel_view.wait()
             if not getattr(sel, "values", None):
+                try:
+                    await i.followup.send("No selection made (timed out).", ephemeral=True)
+                except Exception:
+                    pass
                 return
+
             remove_ids = set(sel.values)
             card["prizes"] = [p for p in prizes if p.get("id") not in remove_ids]
             gc = await self.get_guild_conf(guild)
