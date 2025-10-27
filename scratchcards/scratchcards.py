@@ -251,6 +251,12 @@ class CardModal(ui.Modal, title="Create Card"):
         await self.cog.config.guild(self.guild).set(gc)
         await interaction.response.send_message(f"Created card {key}.", ephemeral=True)
 
+        # Open the card manager immediately for the newly created card
+        try:
+            asyncio.create_task(self.cog._card_manager(interaction, None, key))
+        except Exception:
+            pass
+
 
 class PrizeModal(ui.Modal, title="Create / Edit Prize"):
     name = ui.TextInput(label="Prize name", placeholder="Small Win", required=True, max_length=64)
