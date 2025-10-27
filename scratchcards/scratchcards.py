@@ -8,7 +8,7 @@ import random
 import typing
 
 CONFIG_ID = 0xBADA55C0FFEE1234
-COG_VERSION = "1.2.0"
+COG_VERSION = "1.2.1"
 
 DEFAULT_GUILD = {
     "enabled": True,
@@ -355,6 +355,47 @@ class PrizeSelect(ui.Select):
         await interaction.response.send_modal(modal)
 
 
+def _format_chance(chance: typing.Optional[float]) -> str:
+    if chance is None:
+        return "—"
+    s = f"{chance:.3f}".rstrip("0").rstrip(".")
+    return f"{s}%"
+
+
+def _rarity_emoji(tag: typing.Optional[str]) -> str:
+    if not tag:
+        return "🎟️"
+    t = str(tag).lower()
+    if "legend" in t or "legendary" in t:
+        return "🌟"
+    if "epic" in t:
+        return "💠"
+    if "rare" in t:
+        return "🔷"
+    if "uncommon" in t:
+        return "🟢"
+    if "common" in t:
+        return "⚪"
+    return "🎁"
+
+
+def _thumbnail_url_for_card(card: dict) -> typing.Optional[str]:
+    # placeholder decorative assets; return None to skip
+    return None
+
+
+def _author_icon_for_member(member: typing.Optional[discord.Member]) -> typing.Optional[str]:
+    if not member:
+        return None
+    try:
+        return member.avatar.url
+    except Exception:
+        try:
+            return member.avatar_url
+        except Exception:
+            return None
+
+
 class ScratchCardExtended(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -396,21 +437,55 @@ class ScratchCardExtended(commands.Cog):
                 return p
         return {"name": "No Prize", "value": 0, "weight": 0.0, "tag": None, "id": "none"}
 
-    def _buy_result_embed(self, guild: discord.Guild, card: dict, price: int, prize: dict) -> discord.Embed:
-        """Return an embed summarizing buy result with appealing colors."""
-        won = prize.get("value", 0) > 0
-        title = "Scratchcard Result"
-        color = 0x2ECC71 if won else 0x95A5A6
-        embed = discord.Embed(title=title, color=color)
-        embed.add_field(name="Card", value=card.get("name"), inline=True)
-        embed.add_field(name="Price", value=str(price), inline=True)
+    def _buy_result_embed(self, guild: discord.Guild, card: dict, price: int, prize: dict, buyer: typing.Optional[discord.Member] = None) -> discord.Embed:
+        """Richer, emoji-forward embed for buy results."""
+        won = int(prize.get("value", 0)) > 0
         prize_name = prize.get("name", "No Prize")
-        prize_value = prize.get("value", 0)
-        embed.add_field(name="Prize", value=f"{prize_name} — {prize_value}", inline=False)
-        chance = prize.get("weight")
-        if chance is not None:
-            embed.add_field(name="Chance", value=f"{chance}%", inline=True)
-        embed.set_footer(text=guild.name)
+        prize_value = int(prize.get("value", 0))
+        chance = prize.get("weight", None)
+
+        title = "🎉 You Won!" if won else "😢 Better Luck Next Time"
+        color = 0xF1C40F if won else 0x95A5A6
+        embed = discord.Embed(title=title, color=color)
+
+        card_name = card.get("name") or "Scratch Card"
+        embed.description = f"**{card_name}** — Cost: **{price}**"
+
+        if won:
+            embed.add_field(name=f"{_rarity_emoji(prize.get('tag'))} Prize", value=f"**{prize_name}**\n💰 {prize_value} credits", inline=False)
+            embed.add_field(name="Chance", value=_format_chance(chance), inline=True)
+            embed.add_field(name="Card Price", value=f"{price}", inline=True)
+        else:
+            embed.add_field(name="Prize", value="No payout this time", inline=False)
+            embed.add_field(name="Chance", value=_format_chance(chance), inline=True)
+            embed.add_field(name="Card Price", value=f"{price}", inline=True)
+
+        thumb = _thumbnail_url_for_card(card)
+        if thumb:
+            embed.set_thumbnail(url=thumb)
+
+        if buyer:
+            icon = _author_icon_for_member(buyer)
+            try:
+                embed.set_author(name=str(buyer), icon_url=icon)
+            except Exception:
+                try:
+                    embed.set_author(name=str(buyer))
+                except Exception:
+                    pass
+
+        footer_text = f"{guild.name} • Scratchcard"
+        try:
+            embed.set_footer(text=footer_text, icon_url=guild.icon.url if getattr(guild, "icon", None) else None)
+        except Exception:
+            try:
+                embed.set_footer(text=footer_text)
+            except Exception:
+                pass
+
+        if won:
+            embed.colour = 0x2ECC71
+
         return embed
 
     def _view_details_embed(self, guild: discord.Guild, card_key: str, card: dict) -> discord.Embed:
@@ -421,7 +496,6 @@ class ScratchCardExtended(commands.Cog):
         if not prizes:
             embed.add_field(name="Prizes", value="No prizes configured", inline=False)
         else:
-            # build a compact block listing prizes; keep each line short
             lines = []
             for p in prizes:
                 cid = p.get("id")
@@ -429,9 +503,12 @@ class ScratchCardExtended(commands.Cog):
                 val = p.get("value", 0)
                 chance = p.get("weight", 0.0)
                 tag = p.get("tag") or "-"
-                lines.append(f"{cid}: {name} — {val} ({chance}%) | {tag}")
+                lines.append(f"{cid}: {name} — {val} credits | {_format_chance(chance)} | {tag}")
             embed.add_field(name="Prizes", value="\n".join(lines), inline=False)
-        embed.set_footer(text=guild.name)
+        try:
+            embed.set_footer(text=guild.name)
+        except Exception:
+            pass
         return embed
 
     @commands.group()
@@ -517,7 +594,7 @@ class ScratchCardExtended(commands.Cog):
                 await ctx.send(f"Award failed, purchase refunded: {e}")
                 return
 
-            embed = self._buy_result_embed(ctx.guild, card, price, chosen)
+            embed = self._buy_result_embed(ctx.guild, card, price, chosen, buyer=ctx.author)
             await ctx.send(embed=embed)
 
     @scratch.command(name="manage")
