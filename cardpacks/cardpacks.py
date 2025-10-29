@@ -1,8 +1,7 @@
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 import discord
 from discord import ui
 from redbot.core import commands, bank, checks, Config
-from redbot.core.utils.mod import invoke_help_command
 
 DEFAULT = {"packs": {}}
 
@@ -26,14 +25,12 @@ class BuySelect(ui.Select):
             return
 
         price = int(pack.get("price", 0))
-        # check balance
         can = await bank.can_spend(interaction.user, price)
         currency = await bank.get_currency_name(interaction.guild)
         if not can:
             await interaction.response.send_message(f"You need {price} {currency} to buy this pack.", ephemeral=True)
             return
 
-        # confirm purchase via button view
         view = ConfirmBuyView(self.cog, pack_name, price)
         await interaction.response.send_message(
             f"Confirm purchase of **{pack_name}** for **{price} {currency}**?",
@@ -57,7 +54,6 @@ class ConfirmBuyView(ui.View):
             await interaction.response.edit_message(content=f"Purchase failed: {e}", view=None)
             return
 
-        # give card(s) — here we just pick a random card from the pack
         pack = await self.cog._get_pack(interaction.guild, self.pack_name)
         cards = pack.get("cards", [])
         if not cards:
@@ -69,11 +65,10 @@ class ConfirmBuyView(ui.View):
         import random
 
         card = random.choice(cards)
-        # For now we just send the card info; persistence of user-owned cards is left as an exercise
-        await interaction.response.edit_message(
-            content=f"You bought **{self.pack_name}** and received **{card['name']}**\n{card.get('text','')}",
-            view=None,
-        )
+        embed = discord.Embed(title=f"You received: {card.get('name')}", description=card.get("text", ""))
+        if card.get("image"):
+            embed.set_image(url=card["image"])
+        await interaction.response.edit_message(content=None, embed=embed, view=None)
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.red)
     async def cancel(self, button: ui.Button, interaction: discord.Interaction):
@@ -95,7 +90,11 @@ class PackCreateModal(ui.Modal, title="Create pack"):
         except ValueError:
             await interaction.response.send_message("Price must be an integer.", ephemeral=True)
             return
-        await self.cog._create_pack(interaction.guild, self.name.value, price_val, self.description.value)
+        try:
+            await self.cog._create_pack(interaction.guild, self.name.value, price_val, self.description.value)
+        except commands.BadArgument as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
         await interaction.response.send_message(f"Pack **{self.name.value}** created.", ephemeral=True)
 
 
@@ -111,7 +110,11 @@ class CardAddModal(ui.Modal, title="Add card to pack"):
 
     async def on_submit(self, interaction: discord.Interaction):
         card = {"name": self.name.value, "text": self.text.value, "image": self.image_url.value}
-        await self.cog._add_card_to_pack(interaction.guild, self.pack_name, card)
+        try:
+            await self.cog._add_card_to_pack(interaction.guild, self.pack_name, card)
+        except commands.BadArgument as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
         await interaction.response.send_message(f"Added card **{card['name']}** to **{self.pack_name}**.", ephemeral=True)
 
 
@@ -141,7 +144,6 @@ class ManageView(ui.View):
         if not packs:
             await interaction.response.send_message("No packs available to add cards to.", ephemeral=True)
             return
-        # present a select to choose pack
         sel = PackSelect(self.cog, packs)
         view = ui.View()
         view.add_item(sel)
@@ -166,15 +168,16 @@ class CardPacks(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.config = Config.get_conf(self, identifier=1234567890)
+        self.config = Config.get_conf(self, identifier=1234567890123)
         self.config.register_guild(**DEFAULT)
 
-    # helper storage operations
-    async def _get_all_packs(self, guild: discord.Guild) -> Dict[str, dict]:
+    async def _get_all_packs(self, guild: Optional[discord.Guild]) -> Dict[str, dict]:
+        if not guild:
+            return {}
         data = await self.config.guild(guild).all()
         return data.get("packs", {})
 
-    async def _get_pack(self, guild: discord.Guild, name: str) -> Optional[dict]:
+    async def _get_pack(self, guild: Optional[discord.Guild], name: str) -> Optional[dict]:
         packs = await self._get_all_packs(guild)
         return packs.get(name)
 
@@ -192,14 +195,19 @@ class CardPacks(commands.Cog):
         packs[pack_name].setdefault("cards", []).append(card)
         await self.config.guild(guild).packs.set(packs)
 
-    # top-level group
     @commands.group()
     async def cardpacks(self, ctx: commands.Context):
         """Cardpacks main command"""
         if ctx.invoked_subcommand is None:
-            await invoke_help_command(ctx)
+            # Simple fallback help message to avoid importing unavailable helper
+            msg = (
+                "**CardPacks commands:**\n"
+                "`{0}cardpacks buy` — Buy a pack via dropdown\n"
+                "`{0}cardpacks manage` — Manage packs (admin)\n"
+                "`{0}cardpacks manage export` — Export packs as text\n"
+            ).format(ctx.prefix)
+            await ctx.send(msg)
 
-    # buy subcommand
     @cardpacks.command(name="buy")
     async def buy(self, ctx: commands.Context):
         """Buy a pack via dropdown"""
@@ -211,7 +219,6 @@ class CardPacks(commands.Cog):
         view.add_item(BuySelect(self, packs))
         await ctx.send("Select a pack to buy", view=view)
 
-    # manage subcommand (guildowner or manage_guild)
     @cardpacks.group(name="manage")
     @checks.guildowner_or_permissions(manage_guild=True)
     async def manage(self, ctx: commands.Context):
@@ -228,7 +235,6 @@ class CardPacks(commands.Cog):
         if not packs:
             await ctx.send("No packs configured.")
             return
-        # simple text dump; admins can copy-paste
         lines = []
         for name, data in packs.items():
             lines.append(f"== {name} ==\nprice: {data.get('price')}\ndesc: {data.get('description')}\ncards:")
@@ -236,11 +242,16 @@ class CardPacks(commands.Cog):
                 lines.append(f"- {c.get('name')} | {c.get('text')}")
         await ctx.send("```\n" + "\n".join(lines) + "\n```")
 
-    # simple help fallback
     @cardpacks.command(name="help")
     async def cardpacks_help(self, ctx: commands.Context):
         """Show help"""
-        await invoke_help_command(ctx)
+        msg = (
+            "**CardPacks commands:**\n"
+            "`{0}cardpacks buy` — Buy a pack via dropdown\n"
+            "`{0}cardpacks manage` — Manage packs (admin)\n"
+            "`{0}cardpacks manage export` — Export packs as text\n"
+        ).format(ctx.prefix)
+        await ctx.send(msg)
 
 
 def setup(bot):
