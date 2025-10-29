@@ -23,6 +23,7 @@ def _rarity_weights_map(packs: Dict[str, dict], pack_name: str) -> Dict[str, int
 
 class TimedView(ui.View):
     """Generic timed view that disables children and edits the original message on timeout."""
+
     async def on_timeout(self):
         for child in self.children:
             try:
@@ -44,7 +45,9 @@ class BuySelect(ui.Select):
             label = name
             desc = data.get("description", "")
             price = data.get("price", 0)
-            options.append(discord.SelectOption(label=label, description=f"{desc} — {price}", value=name))
+            options.append(
+                discord.SelectOption(label=label, description=f"{desc} - {price}", value=name)
+            )
         super().__init__(placeholder="Choose a pack to buy", min_values=1, max_values=1, options=options)
         self.cog = cog
 
@@ -54,7 +57,6 @@ class BuySelect(ui.Select):
         if not pack:
             await interaction.response.send_message("Pack not found.", ephemeral=True)
             return
-
         price = int(pack.get("price", 0))
         can = await bank.can_spend(interaction.user, price)
         currency = await bank.get_currency_name(interaction.guild)
@@ -104,7 +106,8 @@ class ConfirmBuyView(TimedView):
             # If any card defines an explicit 'chance' value, use per-card chances
             cards_with_chance = [c for c in cards if c.get("chance") is not None]
             if cards_with_chance:
-                # Build weights using the numeric chance (percent) value; cards without chance get 0 weight
+                # Build weights using the numeric chance (percent) value; cards without
+                # chance get 0 weight
                 weights = [float(c.get("chance", 0.0)) for c in cards]
                 if sum(weights) > 0:
                     chosen_card = random.choices(cards, weights=weights, k=1)[0]
@@ -131,7 +134,7 @@ class ConfirmBuyView(TimedView):
             line = f"**{c.get('name')}**"
             r = c.get("rarity")
             if r:
-                line += f" — {r}"
+                line += f" - {r}"
             txt = c.get("text")
             if txt:
                 line += f"\n{txt}"
@@ -166,6 +169,7 @@ class PackCreateModal(ui.Modal, title="Create pack"):
         except ValueError:
             await interaction.response.send_message("Price must be an integer.", ephemeral=True)
             return
+
         try:
             pull_val = int(self.pull_count.value) if self.pull_count.value.strip() else 1
             if pull_val < 1:
@@ -173,6 +177,7 @@ class PackCreateModal(ui.Modal, title="Create pack"):
         except Exception:
             await interaction.response.send_message("Cards pulled must be a positive integer.", ephemeral=True)
             return
+
         thumbnail = self.thumbnail_url.value.strip() or None
         try:
             await self.cog._create_pack(interaction.guild, self.name.value, price_val, self.description.value, None, pull_val, thumbnail)
@@ -193,6 +198,7 @@ class EditPackModal(ui.Modal, title="Edit pack"):
         super().__init__()
         self.cog = cog
         self.original_pack_name = original_pack_name
+
         # set defaults
         self.name.default = original_pack_name
         self.price.default = str(pack_data.get("price", 0))
@@ -207,6 +213,7 @@ class EditPackModal(ui.Modal, title="Edit pack"):
         except ValueError:
             await interaction.response.send_message("Price must be an integer.", ephemeral=True)
             return
+
         try:
             pull_val = int(self.pull_count.value) if self.pull_count.value.strip() else 1
             if pull_val < 1:
@@ -214,6 +221,7 @@ class EditPackModal(ui.Modal, title="Edit pack"):
         except Exception:
             await interaction.response.send_message("Cards pulled must be a positive integer.", ephemeral=True)
             return
+
         thumbnail = self.thumbnail_url.value.strip() or None
         try:
             await self.cog._edit_pack(interaction.guild, self.original_pack_name, new_name, price_val, self.description.value, pull_val, thumbnail)
@@ -248,9 +256,11 @@ class CardAddModal(ui.Modal, title="Add card to pack"):
             if chance_val < 0 or chance_val > 100:
                 await interaction.response.send_message("Pull chance must be between 0 and 100.", ephemeral=True)
                 return
+
         card = {"name": self.name.value, "text": self.text.value, "image": self.image_url.value, "rarity": rarity_val}
         if chance_val is not None:
             card["chance"] = chance_val
+
         try:
             await self.cog._add_card_to_pack(interaction.guild, self.pack_name, card)
         except commands.BadArgument as e:
@@ -294,6 +304,7 @@ class EditCardModal(ui.Modal, title="Edit card"):
             if chance_val < 0 or chance_val > 100:
                 await interaction.response.send_message("Pull chance must be between 0 and 100.", ephemeral=True)
                 return
+
         card = {"name": self.name.value, "text": self.text.value, "image": self.image_url.value, "rarity": self.rarity.value.strip() or "common"}
         if chance_val is not None:
             card["chance"] = chance_val
@@ -320,6 +331,7 @@ class PackSelect(ui.Select):
 
 class PackManageSelect(ui.Select):
     """Select a pack to manage (edit/delete)."""
+
     def __init__(self, cog: "CardPacks", packs: Dict[str, dict]):
         options = []
         for name in packs.keys():
@@ -341,6 +353,7 @@ class PackManageSelect(ui.Select):
 
 class CardInPackSelect(ui.Select):
     """Select a card within a pack to edit/delete."""
+
     def __init__(self, cog: "CardPacks", pack_name: str, cards: List[dict]):
         options = []
         for idx, c in enumerate(cards):
@@ -480,7 +493,7 @@ class ManageView(TimedView):
             return
         lines = []
         for name, data in packs.items():
-            lines.append(f"**{name}** — {data.get('description','')} — {data.get('price',0)} — {len(data.get('cards',[]))} cards — pulls:{data.get('pull_count',1)}")
+            lines.append(f"**{name}** - {data.get('description','')} - {data.get('price',0)} - {len(data.get('cards', []))} cards - pulls: {data.get('pull_count',1)}")
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     @ui.button(label="Add card to pack", style=discord.ButtonStyle.success, custom_id="cardpacks_add_card")
@@ -515,6 +528,7 @@ class ManageView(TimedView):
         for name, data in packs.items():
             options.append(discord.SelectOption(label=name, description=f"{len(data.get('cards', []))} cards", value=name))
         sel = ui.Select(placeholder="Select pack to choose a card from", min_values=1, max_values=1, options=options)
+
         async def sel_callback(inter: discord.Interaction):
             pack_name = sel.values[0]
             pack = await self.cog._get_pack(inter.guild, pack_name)
@@ -526,6 +540,7 @@ class ManageView(TimedView):
             view2 = TimedView(timeout=60)
             view2.add_item(card_sel)
             await inter.response.send_message("Select card to edit/delete", view=view2, ephemeral=True)
+
         sel.callback = sel_callback
         view = TimedView(timeout=60)
         view.add_item(sel)
@@ -539,11 +554,11 @@ class ManageView(TimedView):
             return
         lines = []
         for name, data in packs.items():
-            lines.append(f"== {name} ==\nprice: {data.get('price')}\ndesc: {data.get('description')}\npulls: {data.get('pull_count',1)}\nthumbnail: {data.get('thumbnail')}\ncards:")
+            lines.append(f"== {name} ==\nprice: {data.get('price')}\ndesc: {data.get('description')}\npulls: {data.get('pull_count', 1)}\nthumbnail: {data.get('thumbnail')}\ncards:")
             for c in data.get("cards", []):
-                chance_part = f" chance:{c.get('chance')}" if c.get("chance") is not None else ""
-                lines.append(f"- {c.get('name')} | {c.get('text')} | rarity:{c.get('rarity','common')}{chance_part}")
-        await interaction.response.send_message("```\n" + "\n".join(lines) + "\n```", ephemeral=True)
+                chance_part = f" chance: {c.get('chance')}" if c.get("chance") is not None else ""
+                lines.append(f"- {c.get('name')} | {c.get('text')} | rarity: {c.get('rarity','common')} {chance_part}")
+        await interaction.response.send_message(">>>\n" + "\n".join(lines) + "\n>>>", ephemeral=True)
 
 
 class CardPacks(commands.Cog):
@@ -553,7 +568,8 @@ class CardPacks(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890123)
         self.config.register_guild(**DEFAULT)
-        # IMPORTANT: do not call bot.add_view(...) here. That registers persistent views which bypass timeouts.
+
+    # IMPORTANT: do not call bot.add_view(...) here. That registers persistent views which bypass timeouts.
 
     async def _get_all_packs(self, guild: Optional[discord.Guild]) -> Dict[str, dict]:
         if not guild:
@@ -661,11 +677,11 @@ class CardPacks(commands.Cog):
     @commands.group(invoke_without_command=True)
     async def cardpacks(self, ctx: commands.Context):
         """Cardpacks main command"""
-        invoked = ctx.message.content[len(ctx.clean_prefix) :].strip()
+        invoked = ctx.message.content[len(ctx.clean_prefix):].strip()
         tokens = invoked.split()
         if len(tokens) == 1:
             await ctx.send_help()
-        return
+            return
 
     @cardpacks.command(name="buy")
     async def buy(self, ctx: commands.Context):
@@ -709,7 +725,7 @@ class CardPacks(commands.Cog):
             else:
                 await ctx.send(f"{target.display_name} has no cards.")
             return
-        lines = [f"- {c.get('name')} (rarity: {c.get('rarity','common')})" for c in inv]
+        lines = [f"- {c.get('name')} (rarity: {c.get('rarity', 'common')})" for c in inv]
         if target == ctx.author:
             await ctx.send("Your inventory:\n" + "\n".join(lines))
         else:
