@@ -47,7 +47,7 @@ class ConfirmBuyView(ui.View):
         self.price = price
 
     @ui.button(label="Confirm", style=discord.ButtonStyle.green)
-    async def confirm(self, button: ui.Button, interaction: discord.Interaction):
+    async def confirm(self, interaction: discord.Interaction, button: ui.Button):
         try:
             await bank.withdraw_credits(interaction.user, self.price)
         except Exception as e:
@@ -71,7 +71,7 @@ class ConfirmBuyView(ui.View):
         await interaction.response.edit_message(content=None, embed=embed, view=None)
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.red)
-    async def cancel(self, button: ui.Button, interaction: discord.Interaction):
+    async def cancel(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(content="Purchase cancelled.", view=None)
 
 
@@ -124,11 +124,11 @@ class ManageView(ui.View):
         self.cog = cog
 
     @ui.button(label="Create pack", style=discord.ButtonStyle.primary, custom_id="create_pack")
-    async def create_pack(self, button: ui.Button, interaction: discord.Interaction):
+    async def create_pack(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(PackCreateModal(self.cog))
 
     @ui.button(label="List packs", style=discord.ButtonStyle.secondary, custom_id="list_packs")
-    async def list_packs(self, button: ui.Button, interaction: discord.Interaction):
+    async def list_packs(self, interaction: discord.Interaction, button: ui.Button):
         packs = await self.cog._get_all_packs(interaction.guild)
         if not packs:
             await interaction.response.send_message("No packs configured.", ephemeral=True)
@@ -139,7 +139,7 @@ class ManageView(ui.View):
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     @ui.button(label="Add card to pack", style=discord.ButtonStyle.success, custom_id="add_card")
-    async def add_card(self, button: ui.Button, interaction: discord.Interaction):
+    async def add_card(self, interaction: discord.Interaction, button: ui.Button):
         packs = await self.cog._get_all_packs(interaction.guild)
         if not packs:
             await interaction.response.send_message("No packs available to add cards to.", ephemeral=True)
@@ -195,18 +195,19 @@ class CardPacks(commands.Cog):
         packs[pack_name].setdefault("cards", []).append(card)
         await self.config.guild(guild).packs.set(packs)
 
-    @commands.group()
+    @commands.group(invoke_without_command=True)
     async def cardpacks(self, ctx: commands.Context):
         """Cardpacks main command"""
         if ctx.invoked_subcommand is None:
-            # Simple fallback help message to avoid importing unavailable helper
-            msg = (
-                "**CardPacks commands:**\n"
-                "`{0}cardpacks buy` — Buy a pack via dropdown\n"
-                "`{0}cardpacks manage` — Manage packs (admin)\n"
-                "`{0}cardpacks manage export` — Export packs as text\n"
-            ).format(ctx.prefix)
-            await ctx.send(msg)
+            # Use Red's integrated help system by delegating to send_help if available
+            # This will show standard help for the group instead of a custom fallback.
+            if hasattr(ctx, "send_help"):
+                await ctx.send_help()
+            else:
+                # conservative fallback: briefly list available subcommands
+                await ctx.send(
+                    "**CardPacks** — subcommands: `buy`, `manage`\nUse the help command for details."
+                )
 
     @cardpacks.command(name="buy")
     async def buy(self, ctx: commands.Context):
@@ -219,6 +220,7 @@ class CardPacks(commands.Cog):
         view.add_item(BuySelect(self, packs))
         await ctx.send("Select a pack to buy", view=view)
 
+    # Make the manage group and all its subcommands admin-only
     @cardpacks.group(name="manage")
     @checks.guildowner_or_permissions(manage_guild=True)
     async def manage(self, ctx: commands.Context):
@@ -241,17 +243,6 @@ class CardPacks(commands.Cog):
             for c in data.get("cards", []):
                 lines.append(f"- {c.get('name')} | {c.get('text')}")
         await ctx.send("```\n" + "\n".join(lines) + "\n```")
-
-    @cardpacks.command(name="help")
-    async def cardpacks_help(self, ctx: commands.Context):
-        """Show help"""
-        msg = (
-            "**CardPacks commands:**\n"
-            "`{0}cardpacks buy` — Buy a pack via dropdown\n"
-            "`{0}cardpacks manage` — Manage packs (admin)\n"
-            "`{0}cardpacks manage export` — Export packs as text\n"
-        ).format(ctx.prefix)
-        await ctx.send(msg)
 
 
 def setup(bot):
