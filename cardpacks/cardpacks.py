@@ -307,8 +307,10 @@ class CardPacks(commands.Cog):
     @commands.group(invoke_without_command=True)
     async def cardpacks(self, ctx: commands.Context):
         """Cardpacks main command"""
-        if ctx.invoked_subcommand is None:
+        if ctx.subcommand_passed is None:
             await ctx.send_help()
+        else:
+            return
 
     @cardpacks.command(name="buy")
     async def buy(self, ctx: commands.Context):
