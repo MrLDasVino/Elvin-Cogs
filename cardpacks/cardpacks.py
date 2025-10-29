@@ -175,7 +175,7 @@ class CardAddModal(ui.Modal, title="Add card to pack"):
 
 class ManageView(ui.View):
     def __init__(self, cog: "CardPacks"):
-        super().__init__(timeout=None)
+        super().__init__(timeout=60)
         self.cog = cog
 
     @ui.button(label="Create pack", style=discord.ButtonStyle.primary, custom_id="cardpacks_create_pack")
@@ -200,7 +200,7 @@ class ManageView(ui.View):
             await interaction.response.send_message("No packs available to add cards to.", ephemeral=True)
             return
         sel = PackSelect(self.cog, packs)
-        view = ui.View()
+        view = ui.View(timeout=60)
         view.add_item(sel)
         await interaction.response.send_message("Choose pack to add a card to", view=view, ephemeral=True)
 
@@ -238,10 +238,7 @@ class CardPacks(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890123)
         self.config.register_guild(**DEFAULT)
-        try:
-            bot.add_view(ManageView(self))
-        except Exception:
-            pass
+        # Do not add persistent view here. Views created for manage/buy will timeout after 60s.
 
     async def _get_all_packs(self, guild: Optional[discord.Guild]) -> Dict[str, dict]:
         if not guild:
@@ -305,7 +302,6 @@ class CardPacks(commands.Cog):
     @commands.group(invoke_without_command=True)
     async def cardpacks(self, ctx: commands.Context):
         """Cardpacks main command"""
-        # Only show help when the user typed exactly the parent command and no other tokens
         invoked = ctx.message.content[len(ctx.clean_prefix) :].strip()
         tokens = invoked.split()
         if len(tokens) == 1:
