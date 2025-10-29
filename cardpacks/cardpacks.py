@@ -21,6 +21,22 @@ def _rarity_weights_map(packs: Dict[str, dict], pack_name: str) -> Dict[str, int
     return {k: max(1, v) for k, v in counts.items()}
 
 
+class TimedView(ui.View):
+    """Generic timed view that disables children and edits the original message on timeout."""
+    async def on_timeout(self):
+        for child in self.children:
+            try:
+                child.disabled = True
+            except Exception:
+                pass
+        msg = getattr(self, "message", None)
+        if msg:
+            try:
+                await msg.edit(view=self)
+            except Exception:
+                pass
+
+
 class BuySelect(ui.Select):
     def __init__(self, cog: "CardPacks", packs: Dict[str, dict]):
         options = []
@@ -47,6 +63,7 @@ class BuySelect(ui.Select):
             return
 
         view = ConfirmBuyView(self.cog, pack_name, price)
+        # Send ephemeral confirm (ephemeral views cannot be globally greyed, but the parent message will)
         await interaction.response.send_message(
             f"Confirm purchase of **{pack_name}** for **{price} {currency}**?",
             view=view,
@@ -54,7 +71,7 @@ class BuySelect(ui.Select):
         )
 
 
-class ConfirmBuyView(ui.View):
+class ConfirmBuyView(TimedView):
     def __init__(self, cog: "CardPacks", pack_name: str, price: int):
         super().__init__(timeout=60)
         self.cog = cog
@@ -173,7 +190,20 @@ class CardAddModal(ui.Modal, title="Add card to pack"):
         await interaction.response.send_message(f"Added card **{card['name']}** (rarity: {rarity_val}) to **{self.pack_name}**.", ephemeral=True)
 
 
-class ManageView(ui.View):
+class PackSelect(ui.Select):
+    def __init__(self, cog: "CardPacks", packs: Dict[str, dict]):
+        options = []
+        for name in packs.keys():
+            options.append(discord.SelectOption(label=name, value=name))
+        super().__init__(placeholder="Select pack", min_values=1, max_values=1, options=options)
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction):
+        pack_name = self.values[0]
+        await interaction.response.send_modal(CardAddModal(self.cog, pack_name))
+
+
+class ManageView(TimedView):
     def __init__(self, cog: "CardPacks"):
         super().__init__(timeout=60)
         self.cog = cog
@@ -200,7 +230,7 @@ class ManageView(ui.View):
             await interaction.response.send_message("No packs available to add cards to.", ephemeral=True)
             return
         sel = PackSelect(self.cog, packs)
-        view = ui.View(timeout=60)
+        view = TimedView(timeout=60)
         view.add_item(sel)
         await interaction.response.send_message("Choose pack to add a card to", view=view, ephemeral=True)
 
@@ -216,19 +246,6 @@ class ManageView(ui.View):
             for c in data.get("cards", []):
                 lines.append(f"- {c.get('name')} | {c.get('text')} | rarity:{c.get('rarity','common')}")
         await interaction.response.send_message("```\n" + "\n".join(lines) + "\n```", ephemeral=True)
-
-
-class PackSelect(ui.Select):
-    def __init__(self, cog: "CardPacks", packs: Dict[str, dict]):
-        options = []
-        for name in packs.keys():
-            options.append(discord.SelectOption(label=name, value=name))
-        super().__init__(placeholder="Select pack", min_values=1, max_values=1, options=options)
-        self.cog = cog
-
-    async def callback(self, interaction: discord.Interaction):
-        pack_name = self.values[0]
-        await interaction.response.send_modal(CardAddModal(self.cog, pack_name))
 
 
 class CardPacks(commands.Cog):
@@ -315,9 +332,10 @@ class CardPacks(commands.Cog):
         if not packs:
             await ctx.send("No packs are configured on this server.")
             return
-        view = ui.View(timeout=60)
+        view = TimedView(timeout=60)
         view.add_item(BuySelect(self, packs))
-        await ctx.send("Select a pack to buy", view=view)
+        msg = await ctx.send("Select a pack to buy", view=view)
+        view.message = msg
 
     @cardpacks.group(name="manage", invoke_without_command=True)
     @checks.guildowner_or_permissions(manage_guild=True)
@@ -325,7 +343,8 @@ class CardPacks(commands.Cog):
         """Manage packs (create, add cards). Admin only."""
         if ctx.invoked_subcommand is None:
             view = ManageView(self)
-            await ctx.send("Cardpacks manager", view=view)
+            msg = await ctx.send("Cardpacks manager", view=view)
+            view.message = msg
 
     @cardpacks.command(name="inventory")
     async def inventory(self, ctx: commands.Context, member: Optional[discord.Member] = None):
