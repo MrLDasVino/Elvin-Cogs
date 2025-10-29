@@ -125,6 +125,7 @@ class ManageView(ui.View):
 
     @ui.button(label="Create pack", style=discord.ButtonStyle.primary, custom_id="create_pack")
     async def create_pack(self, interaction: discord.Interaction, button: ui.Button):
+        # Modal opening from a button callback
         await interaction.response.send_modal(PackCreateModal(self.cog))
 
     @ui.button(label="List packs", style=discord.ButtonStyle.secondary, custom_id="list_packs")
@@ -148,6 +149,32 @@ class ManageView(ui.View):
         view = ui.View()
         view.add_item(sel)
         await interaction.response.send_message("Choose pack to add a card to", view=view, ephemeral=True)
+
+    @ui.button(label="Export packs", style=discord.ButtonStyle.secondary, custom_id="export_packs")
+    async def export_packs(self, interaction: discord.Interaction, button: ui.Button):
+        packs = await self.cog._get_all_packs(interaction.guild)
+        if not packs:
+            await interaction.response.send_message("No packs configured.", ephemeral=True)
+            return
+        lines = []
+        for name, data in packs.items():
+            lines.append(f"== {name} ==\nprice: {data.get('price')}\ndesc: {data.get('description')}\ncards:")
+            for c in data.get("cards", []):
+                lines.append(f"- {c.get('name')} | {c.get('text')}")
+        # send as ephemeral text dump
+        await interaction.response.send_message("```\n" + "\n".join(lines) + "\n```", ephemeral=True)
+
+    @ui.button(label="More features", style=discord.ButtonStyle.primary, custom_id="more_features")
+    async def more_features(self, interaction: discord.Interaction, button: ui.Button):
+        msg = (
+            "Available feature additions you can request:\n"
+            "- per-user inventories (track owned cards)\n"
+            "- buy limits (per-user or per-pack)\n"
+            "- rarities (weighted draws, tiered cards)\n"
+            "- persistent views across restarts (auto restore persistent UI)\n\n"
+            "Reply in chat with which feature you'd like implemented and I will update the cog accordingly."
+        )
+        await interaction.response.send_message(msg, ephemeral=True)
 
 
 class PackSelect(ui.Select):
@@ -199,15 +226,10 @@ class CardPacks(commands.Cog):
     async def cardpacks(self, ctx: commands.Context):
         """Cardpacks main command"""
         if ctx.invoked_subcommand is None:
-            # Use Red's integrated help system by delegating to send_help if available
-            # This will show standard help for the group instead of a custom fallback.
             if hasattr(ctx, "send_help"):
                 await ctx.send_help()
             else:
-                # conservative fallback: briefly list available subcommands
-                await ctx.send(
-                    "**CardPacks** — subcommands: `buy`, `manage`\nUse the help command for details."
-                )
+                await ctx.send("Use the help command for details on cardpacks subcommands.")
 
     @cardpacks.command(name="buy")
     async def buy(self, ctx: commands.Context):
@@ -220,7 +242,6 @@ class CardPacks(commands.Cog):
         view.add_item(BuySelect(self, packs))
         await ctx.send("Select a pack to buy", view=view)
 
-    # Make the manage group and all its subcommands admin-only
     @cardpacks.group(name="manage")
     @checks.guildowner_or_permissions(manage_guild=True)
     async def manage(self, ctx: commands.Context):
@@ -229,10 +250,10 @@ class CardPacks(commands.Cog):
             view = ManageView(self)
             await ctx.send("Cardpacks manager", view=view)
 
-    @manage.command(name="export")
+    # keep export as a hidden command for compatibility but admin-only and not necessary normally
+    @commands.command(hidden=True)
     @checks.guildowner_or_permissions(manage_guild=True)
-    async def export(self, ctx: commands.Context):
-        """Export packs data (debug/admin)"""
+    async def _export_packs(self, ctx: commands.Context):
         packs = await self._get_all_packs(ctx.guild)
         if not packs:
             await ctx.send("No packs configured.")
