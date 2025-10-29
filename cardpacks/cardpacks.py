@@ -4,33 +4,20 @@ import discord
 from discord import ui
 from redbot.core import commands, bank, checks, Config
 
-DEFAULT = {"packs": {}, "inventories": {}}  # inventories: {guild_id: {user_id: [card dicts]}}
+DEFAULT = {"packs": {}, "inventories": {}}
 
 
 def _rarity_weights_map(packs: Dict[str, dict], pack_name: str) -> Dict[str, int]:
-    """
-    Helper that returns rarity weight map for a pack.
-    Expected pack structure:
-      packs[pack_name] = {
-        "price": int,
-        "description": str,
-        "cards": [ {"name":..., "text":..., "image":..., "rarity": "common"}, ... ],
-        "rarity_weights": {"common":70,"rare":25,"epic":5}
-      }
-    If rarity_weights missing, compute from counts evenly.
-    """
     pack = packs.get(pack_name, {})
     rw = pack.get("rarity_weights")
     if rw and isinstance(rw, dict):
         return {k: int(v) for k, v in rw.items()}
-    # fallback: count cards by rarity
     counts: Dict[str, int] = {}
     for c in pack.get("cards", []):
         r = c.get("rarity", "common")
         counts[r] = counts.get(r, 0) + 1
     if not counts:
         return {}
-    # give each rarity equal weight by count (so rarer rarities with fewer cards still selectable)
     return {k: max(1, v) for k, v in counts.items()}
 
 
@@ -51,14 +38,12 @@ class BuySelect(ui.Select):
         if not pack:
             await interaction.response.send_message("Pack not found.", ephemeral=True)
             return
-
         price = int(pack.get("price", 0))
         can = await bank.can_spend(interaction.user, price)
         currency = await bank.get_currency_name(interaction.guild)
         if not can:
             await interaction.response.send_message(f"You need {price} {currency} to buy this pack.", ephemeral=True)
             return
-
         view = ConfirmBuyView(self.cog, pack_name, price)
         await interaction.response.send_message(
             f"Confirm purchase of **{pack_name}** for **{price} {currency}**?",
@@ -81,7 +66,6 @@ class ConfirmBuyView(ui.View):
         except Exception as e:
             await interaction.response.edit_message(content=f"Purchase failed: {e}", view=None)
             return
-
         pack = await self.cog._get_pack(interaction.guild, self.pack_name)
         cards = pack.get("cards", [])
         if not cards:
@@ -89,8 +73,6 @@ class ConfirmBuyView(ui.View):
             await bank.deposit_credits(interaction.user, self.price)
             await interaction.response.edit_message(content=msg, view=None)
             return
-
-        # Rarity-weighted selection
         packs_all = await self.cog._get_all_packs(interaction.guild)
         rarity_map = _rarity_weights_map(packs_all, self.pack_name)
         chosen_card = None
@@ -101,11 +83,8 @@ class ConfirmBuyView(ui.View):
             rarity_candidates = [c for c in cards if c.get("rarity", "common") == chosen_rarity]
             if rarity_candidates:
                 chosen_card = random.choice(rarity_candidates)
-        # fallback to uniform random if rarity selection failed
         if not chosen_card:
             chosen_card = random.choice(cards)
-
-        # add to user inventory
         await self.cog._add_card_to_user(interaction.guild, interaction.user, chosen_card)
         embed = discord.Embed(title=f"You received: {chosen_card.get('name')}", description=chosen_card.get("text", ""))
         if chosen_card.get("image"):
@@ -124,8 +103,7 @@ class PackCreateModal(ui.Modal, title="Create pack"):
     name = ui.TextInput(label="Pack name", max_length=100)
     price = ui.TextInput(label="Price (integer)", default="0", max_length=20)
     description = ui.TextInput(label="Short description", required=False, max_length=200)
-    # small helper field to let admin define rarity weights as comma separated pairs, optional
-    rarity_weights = ui.TextInput(label="Rarity weights (optional, e.g. common:70,rare:25)", required=False)
+    rarity_weights = ui.TextInput(label="Rarity weights", required=False)
 
     def __init__(self, cog: "CardPacks"):
         super().__init__()
@@ -161,7 +139,7 @@ class CardAddModal(ui.Modal, title="Add card to pack"):
     name = ui.TextInput(label="Card name", max_length=100)
     text = ui.TextInput(label="Card text", style=discord.TextStyle.long, required=False)
     image_url = ui.TextInput(label="Optional image URL", required=False)
-    rarity = ui.TextInput(label="Rarity (optional, default common)", required=False)
+    rarity = ui.TextInput(label="Rarity (optional)", required=False)
 
     def __init__(self, cog: "CardPacks", pack_name: str):
         super().__init__()
@@ -180,10 +158,6 @@ class CardAddModal(ui.Modal, title="Add card to pack"):
 
 
 class ManageView(ui.View):
-    """
-    Persistent manage view. timeout=None so it can be registered as persistent.
-    Buttons have fixed custom_id to allow persistence across restarts.
-    """
     def __init__(self, cog: "CardPacks"):
         super().__init__(timeout=None)
         self.cog = cog
@@ -248,15 +222,11 @@ class CardPacks(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890123)
         self.config.register_guild(**DEFAULT)
-        # register persistent view so buttons remain after restarts
-        # ManageView has fixed custom_id values for persistence
         try:
             bot.add_view(ManageView(self))
         except Exception:
-            # add_view may be called before bot is ready in some setups; ignore if not allowed
             pass
 
-    # Storage helpers
     async def _get_all_packs(self, guild: Optional[discord.Guild]) -> Dict[str, dict]:
         if not guild:
             return {}
@@ -281,7 +251,6 @@ class CardPacks(commands.Cog):
         packs[pack_name].setdefault("cards", []).append(card)
         await self.config.guild(guild).packs.set(packs)
 
-    # inventory helpers: stored per guild under inventories -> {user_id: [card dicts]}
     async def _get_user_inventory(self, guild: discord.Guild, user: discord.abc.User) -> List[dict]:
         data = await self.config.guild(guild).all()
         inv = data.get("inventories", {})
@@ -301,7 +270,6 @@ class CardPacks(commands.Cog):
         cur.append(card)
         await self._set_user_inventory(guild, user, cur)
 
-    # Commands
     @commands.group(invoke_without_command=True)
     async def cardpacks(self, ctx: commands.Context):
         """Cardpacks main command"""
@@ -330,10 +298,10 @@ class CardPacks(commands.Cog):
             view = ManageView(self)
             await ctx.send("Cardpacks manager", view=view)
 
-    @manage.command(name="inventory")
+    @commands.command(name="inventory")
     @checks.guildowner_or_permissions(manage_guild=True)
     async def inv_get(self, ctx: commands.Context, member: discord.Member):
-        """Admin command to view a member's inventory"""
+        """Admin command to view a member's inventory (top-level command, not under manage)"""
         inv = await self._get_user_inventory(ctx.guild, member)
         if not inv:
             await ctx.send(f"{member.display_name} has no cards.")
