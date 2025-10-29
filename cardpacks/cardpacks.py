@@ -4,17 +4,6 @@ import discord
 from discord import ui
 from redbot.core import commands, bank, checks, Config
 
-# Placeholder banner URLs - replace these with your real banner image URLs
-BANNER_URLS = [
-   "https://files.catbox.moe/nn9wpx.jpg",
-   "https://files.catbox.moe/vyvmr2.jpg",
-   "https://files.catbox.moe/143g4d.jpg",
-   "https://files.catbox.moe/m9tx00.jpg",
-   "https://files.catbox.moe/kozsri.jpg",
-   "https://files.catbox.moe/xr5r0l.jpg",
-   "https://files.catbox.moe/8wvnsf.jpg",
-]
-
 DEFAULT = {"packs": {}, "inventories": {}}
 
 
@@ -84,6 +73,16 @@ class BuySelect(ui.Select):
 
 
 class ConfirmBuyView(TimedView):
+    BANNER_URLS = [
+        "https://files.catbox.moe/nn9wpx.jpg",
+        "https://files.catbox.moe/vyvmr2.jpg",
+        "https://files.catbox.moe/143g4d.jpg",
+        "https://files.catbox.moe/m9tx00.jpg",
+        "https://files.catbox.moe/kozsri.jpg",
+        "https://files.catbox.moe/xr5r0l.jpg",
+        "https://files.catbox.moe/8wvnsf.jpg",
+    ]
+
     def __init__(self, cog: "CardPacks", pack_name: str, price: int):
         super().__init__(timeout=60)
         self.cog = cog
@@ -92,18 +91,22 @@ class ConfirmBuyView(TimedView):
 
     @ui.button(label="Confirm", style=discord.ButtonStyle.green, custom_id="cardpacks_confirm_buy")
     async def confirm(self, interaction: discord.Interaction, button: ui.Button):
+        # Try withdraw; if it fails, tell the user privately
         try:
             await bank.withdraw_credits(interaction.user, self.price)
         except Exception as e:
-            await interaction.response.edit_message(content=f"Purchase failed: {e}", view=None)
+            await interaction.response.send_message(f"Purchase failed: {e}", ephemeral=True)
             return
 
         pack = await self.cog._get_pack(interaction.guild, self.pack_name)
-        cards = pack.get("cards", [])
+        cards = pack.get("cards", []) if pack else []
         if not cards:
             msg = f"Pack **{self.pack_name}** contained no cards. Refunding."
-            await bank.deposit_credits(interaction.user, self.price)
-            await interaction.response.edit_message(content=msg, view=None)
+            try:
+                await bank.deposit_credits(interaction.user, self.price)
+            except Exception:
+                pass
+            await interaction.response.send_message(msg, ephemeral=True)
             return
 
         packs_all = await self.cog._get_all_packs(interaction.guild)
@@ -117,15 +120,13 @@ class ConfirmBuyView(TimedView):
             # If any card defines an explicit 'chance' value, use per-card chances
             cards_with_chance = [c for c in cards if c.get("chance") is not None]
             if cards_with_chance:
-                # Build weights using the numeric chance (percent) value; cards without
-                # chance get 0 weight
                 weights = [float(c.get("chance", 0.0)) for c in cards]
                 if sum(weights) > 0:
                     chosen_card = random.choices(cards, weights=weights, k=1)[0]
                 else:
                     chosen_card = random.choice(cards)
             else:
-                # existing rarity-based selection
+                # rarity-based selection
                 if rarity_map:
                     rarities = list(rarity_map.keys())
                     weights = [rarity_map[r] for r in rarities]
@@ -139,28 +140,56 @@ class ConfirmBuyView(TimedView):
             pulled.append(chosen_card)
             await self.cog._add_card_to_user(interaction.guild, interaction.user, chosen_card)
 
-        embed = discord.Embed(title=f"You opened: {self.pack_name}")
-        description_lines = []
-        for c in pulled:
-            line = f"**{c.get('name')}**"
-            r = c.get("rarity")
-            if r:
-                line += f" - {r}"
-            txt = c.get("text")
-            if txt:
-                line += f"\n{txt}"
-            if c.get("chance") is not None:
-                line += f"\nChance: {c.get('chance')}%"
-            description_lines.append(line)
-        embed.description = "\n\n".join(description_lines)
+        # Build a visually appealing embed for public display
+        banner = random.choice(self.BANNER_URLS) if self.BANNER_URLS else None
+        embed = discord.Embed(
+            title=f"{interaction.user.display_name} opened {self.pack_name}!",
+            description=f"A shiny new pack has been opened by **{interaction.user.display_name}**.",
+            color=discord.Color.random(),
+        )
+        # Banner image (large visual across the top)
+        if banner:
+            embed.set_image(url=banner)
+
+        # Optional pack thumbnail (small image next to title)
         thumbnail = pack.get("thumbnail")
         if thumbnail:
             embed.set_thumbnail(url=thumbnail)
-        await interaction.response.edit_message(content=None, embed=embed, view=None)
+
+        # Flavor text — short, celebratory line
+        embed.add_field(name="Result", value=f"Pulled {len(pulled)} card(s) from **{self.pack_name}**", inline=False)
+
+        # For each pulled card, add a compact field (name + rarity + short text)
+        for idx, c in enumerate(pulled, start=1):
+            name = c.get("name", "Unknown")
+            rarity = c.get("rarity", "common")
+            text = c.get("text", "")
+            chance_info = f" | Chance: {c.get('chance')}%" if c.get("chance") is not None else ""
+            value_lines = []
+            if text:
+                # Keep it brief to avoid overly large embeds; include main text first line
+                first_line = text.splitlines()[0]
+                value_lines.append(first_line)
+            value_lines.append(f"Rarity: **{rarity}**{chance_info}")
+            img = c.get("image")
+            if img:
+                value_lines.append(img)
+            embed.add_field(name=f"{idx}. {name}", value="\n".join(value_lines), inline=False)
+
+        # Footer and timestamp for polish
+        embed.set_footer(text=f"Bought for {self.price} {await bank.get_currency_name(interaction.guild)}")
+        embed.timestamp = discord.utils.utcnow()
+
+        # Send publicly to the channel so everyone sees it
+        try:
+            await interaction.response.send_message(content=None, embed=embed, ephemeral=False)
+        except Exception:
+            # If sending public message fails (rare), fall back to ephemeral message for the buyer
+            await interaction.response.send_message("Could not post the public reveal; here are your pulls:", embed=embed, ephemeral=True)
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.red, custom_id="cardpacks_cancel_buy")
     async def cancel(self, interaction: discord.Interaction, button: ui.Button):
-        await interaction.response.edit_message(content="Purchase cancelled.", view=None)
+        await interaction.response.send_message("Purchase cancelled.", ephemeral=True)
 
 
 class PackCreateModal(ui.Modal, title="Create pack"):
@@ -696,36 +725,14 @@ class CardPacks(commands.Cog):
 
     @cardpacks.command(name="buy")
     async def buy(self, ctx: commands.Context):
-        """Buy a pack via dropdown (rich embed with banner)"""
+        """Buy a pack via dropdown"""
         packs = await self._get_all_packs(ctx.guild)
         if not packs:
             await ctx.send("No packs are configured on this server.")
             return
-
-        # Choose a random banner image from placeholders
-        banner_url = random.choice(BANNER_URLS) if BANNER_URLS else None
-
-        # Build a rich embed showcasing available packs
-        embed = discord.Embed(
-            title="Card Packs Store",
-            description="Choose a pack from the dropdown below to purchase. Each pack contains collectible cards with different rarities.",
-            color=discord.Color.blurple(),
-        )
-        # Add a compact list of packs to the embed fields
-        for name, data in packs.items():
-            price = data.get("price", 0)
-            pulls = data.get("pull_count", 1)
-            desc = data.get("description", "")
-            field_value = f"Price: **{price}**\nPulls: **{pulls}**\n{desc}"
-            embed.add_field(name=name, value=field_value, inline=False)
-
-        if banner_url:
-            # Set as large image/banner for the embed
-            embed.set_image(url=banner_url)
-
         view = TimedView(timeout=60)
         view.add_item(BuySelect(self, packs))
-        msg = await ctx.send(embed=embed, view=view)  # visible to everyone (not ephemeral)
+        msg = await ctx.send("Select a pack to buy", view=view)
         view.message = msg
 
     @cardpacks.group(name="manage", invoke_without_command=True)
