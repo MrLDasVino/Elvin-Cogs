@@ -232,13 +232,13 @@ class PackSelect(ui.Select):
 
 
 class CardPacks(commands.Cog):
-    """Card packs cog with inventories, rarities, persistent manage view, and pack pull counts"""
+    """Card packs cog with inventories, rarities, and timed views"""
 
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890123)
         self.config.register_guild(**DEFAULT)
-        # Do not add persistent view here. Views created for manage/buy will timeout after 60s.
+        # IMPORTANT: do not call bot.add_view(...) here. That registers persistent views which bypass timeouts.
 
     async def _get_all_packs(self, guild: Optional[discord.Guild]) -> Dict[str, dict]:
         if not guild:
@@ -330,7 +330,6 @@ class CardPacks(commands.Cog):
     @cardpacks.command(name="inventory")
     async def inventory(self, ctx: commands.Context, member: Optional[discord.Member] = None):
         """View inventory. Admins may mention a member to view theirs; regular users see their own."""
-        # Decide target
         if member is None:
             target = ctx.author
         else:
