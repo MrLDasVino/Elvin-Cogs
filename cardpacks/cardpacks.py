@@ -96,7 +96,6 @@ class ConfirmBuyView(ui.View):
             pulled.append(chosen_card)
             await self.cog._add_card_to_user(interaction.guild, interaction.user, chosen_card)
 
-        # Build result embed
         embed = discord.Embed(title=f"You opened: {self.pack_name}")
         description_lines = []
         for c in pulled:
@@ -109,7 +108,6 @@ class ConfirmBuyView(ui.View):
                 line += f"\n{txt}"
             description_lines.append(line)
         embed.description = "\n\n".join(description_lines)
-        # include pack thumbnail if set
         thumbnail = pack.get("thumbnail")
         if thumbnail:
             embed.set_thumbnail(url=thumbnail)
@@ -307,8 +305,10 @@ class CardPacks(commands.Cog):
     @commands.group(invoke_without_command=True)
     async def cardpacks(self, ctx: commands.Context):
         """Cardpacks main command"""
+        # Only show help when the user typed exactly the parent command and no other tokens
         invoked = ctx.message.content[len(ctx.clean_prefix) :].strip()
-        if invoked == ctx.command.qualified_name or invoked.split()[0] == ctx.command.name:
+        tokens = invoked.split()
+        if len(tokens) == 1:
             await ctx.send_help()
         return
 
@@ -323,7 +323,7 @@ class CardPacks(commands.Cog):
         view.add_item(BuySelect(self, packs))
         await ctx.send("Select a pack to buy", view=view)
 
-    @cardpacks.group(name="manage")
+    @cardpacks.group(name="manage", invoke_without_command=True)
     @checks.guildowner_or_permissions(manage_guild=True)
     async def manage(self, ctx: commands.Context):
         """Manage packs (create, add cards). Admin only."""
