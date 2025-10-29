@@ -135,7 +135,6 @@ class ConfirmBuyView(TimedView):
             txt = c.get("text")
             if txt:
                 line += f"\n{txt}"
-            # show chance if present
             if c.get("chance") is not None:
                 line += f"\nChance: {c.get('chance')}%"
             description_lines.append(line)
@@ -227,9 +226,9 @@ class EditPackModal(ui.Modal, title="Edit pack"):
 class CardAddModal(ui.Modal, title="Add card to pack"):
     name = ui.TextInput(label="Card name", max_length=100)
     text = ui.TextInput(label="Card text", style=discord.TextStyle.long, required=False)
-    image_url = ui.TextInput(label="Optional image URL", required=False)
+    image_url = ui.TextInput(label="Image URL (optional)", required=False)
     rarity = ui.TextInput(label="Rarity (optional)", required=False)
-    pull_chance = ui.TextInput(label="Pull chance in percent (optional, e.g. 0.5 or 25)", required=False, max_length=20)
+    pull_chance = ui.TextInput(label="Pull chance % (e.g. 0.5)", required=False, max_length=20)
 
     def __init__(self, cog: "CardPacks", pack_name: str):
         super().__init__()
@@ -267,9 +266,9 @@ class CardAddModal(ui.Modal, title="Add card to pack"):
 class EditCardModal(ui.Modal, title="Edit card"):
     name = ui.TextInput(label="Card name", max_length=100)
     text = ui.TextInput(label="Card text", style=discord.TextStyle.long, required=False)
-    image_url = ui.TextInput(label="Optional image URL", required=False)
+    image_url = ui.TextInput(label="Image URL (optional)", required=False)
     rarity = ui.TextInput(label="Rarity (optional)", required=False)
-    pull_chance = ui.TextInput(label="Pull chance in percent (optional, e.g. 0.5 or 25)", required=False, max_length=20)
+    pull_chance = ui.TextInput(label="Pull chance % (e.g. 0.5)", required=False, max_length=20)
 
     def __init__(self, cog: "CardPacks", pack_name: str, card_index: int, card_data: dict):
         super().__init__()
