@@ -100,15 +100,28 @@ class ConfirmBuyView(TimedView):
         pulled: List[dict] = []
         for _ in range(max(1, pull_count)):
             chosen_card = None
-            if rarity_map:
-                rarities = list(rarity_map.keys())
-                weights = [rarity_map[r] for r in rarities]
-                chosen_rarity = random.choices(rarities, weights=weights, k=1)[0]
-                rarity_candidates = [c for c in cards if c.get("rarity", "common") == chosen_rarity]
-                if rarity_candidates:
-                    chosen_card = random.choice(rarity_candidates)
-            if not chosen_card:
-                chosen_card = random.choice(cards)
+
+            # If any card defines an explicit 'chance' value, use per-card chances
+            cards_with_chance = [c for c in cards if c.get("chance") is not None]
+            if cards_with_chance:
+                # Build weights using the numeric chance (percent) value; cards without chance get 0 weight
+                weights = [float(c.get("chance", 0.0)) for c in cards]
+                if sum(weights) > 0:
+                    chosen_card = random.choices(cards, weights=weights, k=1)[0]
+                else:
+                    chosen_card = random.choice(cards)
+            else:
+                # existing rarity-based selection
+                if rarity_map:
+                    rarities = list(rarity_map.keys())
+                    weights = [rarity_map[r] for r in rarities]
+                    chosen_rarity = random.choices(rarities, weights=weights, k=1)[0]
+                    rarity_candidates = [c for c in cards if c.get("rarity", "common") == chosen_rarity]
+                    if rarity_candidates:
+                        chosen_card = random.choice(rarity_candidates)
+                if not chosen_card:
+                    chosen_card = random.choice(cards)
+
             pulled.append(chosen_card)
             await self.cog._add_card_to_user(interaction.guild, interaction.user, chosen_card)
 
@@ -122,6 +135,9 @@ class ConfirmBuyView(TimedView):
             txt = c.get("text")
             if txt:
                 line += f"\n{txt}"
+            # show chance if present
+            if c.get("chance") is not None:
+                line += f"\nChance: {c.get('chance')}%"
             description_lines.append(line)
         embed.description = "\n\n".join(description_lines)
         thumbnail = pack.get("thumbnail")
@@ -213,6 +229,7 @@ class CardAddModal(ui.Modal, title="Add card to pack"):
     text = ui.TextInput(label="Card text", style=discord.TextStyle.long, required=False)
     image_url = ui.TextInput(label="Optional image URL", required=False)
     rarity = ui.TextInput(label="Rarity (optional)", required=False)
+    pull_chance = ui.TextInput(label="Pull chance in percent (optional, e.g. 0.5 or 25)", required=False, max_length=20)
 
     def __init__(self, cog: "CardPacks", pack_name: str):
         super().__init__()
@@ -221,13 +238,30 @@ class CardAddModal(ui.Modal, title="Add card to pack"):
 
     async def on_submit(self, interaction: discord.Interaction):
         rarity_val = self.rarity.value.strip() or "common"
+        chance_raw = self.pull_chance.value.strip()
+        chance_val = None
+        if chance_raw:
+            try:
+                chance_val = float(chance_raw)
+            except ValueError:
+                await interaction.response.send_message("Pull chance must be a number (percent).", ephemeral=True)
+                return
+            if chance_val < 0 or chance_val > 100:
+                await interaction.response.send_message("Pull chance must be between 0 and 100.", ephemeral=True)
+                return
         card = {"name": self.name.value, "text": self.text.value, "image": self.image_url.value, "rarity": rarity_val}
+        if chance_val is not None:
+            card["chance"] = chance_val
         try:
             await self.cog._add_card_to_pack(interaction.guild, self.pack_name, card)
         except commands.BadArgument as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return
-        await interaction.response.send_message(f"Added card **{card['name']}** (rarity: {rarity_val}) to **{self.pack_name}**.", ephemeral=True)
+        added_msg = f"Added card **{card['name']}** (rarity: {rarity_val}"
+        if chance_val is not None:
+            added_msg += f"; chance: {chance_val}%"
+        added_msg += f") to **{self.pack_name}**."
+        await interaction.response.send_message(added_msg, ephemeral=True)
 
 
 class EditCardModal(ui.Modal, title="Edit card"):
@@ -235,6 +269,7 @@ class EditCardModal(ui.Modal, title="Edit card"):
     text = ui.TextInput(label="Card text", style=discord.TextStyle.long, required=False)
     image_url = ui.TextInput(label="Optional image URL", required=False)
     rarity = ui.TextInput(label="Rarity (optional)", required=False)
+    pull_chance = ui.TextInput(label="Pull chance in percent (optional, e.g. 0.5 or 25)", required=False, max_length=20)
 
     def __init__(self, cog: "CardPacks", pack_name: str, card_index: int, card_data: dict):
         super().__init__()
@@ -246,9 +281,23 @@ class EditCardModal(ui.Modal, title="Edit card"):
         self.text.default = card_data.get("text", "")
         self.image_url.default = card_data.get("image", "")
         self.rarity.default = card_data.get("rarity", "common")
+        self.pull_chance.default = str(card_data.get("chance")) if card_data.get("chance") is not None else ""
 
     async def on_submit(self, interaction: discord.Interaction):
+        chance_raw = self.pull_chance.value.strip()
+        chance_val = None
+        if chance_raw:
+            try:
+                chance_val = float(chance_raw)
+            except ValueError:
+                await interaction.response.send_message("Pull chance must be a number (percent).", ephemeral=True)
+                return
+            if chance_val < 0 or chance_val > 100:
+                await interaction.response.send_message("Pull chance must be between 0 and 100.", ephemeral=True)
+                return
         card = {"name": self.name.value, "text": self.text.value, "image": self.image_url.value, "rarity": self.rarity.value.strip() or "common"}
+        if chance_val is not None:
+            card["chance"] = chance_val
         try:
             await self.cog._edit_card_in_pack(interaction.guild, self.pack_name, self.card_index, card)
         except commands.BadArgument as e:
@@ -493,7 +542,8 @@ class ManageView(TimedView):
         for name, data in packs.items():
             lines.append(f"== {name} ==\nprice: {data.get('price')}\ndesc: {data.get('description')}\npulls: {data.get('pull_count',1)}\nthumbnail: {data.get('thumbnail')}\ncards:")
             for c in data.get("cards", []):
-                lines.append(f"- {c.get('name')} | {c.get('text')} | rarity:{c.get('rarity','common')}")
+                chance_part = f" chance:{c.get('chance')}" if c.get("chance") is not None else ""
+                lines.append(f"- {c.get('name')} | {c.get('text')} | rarity:{c.get('rarity','common')}{chance_part}")
         await interaction.response.send_message("```\n" + "\n".join(lines) + "\n```", ephemeral=True)
 
 
