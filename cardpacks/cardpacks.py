@@ -38,12 +38,14 @@ class BuySelect(ui.Select):
         if not pack:
             await interaction.response.send_message("Pack not found.", ephemeral=True)
             return
+
         price = int(pack.get("price", 0))
         can = await bank.can_spend(interaction.user, price)
         currency = await bank.get_currency_name(interaction.guild)
         if not can:
             await interaction.response.send_message(f"You need {price} {currency} to buy this pack.", ephemeral=True)
             return
+
         view = ConfirmBuyView(self.cog, pack_name, price)
         await interaction.response.send_message(
             f"Confirm purchase of **{pack_name}** for **{price} {currency}**?",
@@ -66,6 +68,7 @@ class ConfirmBuyView(ui.View):
         except Exception as e:
             await interaction.response.edit_message(content=f"Purchase failed: {e}", view=None)
             return
+
         pack = await self.cog._get_pack(interaction.guild, self.pack_name)
         cards = pack.get("cards", [])
         if not cards:
@@ -73,25 +76,43 @@ class ConfirmBuyView(ui.View):
             await bank.deposit_credits(interaction.user, self.price)
             await interaction.response.edit_message(content=msg, view=None)
             return
+
         packs_all = await self.cog._get_all_packs(interaction.guild)
         rarity_map = _rarity_weights_map(packs_all, self.pack_name)
-        chosen_card = None
-        if rarity_map:
-            rarities = list(rarity_map.keys())
-            weights = [rarity_map[r] for r in rarities]
-            chosen_rarity = random.choices(rarities, weights=weights, k=1)[0]
-            rarity_candidates = [c for c in cards if c.get("rarity", "common") == chosen_rarity]
-            if rarity_candidates:
-                chosen_card = random.choice(rarity_candidates)
-        if not chosen_card:
-            chosen_card = random.choice(cards)
-        await self.cog._add_card_to_user(interaction.guild, interaction.user, chosen_card)
-        embed = discord.Embed(title=f"You received: {chosen_card.get('name')}", description=chosen_card.get("text", ""))
-        if chosen_card.get("image"):
-            embed.set_image(url=chosen_card["image"])
-        rarity = chosen_card.get("rarity")
-        if rarity:
-            embed.set_footer(text=f"Rarity: {rarity}")
+
+        pull_count = int(pack.get("pull_count", 1))
+        pulled: List[dict] = []
+        for _ in range(max(1, pull_count)):
+            chosen_card = None
+            if rarity_map:
+                rarities = list(rarity_map.keys())
+                weights = [rarity_map[r] for r in rarities]
+                chosen_rarity = random.choices(rarities, weights=weights, k=1)[0]
+                rarity_candidates = [c for c in cards if c.get("rarity", "common") == chosen_rarity]
+                if rarity_candidates:
+                    chosen_card = random.choice(rarity_candidates)
+            if not chosen_card:
+                chosen_card = random.choice(cards)
+            pulled.append(chosen_card)
+            await self.cog._add_card_to_user(interaction.guild, interaction.user, chosen_card)
+
+        # Build result embed
+        embed = discord.Embed(title=f"You opened: {self.pack_name}")
+        description_lines = []
+        for c in pulled:
+            line = f"**{c.get('name')}**"
+            r = c.get("rarity")
+            if r:
+                line += f" — {r}"
+            txt = c.get("text")
+            if txt:
+                line += f"\n{txt}"
+            description_lines.append(line)
+        embed.description = "\n\n".join(description_lines)
+        # include pack thumbnail if set
+        thumbnail = pack.get("thumbnail")
+        if thumbnail:
+            embed.set_thumbnail(url=thumbnail)
         await interaction.response.edit_message(content=None, embed=embed, view=None)
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.red, custom_id="cardpacks_cancel_buy")
@@ -103,7 +124,8 @@ class PackCreateModal(ui.Modal, title="Create pack"):
     name = ui.TextInput(label="Pack name", max_length=100)
     price = ui.TextInput(label="Price (integer)", default="0", max_length=20)
     description = ui.TextInput(label="Short description", required=False, max_length=200)
-    rarity_weights = ui.TextInput(label="Rarity weights", required=False)
+    pull_count = ui.TextInput(label="Cards pulled on buy (integer, default 1)", default="1", max_length=3, required=False)
+    thumbnail_url = ui.TextInput(label="Optional thumbnail URL (max 200 chars)", required=False, max_length=200)
 
     def __init__(self, cog: "CardPacks"):
         super().__init__()
@@ -115,24 +137,20 @@ class PackCreateModal(ui.Modal, title="Create pack"):
         except ValueError:
             await interaction.response.send_message("Price must be an integer.", ephemeral=True)
             return
-        rw_text = self.rarity_weights.value.strip()
-        rw_map = None
-        if rw_text:
-            try:
-                pairs = [p.strip() for p in rw_text.split(",") if p.strip()]
-                rw_map = {}
-                for pair in pairs:
-                    k, v = pair.split(":")
-                    rw_map[k.strip()] = int(v.strip())
-            except Exception:
-                await interaction.response.send_message("Rarity weights format invalid. Use like common:70,rare:25", ephemeral=True)
-                return
         try:
-            await self.cog._create_pack(interaction.guild, self.name.value, price_val, self.description.value, rw_map)
+            pull_val = int(self.pull_count.value) if self.pull_count.value.strip() else 1
+            if pull_val < 1:
+                raise ValueError
+        except Exception:
+            await interaction.response.send_message("Cards pulled must be a positive integer.", ephemeral=True)
+            return
+        thumbnail = self.thumbnail_url.value.strip() or None
+        try:
+            await self.cog._create_pack(interaction.guild, self.name.value, price_val, self.description.value, None, pull_val, thumbnail)
         except commands.BadArgument as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return
-        await interaction.response.send_message(f"Pack **{self.name.value}** created.", ephemeral=True)
+        await interaction.response.send_message(f"Pack **{self.name.value}** created (pulls: {pull_val}).", ephemeral=True)
 
 
 class CardAddModal(ui.Modal, title="Add card to pack"):
@@ -174,7 +192,7 @@ class ManageView(ui.View):
             return
         lines = []
         for name, data in packs.items():
-            lines.append(f"**{name}** — {data.get('description','')} — {data.get('price',0)} — {len(data.get('cards',[]))} cards")
+            lines.append(f"**{name}** — {data.get('description','')} — {data.get('price',0)} — {len(data.get('cards',[]))} cards — pulls:{data.get('pull_count',1)}")
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     @ui.button(label="Add card to pack", style=discord.ButtonStyle.success, custom_id="cardpacks_add_card")
@@ -196,7 +214,7 @@ class ManageView(ui.View):
             return
         lines = []
         for name, data in packs.items():
-            lines.append(f"== {name} ==\nprice: {data.get('price')}\ndesc: {data.get('description')}\ncards:")
+            lines.append(f"== {name} ==\nprice: {data.get('price')}\ndesc: {data.get('description')}\npulls: {data.get('pull_count',1)}\nthumbnail: {data.get('thumbnail')}\ncards:")
             for c in data.get("cards", []):
                 lines.append(f"- {c.get('name')} | {c.get('text')} | rarity:{c.get('rarity','common')}")
         await interaction.response.send_message("```\n" + "\n".join(lines) + "\n```", ephemeral=True)
@@ -216,7 +234,7 @@ class PackSelect(ui.Select):
 
 
 class CardPacks(commands.Cog):
-    """Card packs cog with inventories, rarities, and persistent manage view"""
+    """Card packs cog with inventories, rarities, persistent manage view, and pack pull counts"""
 
     def __init__(self, bot):
         self.bot = bot
@@ -237,11 +255,27 @@ class CardPacks(commands.Cog):
         packs = await self._get_all_packs(guild)
         return packs.get(name)
 
-    async def _create_pack(self, guild: discord.Guild, name: str, price: int, description: str = "", rarity_weights: Optional[dict] = None):
+    async def _create_pack(
+        self,
+        guild: discord.Guild,
+        name: str,
+        price: int,
+        description: str = "",
+        rarity_weights: Optional[dict] = None,
+        pull_count: int = 1,
+        thumbnail: Optional[str] = None,
+    ):
         packs = await self._get_all_packs(guild)
         if name in packs:
             raise commands.BadArgument("Pack already exists")
-        packs[name] = {"price": price, "description": description, "cards": [], "rarity_weights": rarity_weights or {}}
+        packs[name] = {
+            "price": price,
+            "description": description,
+            "cards": [],
+            "rarity_weights": rarity_weights or {},
+            "pull_count": int(pull_count),
+            "thumbnail": thumbnail,
+        }
         await self.config.guild(guild).packs.set(packs)
 
     async def _add_card_to_pack(self, guild: discord.Guild, pack_name: str, card: dict):
@@ -273,11 +307,9 @@ class CardPacks(commands.Cog):
     @commands.group(invoke_without_command=True)
     async def cardpacks(self, ctx: commands.Context):
         """Cardpacks main command"""
+        # Do not call help here; keep silent if no subcommand invoked
         if ctx.invoked_subcommand is None:
-            if hasattr(ctx, "send_help"):
-                await ctx.send_help()
-            else:
-                await ctx.send("Use the help command for details on cardpacks subcommands.")
+            await ctx.send("Use a subcommand: buy or manage.")
 
     @cardpacks.command(name="buy")
     async def buy(self, ctx: commands.Context):
