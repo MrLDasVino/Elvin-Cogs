@@ -334,17 +334,14 @@ class CardPacks(commands.Cog):
     @cardpacks.command(name="inventory")
     async def inventory(self, ctx: commands.Context, member: Optional[discord.Member] = None):
         """View inventory. Admins may mention a member to view theirs; regular users see their own."""
-        target: discord.abc.User
-        # If no member provided, show author's inventory
+        # Decide target
         if member is None:
             target = ctx.author
         else:
-            # Member provided — allow only if user has Manage Guild or is guild owner
             is_admin = False
             if ctx.guild:
                 is_admin = ctx.author == ctx.guild.owner or ctx.author.guild_permissions.manage_guild
             if not is_admin:
-                # Regular users cannot view others; show their own instead
                 target = ctx.author
             else:
                 target = member
@@ -362,14 +359,6 @@ class CardPacks(commands.Cog):
         else:
             await ctx.send(f"Inventory for {target.display_name}:\n" + "\n".join(lines))
 
-    def _inventory_help_aliases(self) -> List[str]:
-        # compatibility helper if you want to add aliases in future
-        return ["inv", "myinv"]
-
-    @cardpacks.command(name="myinv")
-    async def my_inventory(self, ctx: commands.Context):
-        """Deprecated alias for inventory (kept for compatibility)."""
-        await self.inventory(ctx)
 
 def setup(bot):
     bot.add_cog(CardPacks(bot))
