@@ -4,6 +4,17 @@ import discord
 from discord import ui
 from redbot.core import commands, bank, checks, Config
 
+# Placeholder banner URLs - replace these with your real banner image URLs
+BANNER_URLS = [
+   "https://files.catbox.moe/nn9wpx.jpg",
+   "https://files.catbox.moe/vyvmr2.jpg",
+   "https://files.catbox.moe/143g4d.jpg",
+   "https://files.catbox.moe/m9tx00.jpg",
+   "https://files.catbox.moe/kozsri.jpg",
+   "https://files.catbox.moe/xr5r0l.jpg",
+   "https://files.catbox.moe/8wvnsf.jpg",
+]
+
 DEFAULT = {"packs": {}, "inventories": {}}
 
 
@@ -685,14 +696,36 @@ class CardPacks(commands.Cog):
 
     @cardpacks.command(name="buy")
     async def buy(self, ctx: commands.Context):
-        """Buy a pack via dropdown"""
+        """Buy a pack via dropdown (rich embed with banner)"""
         packs = await self._get_all_packs(ctx.guild)
         if not packs:
             await ctx.send("No packs are configured on this server.")
             return
+
+        # Choose a random banner image from placeholders
+        banner_url = random.choice(BANNER_URLS) if BANNER_URLS else None
+
+        # Build a rich embed showcasing available packs
+        embed = discord.Embed(
+            title="Card Packs Store",
+            description="Choose a pack from the dropdown below to purchase. Each pack contains collectible cards with different rarities.",
+            color=discord.Color.blurple(),
+        )
+        # Add a compact list of packs to the embed fields
+        for name, data in packs.items():
+            price = data.get("price", 0)
+            pulls = data.get("pull_count", 1)
+            desc = data.get("description", "")
+            field_value = f"Price: **{price}**\nPulls: **{pulls}**\n{desc}"
+            embed.add_field(name=name, value=field_value, inline=False)
+
+        if banner_url:
+            # Set as large image/banner for the embed
+            embed.set_image(url=banner_url)
+
         view = TimedView(timeout=60)
         view.add_item(BuySelect(self, packs))
-        msg = await ctx.send("Select a pack to buy", view=view)
+        msg = await ctx.send(embed=embed, view=view)  # visible to everyone (not ephemeral)
         view.message = msg
 
     @cardpacks.group(name="manage", invoke_without_command=True)
