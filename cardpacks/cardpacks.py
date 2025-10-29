@@ -331,27 +331,45 @@ class CardPacks(commands.Cog):
             view = ManageView(self)
             await ctx.send("Cardpacks manager", view=view)
 
-    @commands.command(name="inventory")
-    @checks.guildowner_or_permissions(manage_guild=True)
-    async def inv_get(self, ctx: commands.Context, member: discord.Member):
-        """Admin command to view a member's inventory (top-level command, not under manage)"""
-        inv = await self._get_user_inventory(ctx.guild, member)
+    @cardpacks.command(name="inventory")
+    async def inventory(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """View inventory. Admins may mention a member to view theirs; regular users see their own."""
+        target: discord.abc.User
+        # If no member provided, show author's inventory
+        if member is None:
+            target = ctx.author
+        else:
+            # Member provided — allow only if user has Manage Guild or is guild owner
+            is_admin = False
+            if ctx.guild:
+                is_admin = ctx.author == ctx.guild.owner or ctx.author.guild_permissions.manage_guild
+            if not is_admin:
+                # Regular users cannot view others; show their own instead
+                target = ctx.author
+            else:
+                target = member
+
+        inv = await self._get_user_inventory(ctx.guild, target)
         if not inv:
-            await ctx.send(f"{member.display_name} has no cards.")
+            if target == ctx.author:
+                await ctx.send("You have no cards.")
+            else:
+                await ctx.send(f"{target.display_name} has no cards.")
             return
         lines = [f"- {c.get('name')} (rarity: {c.get('rarity','common')})" for c in inv]
-        await ctx.send(f"Inventory for {member.display_name}:\n" + "\n".join(lines))
+        if target == ctx.author:
+            await ctx.send("Your inventory:\n" + "\n".join(lines))
+        else:
+            await ctx.send(f"Inventory for {target.display_name}:\n" + "\n".join(lines))
+
+    def _inventory_help_aliases(self) -> List[str]:
+        # compatibility helper if you want to add aliases in future
+        return ["inv", "myinv"]
 
     @cardpacks.command(name="myinv")
     async def my_inventory(self, ctx: commands.Context):
-        """View your own card inventory"""
-        inv = await self._get_user_inventory(ctx.guild, ctx.author)
-        if not inv:
-            await ctx.send("You have no cards.")
-            return
-        lines = [f"- {c.get('name')} (rarity: {c.get('rarity','common')})" for c in inv]
-        await ctx.send("Your inventory:\n" + "\n".join(lines))
-
+        """Deprecated alias for inventory (kept for compatibility)."""
+        await self.inventory(ctx)
 
 def setup(bot):
     bot.add_cog(CardPacks(bot))
