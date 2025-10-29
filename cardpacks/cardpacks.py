@@ -42,28 +42,45 @@ class BuySelect(ui.Select):
         options = []
         for name, data in packs.items():
             label = name
-            desc = data.get("description", "")
-            price = data.get("price", 0)
+            desc = (data.get("description", "") or "").strip()
+            # trim description to avoid truncation
+            desc = desc[:90] + ("…" if len(desc) > 90 else "")
+            price = int(data.get("price", 0) or 0)
             options.append(discord.SelectOption(label=label, description=f"{desc} — {price}", value=name))
         super().__init__(placeholder="Choose a pack to buy", min_values=1, max_values=1, options=options)
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
+        # Guard against double-clicks
+        try:
+            self.disabled = True
+            # If we can edit the original view, do so; ignore failures silently
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            pass
+
         pack_name = self.values[0]
         pack = await self.cog._get_pack(interaction.guild, pack_name)
         if not pack:
-            await interaction.response.send_message("Pack not found.", ephemeral=True)
+            try:
+                await interaction.followup.send("Pack not found.", ephemeral=True)
+            except Exception:
+                pass
             return
 
-        price = int(pack.get("price", 0))
+        price = int(pack.get("price", 0) or 0)
         can = await bank.can_spend(interaction.user, price)
         currency = await bank.get_currency_name(interaction.guild)
         if not can:
-            await interaction.response.send_message(f"You need {price} {currency} to buy this pack.", ephemeral=True)
+            try:
+                await interaction.followup.send(f"You need {price} {currency} to buy this pack.", ephemeral=True)
+            except Exception:
+                pass
             return
 
         view = ConfirmBuyView(self.cog, pack_name, price)
-        await interaction.response.send_message(
+        # Use followup to ensure we send even if initial edit was used
+        await interaction.followup.send(
             f"Confirm purchase of **{pack_name}** for **{price} {currency}**?",
             view=view,
             ephemeral=True,
@@ -79,74 +96,155 @@ class ConfirmBuyView(TimedView):
 
     @ui.button(label="Confirm", style=discord.ButtonStyle.green, custom_id="cardpacks_confirm_buy")
     async def confirm(self, interaction: discord.Interaction, button: ui.Button):
+        # Disable to prevent double-submit
+        button.disabled = True
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            pass
+
         try:
             await bank.withdraw_credits(interaction.user, self.price)
         except Exception as e:
-            await interaction.response.edit_message(content=f"Purchase failed: {e}", view=None)
+            # If edit_message failed above, try followup
+            try:
+                await interaction.followup.send(f"Purchase failed: {e}", ephemeral=True)
+            except Exception:
+                pass
             return
 
-        pack = await self.cog._get_pack(interaction.guild, self.pack_name)
-        cards = pack.get("cards", [])
-        if not cards:
-            msg = f"Pack **{self.pack_name}** contained no cards. Refunding."
-            await bank.deposit_credits(interaction.user, self.price)
-            await interaction.response.edit_message(content=msg, view=None)
-            return
+        try:
+            pack = await self.cog._get_pack(interaction.guild, self.pack_name)
+            cards = pack.get("cards", [])
+            if not cards:
+                await bank.deposit_credits(interaction.user, self.price)
+                try:
+                    await interaction.followup.send(
+                        f"Pack **{self.pack_name}** contained no cards. Refunding.",
+                        ephemeral=True,
+                    )
+                except Exception:
+                    pass
+                return
 
-        packs_all = await self.cog._get_all_packs(interaction.guild)
-        rarity_map = _rarity_weights_map(packs_all, self.pack_name)
+            packs_all = await self.cog._get_all_packs(interaction.guild)
+            rarity_map = _rarity_weights_map(packs_all, self.pack_name)
 
-        pull_count = int(pack.get("pull_count", 1))
-        pulled: List[dict] = []
-        for _ in range(max(1, pull_count)):
-            chosen_card = None
+            pull_count = max(1, int(pack.get("pull_count", 1) or 1))
+            pulled: List[dict] = []
 
-            # If any card defines an explicit 'chance' value, use per-card chances
-            cards_with_chance = [c for c in cards if c.get("chance") is not None]
-            if cards_with_chance:
-                # Build weights using the numeric chance (percent) value; cards without chance get 0 weight
-                weights = [float(c.get("chance", 0.0)) for c in cards]
-                if sum(weights) > 0:
-                    chosen_card = random.choices(cards, weights=weights, k=1)[0]
+            for _ in range(pull_count):
+                chosen_card = None
+                cards_with_chance = [c for c in cards if c.get("chance") is not None]
+                if cards_with_chance:
+                    weights = [float(c.get("chance", 0.0) or 0.0) for c in cards]
+                    if sum(weights) > 0:
+                        chosen_card = random.choices(cards, weights=weights, k=1)[0]
+                    else:
+                        chosen_card = random.choice(cards)
                 else:
-                    chosen_card = random.choice(cards)
-            else:
-                # existing rarity-based selection
-                if rarity_map:
-                    rarities = list(rarity_map.keys())
-                    weights = [rarity_map[r] for r in rarities]
-                    chosen_rarity = random.choices(rarities, weights=weights, k=1)[0]
-                    rarity_candidates = [c for c in cards if c.get("rarity", "common") == chosen_rarity]
-                    if rarity_candidates:
-                        chosen_card = random.choice(rarity_candidates)
-                if not chosen_card:
-                    chosen_card = random.choice(cards)
+                    if rarity_map:
+                        rarities = list(rarity_map.keys())
+                        weights = [rarity_map[r] for r in rarities]
+                        chosen_rarity = random.choices(rarities, weights=weights, k=1)[0]
+                        rarity_candidates = [c for c in cards if c.get("rarity", "common") == chosen_rarity]
+                        if rarity_candidates:
+                            chosen_card = random.choice(rarity_candidates)
+                    if not chosen_card:
+                        chosen_card = random.choice(cards)
 
-            pulled.append(chosen_card)
-            await self.cog._add_card_to_user(interaction.guild, interaction.user, chosen_card)
+                pulled.append(chosen_card)
+                await self.cog._add_card_to_user(interaction.guild, interaction.user, chosen_card)
 
-        embed = discord.Embed(title=f"You opened: {self.pack_name}")
-        description_lines = []
-        for c in pulled:
-            line = f"**{c.get('name')}**"
-            r = c.get("rarity")
-            if r:
-                line += f" — {r}"
-            txt = c.get("text")
-            if txt:
-                line += f"\n{txt}"
-            if c.get("chance") is not None:
-                line += f"\nChance: {c.get('chance')}%"
-            description_lines.append(line)
-        embed.description = "\n\n".join(description_lines)
-        thumbnail = pack.get("thumbnail")
-        if thumbnail:
-            embed.set_thumbnail(url=thumbnail)
-        await interaction.response.edit_message(content=None, embed=embed, view=None)
+            # Build public embed
+            currency = await bank.get_currency_name(interaction.guild)
+            banner_url = random.choice(self.cog.banner_urls) if getattr(self.cog, "banner_urls", None) else None
+
+            # Compute best rarity color (optional mapping)
+            rarity_order = ["common", "uncommon", "rare", "epic", "legendary"]
+            def rarity_rank(c):
+                try:
+                    return rarity_order.index((c.get("rarity") or "common").lower())
+                except ValueError:
+                    return 0
+            best = max(pulled, key=rarity_rank) if pulled else {}
+            RARITY_COLORS = {
+                "common": 0x95A5A6, "uncommon": 0x2ECC71, "rare": 0x3498DB,
+                "epic": 0x9B59B6, "legendary": 0xF1C40F
+            }
+            best_color = RARITY_COLORS.get((best.get("rarity") or "common").lower(), 0x7289DA)
+
+            embed = discord.Embed(
+                title=f"{interaction.user.display_name} opened {self.pack_name}!",
+                description=self._format_pulled_description(pulled),
+                color=best_color,
+            )
+            embed.add_field(name="Flavor", value=self._flavor_text(self.pack_name, pulled), inline=False)
+            embed.set_footer(text=f"Cost: {self.price} {currency} • Pulls: {pull_count}")
+            thumb = pack.get("thumbnail")
+            if thumb:
+                embed.set_thumbnail(url=thumb)
+            if banner_url:
+                embed.set_image(url=banner_url)
+
+            # Post publicly to the channel so everyone can see
+            try:
+                await interaction.channel.send(embed=embed)
+            except Exception:
+                # Fallback: user-focused message if channel send fails
+                await interaction.followup.send("Couldn’t post to channel, but your purchase succeeded.", ephemeral=True)
+
+            # Tidy up the original confirm
+            try:
+                await interaction.edit_original_response(content="Purchase complete!", view=None)
+            except Exception:
+                try:
+                    await interaction.followup.send("Purchase complete!", ephemeral=True)
+                except Exception:
+                    pass
+
+        except Exception as e:
+            # Refund on any grant failure
+            try:
+                await bank.deposit_credits(interaction.user, self.price)
+            except Exception:
+                pass
+            try:
+                await interaction.followup.send(f"Purchase failed and was refunded: {e}", ephemeral=True)
+            except Exception:
+                pass
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.red, custom_id="cardpacks_cancel_buy")
     async def cancel(self, interaction: discord.Interaction, button: ui.Button):
-        await interaction.response.edit_message(content="Purchase cancelled.", view=None)
+        try:
+            await interaction.response.edit_message(content="Purchase cancelled.", view=None)
+        except Exception:
+            try:
+                await interaction.followup.send("Purchase cancelled.", ephemeral=True)
+            except Exception:
+                pass
+
+    # Helpers for formatting
+    def _format_pulled_description(self, pulled: List[dict]) -> str:
+        lines = []
+        for c in pulled:
+            name = c.get("name", "Unnamed")
+            rarity = c.get("rarity")
+            chance = c.get("chance")
+            text = c.get("text")
+            line = f"• **{name}**" + (f" — {rarity}" if rarity else "")
+            if text:
+                line += f"\n{text}"
+            if chance is not None:
+                line += f"\nChance: {chance}%"
+            lines.append(line)
+        return "\n\n".join(lines)
+
+    def _flavor_text(self, pack_name: str, pulled: List[dict]) -> str:
+        top = pulled[-1] if pulled else {}
+        rarity = (top.get("rarity") or "common").lower()
+        name = top.get("name", "something shiny")
+        return f"The crowd gasps—{name} slides out! That {rarity} glow hits different."
 
 
 class PackCreateModal(ui.Modal, title="Create pack"):
@@ -236,7 +334,7 @@ class CardAddModal(ui.Modal, title="Add card to pack"):
         self.pack_name = pack_name
 
     async def on_submit(self, interaction: discord.Interaction):
-        rarity_val = self.rarity.value.strip() or "common"
+        rarity_val = (self.rarity.value.strip() or "common").lower()
         chance_raw = self.pull_chance.value.strip()
         chance_val = None
         if chance_raw:
@@ -279,7 +377,7 @@ class EditCardModal(ui.Modal, title="Edit card"):
         self.name.default = card_data.get("name", "")
         self.text.default = card_data.get("text", "")
         self.image_url.default = card_data.get("image", "")
-        self.rarity.default = card_data.get("rarity", "common")
+        self.rarity.default = (card_data.get("rarity", "common") or "common")
         self.pull_chance.default = str(card_data.get("chance")) if card_data.get("chance") is not None else ""
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -294,7 +392,7 @@ class EditCardModal(ui.Modal, title="Edit card"):
             if chance_val < 0 or chance_val > 100:
                 await interaction.response.send_message("Pull chance must be between 0 and 100.", ephemeral=True)
                 return
-        card = {"name": self.name.value, "text": self.text.value, "image": self.image_url.value, "rarity": self.rarity.value.strip() or "common"}
+        card = {"name": self.name.value, "text": self.text.value, "image": self.image_url.value, "rarity": (self.rarity.value.strip() or "common").lower()}
         if chance_val is not None:
             card["chance"] = chance_val
         try:
@@ -307,9 +405,8 @@ class EditCardModal(ui.Modal, title="Edit card"):
 
 class PackSelect(ui.Select):
     def __init__(self, cog: "CardPacks", packs: Dict[str, dict]):
-        options = []
-        for name in packs.keys():
-            options.append(discord.SelectOption(label=name, value=name))
+        names = sorted(list(packs.keys()), key=str.lower)[:25]
+        options = [discord.SelectOption(label=name, value=name) for name in names]
         super().__init__(placeholder="Select pack", min_values=1, max_values=1, options=options)
         self.cog = cog
 
@@ -321,9 +418,8 @@ class PackSelect(ui.Select):
 class PackManageSelect(ui.Select):
     """Select a pack to manage (edit/delete)."""
     def __init__(self, cog: "CardPacks", packs: Dict[str, dict]):
-        options = []
-        for name in packs.keys():
-            options.append(discord.SelectOption(label=name, value=name))
+        names = sorted(list(packs.keys()), key=str.lower)[:25]
+        options = [discord.SelectOption(label=name, value=name) for name in names]
         super().__init__(placeholder="Select pack to edit/delete", min_values=1, max_values=1, options=options)
         self.cog = cog
 
@@ -336,17 +432,23 @@ class PackManageSelect(ui.Select):
         view = TimedView(timeout=60)
         view.add_item(EditPackButton(self.cog, pack_name))
         view.add_item(DeletePackButton(self.cog, pack_name))
-        await interaction.response.send_message(f"Manage pack **{pack_name}**", view=view, ephemeral=True)
+        msg = await interaction.response.send_message(f"Manage pack **{pack_name}**", view=view, ephemeral=True)
+        try:
+            view.message = msg
+        except Exception:
+            pass
 
 
 class CardInPackSelect(ui.Select):
     """Select a card within a pack to edit/delete."""
     def __init__(self, cog: "CardPacks", pack_name: str, cards: List[dict]):
         options = []
-        for idx, c in enumerate(cards):
+        for idx, c in enumerate(cards[:25]):
             label = c.get("name", f"card-{idx}")
-            desc = c.get("rarity", "common")
-            options.append(discord.SelectOption(label=label, description=desc, value=str(idx)))
+            rarity = (c.get("rarity", "common") or "common").lower()
+            chance = c.get("chance")
+            label_fmt = f"{label} ({rarity}{', ' + str(chance) + '%' if chance is not None else ''})"
+            options.append(discord.SelectOption(label=label_fmt[:100], description=rarity, value=str(idx)))
         super().__init__(placeholder="Select card to edit/delete", min_values=1, max_values=1, options=options)
         self.cog = cog
         self.pack_name = pack_name
@@ -358,7 +460,11 @@ class CardInPackSelect(ui.Select):
         view = TimedView(timeout=60)
         view.add_item(EditCardButton(self.cog, self.pack_name, idx))
         view.add_item(DeleteCardButton(self.cog, self.pack_name, idx))
-        await interaction.response.send_message(f"Manage card **{card.get('name')}** in **{self.pack_name}**", view=view, ephemeral=True)
+        msg = await interaction.response.send_message(f"Manage card **{card.get('name')}** in **{self.pack_name}**", view=view, ephemeral=True)
+        try:
+            view.message = msg
+        except Exception:
+            pass
 
 
 class EditPackButton(ui.Button):
@@ -386,7 +492,11 @@ class DeletePackButton(ui.Button):
         view = TimedView(timeout=60)
         view.add_item(ConfirmDeletePackButton(self.cog, self.pack_name))
         view.add_item(CancelSimpleButton())
-        await interaction.response.send_message(f"Are you sure you want to DELETE pack **{self.pack_name}**? This cannot be undone.", view=view, ephemeral=True)
+        msg = await interaction.response.send_message(f"Are you sure you want to DELETE pack **{self.pack_name}**? This cannot be undone.", view=view, ephemeral=True)
+        try:
+            view.message = msg
+        except Exception:
+            pass
 
 
 class ConfirmDeletePackButton(ui.Button):
@@ -436,7 +546,11 @@ class DeleteCardButton(ui.Button):
         view = TimedView(timeout=60)
         view.add_item(ConfirmDeleteCardButton(self.cog, self.pack_name, self.card_index))
         view.add_item(CancelSimpleButton())
-        await interaction.response.send_message("Confirm deletion of this card?", view=view, ephemeral=True)
+        msg = await interaction.response.send_message("Confirm deletion of this card?", view=view, ephemeral=True)
+        try:
+            view.message = msg
+        except Exception:
+            pass
 
 
 class ConfirmDeleteCardButton(ui.Button):
@@ -480,7 +594,9 @@ class ManageView(TimedView):
             return
         lines = []
         for name, data in packs.items():
-            lines.append(f"**{name}** — {data.get('description','')} — {data.get('price',0)} — {len(data.get('cards',[]))} cards — pulls:{data.get('pull_count',1)}")
+            desc = (data.get('description','') or '')
+            desc = desc[:90] + ("…" if len(desc) > 90 else "")
+            lines.append(f"• **{name}** — {desc} — {data.get('price',0)} — {len(data.get('cards',[]))} cards — pulls:{data.get('pull_count',1)}")
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     @ui.button(label="Add card to pack", style=discord.ButtonStyle.success, custom_id="cardpacks_add_card")
@@ -492,7 +608,11 @@ class ManageView(TimedView):
         sel = PackSelect(self.cog, packs)
         view = TimedView(timeout=60)
         view.add_item(sel)
-        await interaction.response.send_message("Choose pack to add a card to", view=view, ephemeral=True)
+        msg = await interaction.response.send_message("Choose pack to add a card to", view=view, ephemeral=True)
+        try:
+            view.message = msg
+        except Exception:
+            pass
 
     @ui.button(label="Edit/Delete pack", style=discord.ButtonStyle.primary, custom_id="cardpacks_edit_pack")
     async def edit_pack(self, interaction: discord.Interaction, button: ui.Button):
@@ -503,7 +623,11 @@ class ManageView(TimedView):
         sel = PackManageSelect(self.cog, packs)
         view = TimedView(timeout=60)
         view.add_item(sel)
-        await interaction.response.send_message("Select pack to edit or delete", view=view, ephemeral=True)
+        msg = await interaction.response.send_message("Select pack to edit or delete", view=view, ephemeral=True)
+        try:
+            view.message = msg
+        except Exception:
+            pass
 
     @ui.button(label="Edit/Delete card", style=discord.ButtonStyle.primary, custom_id="cardpacks_edit_card")
     async def edit_card(self, interaction: discord.Interaction, button: ui.Button):
@@ -514,7 +638,8 @@ class ManageView(TimedView):
         options = []
         for name, data in packs.items():
             options.append(discord.SelectOption(label=name, description=f"{len(data.get('cards', []))} cards", value=name))
-        sel = ui.Select(placeholder="Select pack to choose a card from", min_values=1, max_values=1, options=options)
+        sel = ui.Select(placeholder="Select pack to choose a card from", min_values=1, max_values=1, options=options[:25])
+
         async def sel_callback(inter: discord.Interaction):
             pack_name = sel.values[0]
             pack = await self.cog._get_pack(inter.guild, pack_name)
@@ -525,11 +650,20 @@ class ManageView(TimedView):
             card_sel = CardInPackSelect(self.cog, pack_name, cards)
             view2 = TimedView(timeout=60)
             view2.add_item(card_sel)
-            await inter.response.send_message("Select card to edit/delete", view=view2, ephemeral=True)
+            msg2 = await inter.response.send_message("Select card to edit/delete", view=view2, ephemeral=True)
+            try:
+                view2.message = msg2
+            except Exception:
+                pass
+
         sel.callback = sel_callback
         view = TimedView(timeout=60)
         view.add_item(sel)
-        await interaction.response.send_message("Pick a pack to select a card from", view=view, ephemeral=True)
+        msg = await interaction.response.send_message("Pick a pack to select a card from", view=view, ephemeral=True)
+        try:
+            view.message = msg
+        except Exception:
+            pass
 
     @ui.button(label="Export packs", style=discord.ButtonStyle.secondary, custom_id="cardpacks_export_packs")
     async def export_packs(self, interaction: discord.Interaction, button: ui.Button):
@@ -543,7 +677,11 @@ class ManageView(TimedView):
             for c in data.get("cards", []):
                 chance_part = f" chance:{c.get('chance')}" if c.get("chance") is not None else ""
                 lines.append(f"- {c.get('name')} | {c.get('text')} | rarity:{c.get('rarity','common')}{chance_part}")
-        await interaction.response.send_message("```\n" + "\n".join(lines) + "\n```", ephemeral=True)
+        text = "\n".join(lines)
+        # Chunk to avoid message size issues
+        chunks = [text[i:i+1900] for i in range(0, len(text), 1900)]
+        for chunk in chunks:
+            await interaction.followup.send("```\n" + chunk + "\n```", ephemeral=True)
 
 
 class CardPacks(commands.Cog):
@@ -554,6 +692,17 @@ class CardPacks(commands.Cog):
         self.config = Config.get_conf(self, identifier=1234567890123)
         self.config.register_guild(**DEFAULT)
         # IMPORTANT: do not call bot.add_view(...) here. That registers persistent views which bypass timeouts.
+
+        # Banner images used for public buy announcements; replace with your URLs
+        self.banner_urls: List[str] = [
+            "https://files.catbox.moe/nn9wpx.jpg",
+            "https://files.catbox.moe/vyvmr2.jpg",
+            "https://files.catbox.moe/143g4d.jpg",
+            "https://files.catbox.moe/m9tx00.jpg",
+            "https://files.catbox.moe/kozsri.jpg",
+            "https://files.catbox.moe/xr5r0l.jpg",
+            "https://files.catbox.moe/8wvnsf.jpg",            
+        ]
 
     async def _get_all_packs(self, guild: Optional[discord.Guild]) -> Dict[str, dict]:
         if not guild:
@@ -661,15 +810,14 @@ class CardPacks(commands.Cog):
     @commands.group(invoke_without_command=True)
     async def cardpacks(self, ctx: commands.Context):
         """Cardpacks main command"""
-        invoked = ctx.message.content[len(ctx.clean_prefix) :].strip()
-        tokens = invoked.split()
-        if len(tokens) == 1:
-            await ctx.send_help()
-        return
+        # Show a compact intro + quick actions instead of Red's help
+        view = ManageView(self)
+        msg = await ctx.send("Cardpacks — quick actions below.", view=view)
+        view.message = msg
 
     @cardpacks.command(name="buy")
     async def buy(self, ctx: commands.Context):
-        """Buy a pack via dropdown"""
+        """Buy a pack via dropdown; result will be announced publicly."""
         packs = await self._get_all_packs(ctx.guild)
         if not packs:
             await ctx.send("No packs are configured on this server.")
@@ -709,7 +857,13 @@ class CardPacks(commands.Cog):
             else:
                 await ctx.send(f"{target.display_name} has no cards.")
             return
-        lines = [f"- {c.get('name')} (rarity: {c.get('rarity','common')})" for c in inv]
+        lines = []
+        for c in inv:
+            name = c.get("name", "Unnamed")
+            rarity = c.get("rarity", "common")
+            chance = c.get("chance")
+            line = f"- {name} (rarity: {rarity}" + (f", {chance}%" if chance is not None else "") + ")"
+            lines.append(line)
         if target == ctx.author:
             await ctx.send("Your inventory:\n" + "\n".join(lines))
         else:
