@@ -1,5 +1,7 @@
 import random
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
+from collections import defaultdict, Counter
+
 import discord
 from discord import ui
 from redbot.core import commands, bank, checks, Config
@@ -137,8 +139,11 @@ class ConfirmBuyView(TimedView):
                 if not chosen_card:
                     chosen_card = random.choice(cards)
 
-            pulled.append(chosen_card)
-            await self.cog._add_card_to_user(interaction.guild, interaction.user, chosen_card)
+            # clone chosen_card to avoid mutating pack definitions
+            chosen_copy = dict(chosen_card)
+            pulled.append(chosen_copy)
+            # store source_pack for exact attribution
+            await self.cog._add_card_to_user(interaction.guild, interaction.user, chosen_copy, source_pack=self.pack_name)
 
         # Build a visually appealing embed for public display
         banner = random.choice(self.BANNER_URLS) if self.BANNER_URLS else None
@@ -709,10 +714,67 @@ class CardPacks(commands.Cog):
         inv[str(guild.id)] = guild_inv
         await self.config.guild(guild).inventories.set(inv)
 
-    async def _add_card_to_user(self, guild: discord.Guild, user: discord.abc.User, card: dict):
+    async def _add_card_to_user(self, guild: discord.Guild, user: discord.abc.User, card: dict, source_pack: Optional[str] = None):
+        """
+        Adds a card dict to a user's inventory.
+        If source_pack provided, store it as 'source_pack' on the stored card for exact attribution.
+        """
         cur = await self._get_user_inventory(guild, user)
-        cur.append(card)
+        store_card = dict(card)  # shallow copy to avoid mutating original
+        if source_pack:
+            store_card["source_pack"] = source_pack
+        # ensure required keys exist to make identity stable
+        store_card.setdefault("name", "")
+        store_card.setdefault("rarity", "common")
+        store_card.setdefault("image", "")
+        cur.append(store_card)
         await self._set_user_inventory(guild, user, cur)
+
+    # identity used for stacking: name, rarity, image
+    def _card_identity(self, card: dict) -> Tuple[str, str, str]:
+        name = (card.get("name") or "").strip()
+        rarity = (card.get("rarity") or "common").strip()
+        image = (card.get("image") or "").strip()
+        return (name, rarity, image)
+
+    async def _aggregate_inventory(self, guild: discord.Guild, user: discord.abc.User) -> Dict[Tuple[str, str, str], dict]:
+        """
+        Aggregate a user's inventory into:
+        (name, rarity, image) -> {"count": int, "card": sample_card, "packs": Counter}
+        Packs attribution honors stored 'source_pack' when present, otherwise attempts to map by pack definitions.
+        """
+        raw = await self._get_user_inventory(guild, user)
+        packs = await self._get_all_packs(guild)
+
+        # Build a lookup of card identity -> pack names (counts) from pack definitions
+        card_to_packs = defaultdict(Counter)
+        for pack_name, pdata in packs.items():
+            for c in pdata.get("cards", []):
+                ident = self._card_identity(c)
+                card_to_packs[ident][pack_name] += 1
+
+        agg: Dict[Tuple[str, str, str], dict] = {}
+        for card in raw:
+            ident = self._card_identity(card)
+            entry = agg.get(ident)
+            if not entry:
+                entry = {"count": 0, "card": card, "packs": Counter()}
+                agg[ident] = entry
+            entry["count"] += 1
+
+            # if card has explicit stored source_pack, use that
+            sp = card.get("source_pack")
+            if sp:
+                entry["packs"][sp] += 1
+            else:
+                packs_found = card_to_packs.get(ident)
+                if packs_found:
+                    likely_pack = packs_found.most_common(1)[0][0]
+                    entry["packs"][likely_pack] += 1
+                else:
+                    entry["packs"]["Unknown pack"] += 1
+
+        return agg
 
     @commands.group(invoke_without_command=True)
     async def cardpacks(self, ctx: commands.Context):
@@ -758,18 +820,71 @@ class CardPacks(commands.Cog):
             else:
                 target = member
 
-        inv = await self._get_user_inventory(ctx.guild, target)
-        if not inv:
+        inv_raw = await self._get_user_inventory(ctx.guild, target)
+        if not inv_raw:
             if target == ctx.author:
                 await ctx.send("You have no cards.")
             else:
                 await ctx.send(f"{target.display_name} has no cards.")
             return
-        lines = [f"- {c.get('name')} (rarity: {c.get('rarity', 'common')})" for c in inv]
-        if target == ctx.author:
-            await ctx.send("Your inventory:\n" + "\n".join(lines))
-        else:
-            await ctx.send(f"Inventory for {target.display_name}:\n" + "\n".join(lines))
+
+        agg = await self._aggregate_inventory(ctx.guild, target)
+        total_items = sum(e["count"] for e in agg.values())
+        unique_stacks = len(agg)
+
+        # Build embed
+        title = f"{target.display_name}'s inventory"
+        embed = discord.Embed(title=title, color=discord.Color.blurple())
+        # author icon: support both v3 and v2 avatars
+        try:
+            avatar_url = target.avatar.url if getattr(target, "avatar", None) else target.display_avatar.url
+        except Exception:
+            avatar_url = target.display_avatar.url
+        embed.set_author(name=target.display_name, icon_url=avatar_url)
+        embed.add_field(name="Totals", value=f"Total cards: **{total_items}**\nUnique stacks: **{unique_stacks}**", inline=False)
+
+        # Group aggregated entries by primary pack (most common)
+        by_pack = defaultdict(list)
+        for ident, entry in agg.items():
+            pack_counts: Counter = entry["packs"]
+            primary_pack = pack_counts.most_common(1)[0][0] if pack_counts else "Unknown pack"
+            by_pack[primary_pack].append((ident, entry))
+
+        # For presentation limits
+        PACK_FIELD_LIMIT = 6
+
+        for pack_name, items in by_pack.items():
+            lines = []
+            items_sorted = sorted(items, key=lambda ie: (-ie[1]["count"], ie[0][1], ie[0][0]))
+            shown = items_sorted[:PACK_FIELD_LIMIT]
+            for ident, entry in shown:
+                name, rarity, image = ident
+                count = entry["count"]
+                image_part = f" • {image}" if image else ""
+                lines.append(f"**x{count}** • {name} ({rarity}){image_part}")
+            remaining = len(items_sorted) - len(shown)
+            if remaining > 0:
+                lines.append(f"...and {remaining} more stacks")
+            value = "\n".join(lines) or "No cards"
+            embed.add_field(name=f"{pack_name}", value=value, inline=False)
+
+        # set a thumbnail from the first available card image
+        first_img = None
+        for ident, entry in agg.items():
+            img = ident[2]
+            if img:
+                first_img = img
+                break
+        if first_img:
+            try:
+                embed.set_thumbnail(url=first_img)
+            except Exception:
+                pass
+
+        embed.set_footer(text=f"Requested by {ctx.author.display_name}")
+        embed.timestamp = discord.utils.utcnow()
+
+        await ctx.send(embed=embed)
 
 
 def setup(bot):
