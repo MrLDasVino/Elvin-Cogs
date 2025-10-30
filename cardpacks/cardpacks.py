@@ -8,6 +8,10 @@ from redbot.core import commands, bank, checks, Config
 
 DEFAULT = {"packs": {}, "inventories": {}}
 
+    INVENTORY_BANNER_URLS = [
+        "https://files.catbox.moe/55yfxz.jpg",
+    ]   
+
 
 def _rarity_weights_map(packs: Dict[str, dict], pack_name: str) -> Dict[str, int]:
     pack = packs.get(pack_name, {})
@@ -85,10 +89,6 @@ class ConfirmBuyView(TimedView):
         "https://files.catbox.moe/8wvnsf.jpg",
     ]
     
-    INVENTORY_BANNER_URLS = [
-        "https://files.catbox.moe/55yfxz.jpg",
-    ]    
-
     def __init__(self, cog: "CardPacks", pack_name: str, price: int):
         super().__init__(timeout=60)
         self.cog = cog
