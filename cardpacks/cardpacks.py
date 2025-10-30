@@ -8,9 +8,10 @@ from redbot.core import commands, bank, checks, Config
 
 DEFAULT = {"packs": {}, "inventories": {}}
 
-    INVENTORY_BANNER_URLS = [
-        "https://files.catbox.moe/55yfxz.jpg",
-    ]   
+# Module-level inventory banner URLs so inventory embed can access them reliably
+INVENTORY_BANNER_URLS = [
+    "https://files.catbox.moe/55yfxz.jpg",
+]
 
 
 def _rarity_weights_map(packs: Dict[str, dict], pack_name: str) -> Dict[str, int]:
@@ -88,7 +89,7 @@ class ConfirmBuyView(TimedView):
         "https://files.catbox.moe/xr5r0l.jpg",
         "https://files.catbox.moe/8wvnsf.jpg",
     ]
-    
+
     def __init__(self, cog: "CardPacks", pack_name: str, price: int):
         super().__init__(timeout=60)
         self.cog = cog
@@ -593,7 +594,6 @@ class PurgeModal(ui.Modal, title="Purge inventories"):
         await interaction.response.send_message(f"Inventory for {member.display_name} has been reset.", ephemeral=True)
 
 
-
 class PurgeButton(ui.Button):
     def __init__(self, cog: "CardPacks"):
         super().__init__(label="Purge", style=discord.ButtonStyle.danger, custom_id="cardpacks_purge")
@@ -986,9 +986,9 @@ class CardPacks(commands.Cog):
             value = "\n".join(lines) or "No cards"
             embed.add_field(name=header, value=value, inline=False)
 
-        # optional banner for the inventory embed
+        # optional banner for the inventory embed (use module-level constant)
         try:
-            banner = random.choice(INVENTORY_BANNER_URLS)
+            banner = random.choice(INVENTORY_BANNER_URLS) if INVENTORY_BANNER_URLS else None
             if banner:
                 embed.set_image(url=banner)
         except Exception:
