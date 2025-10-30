@@ -521,6 +521,84 @@ class CancelSimpleButton(ui.Button):
         await interaction.response.edit_message(content="Cancelled.", view=None)
 
 
+# --- Purge modal and button (admin only via ManageView protection) ---
+class PurgeModal(ui.Modal, title="Purge inventories"):
+    who = ui.TextInput(label="User mention, ID, or exact name (leave blank to purge all)", required=False, max_length=200)
+
+    def __init__(self, cog: "CardPacks"):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("This command can only be used in a guild.", ephemeral=True)
+            return
+
+        who_raw = self.who.value.strip()
+        if not who_raw:
+            # Purge all inventories
+            try:
+                await self.cog._purge_all_inventories(guild)
+            except Exception as e:
+                await interaction.response.send_message(f"Failed to purge inventories: {e}", ephemeral=True)
+                return
+            await interaction.response.send_message("All inventories in this server have been reset.", ephemeral=True)
+            return
+
+        member = None
+        # mention like <@123> or <@!123>
+        if who_raw.startswith("<@") and who_raw.endswith(">"):
+            try:
+                mention_id = int(who_raw.strip("<@!>"))
+                member = guild.get_member(mention_id)
+            except Exception:
+                member = None
+        else:
+            # try raw ID
+            try:
+                member_id = int(who_raw)
+                member = guild.get_member(member_id)
+            except Exception:
+                member = None
+
+        # try get_member_named (username#discriminator or username) which is exact for name#discr
+        if not member:
+            try:
+                member = guild.get_member_named(who_raw)
+            except Exception:
+                member = None
+
+        # fallback: exact match on display_name or name (case-insensitive)
+        if not member:
+            lowered = who_raw.lower()
+            for m in guild.members:
+                if (m.display_name or "").lower() == lowered or (m.name or "").lower() == lowered:
+                    member = m
+                    break
+
+        if not member:
+            await interaction.response.send_message("Could not resolve that user in this guild. Use a mention, ID, or exact username/display name.", ephemeral=True)
+            return
+
+        try:
+            await self.cog._purge_inventory_for_user(guild, member)
+        except Exception as e:
+            await interaction.response.send_message(f"Failed to purge inventory: {e}", ephemeral=True)
+            return
+
+        await interaction.response.send_message(f"Inventory for {member.display_name} has been reset.", ephemeral=True)
+
+
+class PurgeButton(ui.Button):
+    def __init__(self, cog: "CardPacks"):
+        super().__init__(label="Purge", style=discord.ButtonStyle.danger, custom_id="cardpacks_purge")
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(PurgeModal(self.cog))
+
+
 class ManageView(TimedView):
     def __init__(self, cog: "CardPacks"):
         super().__init__(timeout=60)
@@ -604,6 +682,10 @@ class ManageView(TimedView):
                 chance_part = f" chance: {c.get('chance')}" if c.get("chance") is not None else ""
                 lines.append(f"- {c.get('name')} | {c.get('text')} | rarity: {c.get('rarity','common')} {chance_part}")
         await interaction.response.send_message(">>>\n" + "\n".join(lines) + "\n>>>", ephemeral=True)
+
+    @ui.button(label="Purge", style=discord.ButtonStyle.danger, custom_id="cardpacks_purge")
+    async def purge(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(PurgeModal(self.cog))
 
 
 class CardPacks(commands.Cog):
@@ -775,6 +857,20 @@ class CardPacks(commands.Cog):
                     entry["packs"]["Unknown pack"] += 1
 
         return agg
+
+    # --- purge helpers ---
+    async def _purge_all_inventories(self, guild: discord.Guild):
+        """Remove all stored inventories for this guild."""
+        data = await self.config.guild(guild).all()
+        inv = data.get("inventories", {}) or {}
+        # Remove guild entry if present
+        if str(guild.id) in inv:
+            inv.pop(str(guild.id), None)
+            await self.config.guild(guild).inventories.set(inv)
+
+    async def _purge_inventory_for_user(self, guild: discord.Guild, user: discord.abc.User):
+        """Reset a single user's inventory in this guild."""
+        await self._set_user_inventory(guild, user, [])
 
     @commands.group(invoke_without_command=True)
     async def cardpacks(self, ctx: commands.Context):
