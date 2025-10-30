@@ -84,6 +84,10 @@ class ConfirmBuyView(TimedView):
         "https://files.catbox.moe/xr5r0l.jpg",
         "https://files.catbox.moe/8wvnsf.jpg",
     ]
+    
+    INVENTORY_BANNER_URLS = [
+        "https://files.catbox.moe/55yfxz.jpg",
+    ]    
 
     def __init__(self, cog: "CardPacks", pack_name: str, price: int):
         super().__init__(timeout=60)
@@ -981,6 +985,14 @@ class CardPacks(commands.Cog):
                 lines.append(f"...and {remaining} more stacks")
             value = "\n".join(lines) or "No cards"
             embed.add_field(name=header, value=value, inline=False)
+
+        # optional banner for the inventory embed
+        try:
+            banner = random.choice(INVENTORY_BANNER_URLS)
+            if banner:
+                embed.set_image(url=banner)
+        except Exception:
+            pass
 
         # set a thumbnail from the first available card image
         first_img = None
