@@ -245,7 +245,7 @@ class EditPackModal(ui.Modal, title="Edit pack"):
         self.original_pack_name = original_pack_name
 
         # set defaults
-        self.name.default = original_name = original_pack_name
+        self.name.default = original_pack_name
         self.price.default = str(pack_data.get("price", 0))
         self.description.default = pack_data.get("description", "")
         self.pull_count.default = str(pack_data.get("pull_count", 1))
@@ -846,20 +846,21 @@ class CardPacks(commands.Cog):
 
         # Group aggregated entries by primary pack (most common)
         by_pack = defaultdict(list)
-        # Also compute owned_per_pack counts
-        owned_per_pack = Counter()
+        # We'll compute owned unique-stacks per pack (set of idents)
+        owned_unique_per_pack = defaultdict(set)
+
         for ident, entry in agg.items():
             pack_counts: Counter = entry["packs"]
             primary_pack = pack_counts.most_common(1)[0][0] if pack_counts else "Unknown pack"
             by_pack[primary_pack].append((ident, entry))
-            # increment owned count for each pack attribution
-            for p_name, cnt in pack_counts.items():
-                owned_per_pack[p_name] += cnt
+            # For each pack that contributed to this stack, mark the identity as owned for that pack
+            for p_name in pack_counts.keys():
+                owned_unique_per_pack[p_name].add(ident)
 
         # For presentation limits
         PACK_FIELD_LIMIT = 6
 
-        # For each pack, compute total defined cards
+        # For each pack, compute total defined cards (unique card types in pack)
         for pack_name, items in by_pack.items():
             # determine total cards for this pack; unknown pack => total = None
             if pack_name != "Unknown pack" and pack_name in packs:
@@ -867,7 +868,7 @@ class CardPacks(commands.Cog):
             else:
                 total_cards = None
 
-            owned_count = owned_per_pack.get(pack_name, 0)
+            owned_count = len(owned_unique_per_pack.get(pack_name, set()))
             total_disp = str(total_cards) if total_cards is not None else "?"
             header = f"{pack_name} — {owned_count}/{total_disp}"
 
