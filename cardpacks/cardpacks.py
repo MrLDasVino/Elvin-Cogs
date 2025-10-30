@@ -523,7 +523,7 @@ class CancelSimpleButton(ui.Button):
 
 # --- Purge modal and button (admin only via ManageView protection) ---
 class PurgeModal(ui.Modal, title="Purge inventories"):
-    who = ui.TextInput(label="User mention, ID, or exact name (leave blank to purge all)", required=False, max_length=200)
+    who = ui.TextInput(label="User mention, ID, or exact name", required=False, max_length=200)
 
     def __init__(self, cog: "CardPacks"):
         super().__init__()
@@ -537,7 +537,6 @@ class PurgeModal(ui.Modal, title="Purge inventories"):
 
         who_raw = self.who.value.strip()
         if not who_raw:
-            # Purge all inventories
             try:
                 await self.cog._purge_all_inventories(guild)
             except Exception as e:
@@ -562,7 +561,7 @@ class PurgeModal(ui.Modal, title="Purge inventories"):
             except Exception:
                 member = None
 
-        # try get_member_named (username#discriminator or username) which is exact for name#discr
+        # try get_member_named (username#discriminator or username)
         if not member:
             try:
                 member = guild.get_member_named(who_raw)
@@ -588,6 +587,7 @@ class PurgeModal(ui.Modal, title="Purge inventories"):
             return
 
         await interaction.response.send_message(f"Inventory for {member.display_name} has been reset.", ephemeral=True)
+
 
 
 class PurgeButton(ui.Button):
