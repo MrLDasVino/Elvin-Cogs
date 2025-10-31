@@ -643,6 +643,8 @@ class ManageView(TimedView):
         embed.set_footer(text=f"Requested by {interaction.user.display_name}")
         embed.timestamp = discord.utils.utcnow()
 
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @ui.button(label="Add card to pack", style=discord.ButtonStyle.success, custom_id="cardpacks_add_card")
     async def add_card(self, interaction: discord.Interaction, button: ui.Button):
         packs = await self.cog._get_all_packs(interaction.guild)
