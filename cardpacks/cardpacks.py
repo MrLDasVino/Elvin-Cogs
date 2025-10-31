@@ -758,12 +758,17 @@ class ManageView(TimedView):
 
         embed = discord.Embed(title="Configured Packs", color=discord.Color.blue())
         embed.description = f"Total packs: **{len(packs)}**"
-        # try to pick a thumbnail from the first pack that has one
+        # try to pick a thumbnail from the first pack that has a valid URL
         for pdata in packs.values():
             thumb = pdata.get("thumbnail")
-            if thumb:
+            if not thumb:
+                continue
+            thumb_str = str(thumb).strip()
+            if not thumb_str:
+                continue
+            if thumb_str.lower().startswith("http://") or thumb_str.lower().startswith("https://"):
                 try:
-                    embed.set_thumbnail(url=thumb)
+                    embed.set_thumbnail(url=thumb_str)
                 except Exception:
                     pass
                 break
@@ -1229,10 +1234,12 @@ class CardPacks(commands.Cog):
                 first_img = img
                 break
         if first_img:
-            try:
-                embed.set_thumbnail(url=first_img)
-            except Exception:
-                pass
+            first_img_str = str(first_img).strip()
+            if first_img_str.lower().startswith("http://") or first_img_str.lower().startswith("https://"):
+                try:
+                    embed.set_thumbnail(url=first_img_str)
+                except Exception:
+                    pass
 
         embed.set_footer(text=f"Requested by {ctx.author.display_name}")
         embed.timestamp = discord.utils.utcnow()
