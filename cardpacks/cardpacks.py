@@ -678,8 +678,12 @@ class ImportModal(ui.Modal, title="Import packs (paste export text)"):
                             pass
                     if "chance:" in tail:
                         try:
-                            c = tail.split("chance:", 1)[1].strip()
-                            chance = float(c)
+                            raw = tail.split("chance:", 1)[1].strip()
+                            if raw.endswith("%"):
+                                raw = raw[:-1].strip()
+                            val = float(raw)
+                            # store numeric percent as-is (e.g. "0.5" -> 0.5 ; "50" -> 50)
+                            chance = val
                         except Exception:
                             chance = None
                 card = {"name": name, "text": text_part, "image": "", "rarity": rarity}
@@ -838,7 +842,10 @@ class ManageView(TimedView):
         for name, data in packs.items():
             lines.append(f"== {name} ==\nprice: {data.get('price')}\ndesc: {data.get('description')}\npulls: {data.get('pull_count', 1)}\nthumbnail: {data.get('thumbnail')}\ncards:")
             for c in data.get("cards", []):
-                chance_part = f" chance: {c.get('chance')}" if c.get("chance") is not None else ""
+                if c.get("chance") is not None:
+                    chance_part = f" chance: {c.get('chance')}%"
+                else:
+                    chance_part = ""
                 lines.append(f"- {c.get('name')} | {c.get('text')} | rarity: {c.get('rarity','common')} {chance_part}")
         payload = "\n".join(lines)
         # send as text file attachment
