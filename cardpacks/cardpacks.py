@@ -798,7 +798,7 @@ class ManageView(TimedView):
         view.add_item(sel)
         await interaction.response.send_message("Choose pack to add a card to", view=view, ephemeral=True)
 
-    @ui.button(label="Edit/Delete pack", style=discord.ButtonStyle.primary, custom_id="cardpacks_edit_pack")
+    @ui.button(label="Edit/Delete pack", style=discord.ButtonStyle.primary, custom_id="cardpacks_edit_pack", row=1)
     async def edit_pack(self, interaction: discord.Interaction, button: ui.Button):
         packs = await self.cog._get_all_packs(interaction.guild)
         if not packs:
@@ -809,7 +809,7 @@ class ManageView(TimedView):
         view.add_item(sel)
         await interaction.response.send_message("Select pack to edit or delete", view=view, ephemeral=True)
 
-    @ui.button(label="Edit/Delete card", style=discord.ButtonStyle.primary, custom_id="cardpacks_edit_card")
+    @ui.button(label="Edit/Delete card", style=discord.ButtonStyle.primary, custom_id="cardpacks_edit_card", row=1)
     async def edit_card(self, interaction: discord.Interaction, button: ui.Button):
         packs = await self.cog._get_all_packs(interaction.guild)
         if not packs:
