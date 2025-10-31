@@ -618,10 +618,30 @@ class ManageView(TimedView):
         if not packs:
             await interaction.response.send_message("No packs configured.", ephemeral=True)
             return
-        lines = []
+
+        embed = discord.Embed(title="Configured Packs", color=discord.Color.blue())
+        embed.description = f"Total packs: **{len(packs)}**"
+        # try to pick a thumbnail from the first pack that has one
+        for pdata in packs.values():
+            thumb = pdata.get("thumbnail")
+            if thumb:
+                try:
+                    embed.set_thumbnail(url=thumb)
+                except Exception:
+                    pass
+                break
+
+        # Add one field per pack (compact summary)
         for name, data in packs.items():
-            lines.append(f"**{name}** - {data.get('description','')} - {data.get('price',0)} - {len(data.get('cards', []))} cards - pulls: {data.get('pull_count',1)}")
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+            price = data.get("price", 0)
+            desc = data.get("description", "") or "No description"
+            card_count = len(data.get("cards", []))
+            pulls = data.get("pull_count", 1)
+            value = f"**Price:** {price}\n**Cards:** {card_count}\n**Pulls:** {pulls}\n{desc}"
+            embed.add_field(name=name, value=value, inline=False)
+
+        embed.set_footer(text=f"Requested by {interaction.user.display_name}")
+        embed.timestamp = discord.utils.utcnow()
 
     @ui.button(label="Add card to pack", style=discord.ButtonStyle.success, custom_id="cardpacks_add_card")
     async def add_card(self, interaction: discord.Interaction, button: ui.Button):
