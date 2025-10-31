@@ -861,8 +861,58 @@ class ManageView(TimedView):
 
     @ui.button(label="Import packs", style=discord.ButtonStyle.primary, custom_id="cardpacks_import_packs")
     async def import_packs(self, interaction: discord.Interaction, button: ui.Button):
-        """Open a modal to paste export text to quickly import packs/cards."""
-        await interaction.response.send_modal(ImportModal(self.cog))
+        """Allow importing packs either by pasting export text or uploading the export file.
+        Attachments must be .txt files; other filenames are rejected."""
+        await interaction.response.send_message(
+            "You can either paste the export text here in chat, or upload the export text file (must be .txt). "
+            "I'll wait 60 seconds for your message in this channel. Reply with the file or the pasted text.",
+            ephemeral=True,
+        )
+
+        def _check(msg: discord.Message):
+            # Only accept a message from the invoking user in the same channel
+            return msg.author.id == interaction.user.id and msg.channel.id == interaction.channel_id
+
+        try:
+            msg: discord.Message = await self.cog.bot.wait_for("message", timeout=60.0, check=_check)
+        except Exception:
+            await interaction.followup.send("No message received. Import cancelled.", ephemeral=True)
+            return
+
+        raw_text = None
+        # If the user attached a file, read it (enforce .txt filename)
+        if msg.attachments:
+            att = msg.attachments[0]
+            filename = (att.filename or "").lower()
+            if not filename.endswith(".txt"):
+                await interaction.followup.send("Attachment must be a .txt file. Import cancelled.", ephemeral=True)
+                return
+            try:
+                data = await att.read()
+                # decode with utf-8 fallback
+                try:
+                    raw_text = data.decode("utf-8")
+                except Exception:
+                    raw_text = data.decode("latin-1")
+            except Exception as e:
+                await interaction.followup.send(f"Failed to read attachment: {e}", ephemeral=True)
+                return
+        else:
+            # Use the message content (user pasted the export)
+            raw_text = msg.content
+
+        if not raw_text or not raw_text.strip():
+            await interaction.followup.send("No import text detected in your message or attachment.", ephemeral=True)
+            return
+
+        try:
+            # reuse the ImportModal parsing helper (it's defined on ImportModal)
+            importer = ImportModal(self.cog)
+            created, updated = await importer._parse_and_apply(interaction.guild, raw_text)
+        except Exception as e:
+            await interaction.followup.send(f"Import failed: {e}", ephemeral=True)
+            return
+
 
     @ui.button(label="Purge", style=discord.ButtonStyle.danger, custom_id="cardpacks_purge")
     async def purge(self, interaction: discord.Interaction, button: ui.Button):
