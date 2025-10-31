@@ -833,10 +833,9 @@ class ManageView(TimedView):
         await interaction.response.send_message("Pick a pack to select a card from", view=view, ephemeral=True)
 
     @ui.button(label="Export packs", style=discord.ButtonStyle.secondary, custom_id="cardpacks_export_packs")
-        """Allow importing packs only via a .txt file upload (pasted text is rejected)."""
+    async def export_packs(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(
-            "Please upload the export file as a .txt attachment. Pasted text is not accepted. "
-            "I'll wait 60 seconds for your message in this channel.",
+            "Please upload the export file as a .txt attachment. Pasted text is not accepted. I'll wait 60 seconds for your message in this channel.",
             ephemeral=True,
         )
 
@@ -882,6 +881,7 @@ class ManageView(TimedView):
             return
 
         await interaction.followup.send(f"Import complete. Packs created: {created}, packs updated: {updated}", ephemeral=True)
+
 
     @ui.button(label="Purge", style=discord.ButtonStyle.danger, custom_id="cardpacks_purge")
     async def purge(self, interaction: discord.Interaction, button: ui.Button):
