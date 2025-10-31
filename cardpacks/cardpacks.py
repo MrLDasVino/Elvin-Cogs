@@ -593,6 +593,139 @@ class PurgeModal(ui.Modal, title="Purge inventories"):
 
         await interaction.response.send_message(f"Inventory for {member.display_name} has been reset.", ephemeral=True)
 
+class ImportModal(ui.Modal, title="Import packs (paste export text)"):
+    data = ui.TextInput(label="Export text", style=discord.TextStyle.long, placeholder="Paste the text you get from Export packs", required=True)
+
+    def __init__(self, cog: "CardPacks"):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw = self.data.value
+        try:
+            created, updated = await self._parse_and_apply(interaction.guild, raw)
+        except Exception as e:
+            await interaction.response.send_message(f"Import failed: {e}", ephemeral=True)
+            return
+        await interaction.response.send_message(f"Import complete. Packs created: {created}, packs updated: {updated}", ephemeral=True)
+
+    async def _parse_and_apply(self, guild: discord.Guild, text: str) -> Tuple[int, int]:
+        """
+        Simple parser for the export format:
+        == Pack Name ==
+        price: N
+        desc: text
+        pulls: N
+        thumbnail: url
+        cards:
+        - Name | text | rarity: rarename [ chance: X ]
+        """
+        packs_raw = {}
+        current = None
+
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("==") and line.endswith("=="):
+                # new pack header
+                pname = line.strip("=").strip()
+                current = {"price": 0, "description": "", "pull_count": 1, "thumbnail": None, "cards": []}
+                packs_raw[pname] = current
+                continue
+            if current is None:
+                continue
+            # pack meta
+            if line.startswith("price:"):
+                try:
+                    current["price"] = int(line.split(":", 1)[1].strip())
+                except Exception:
+                    current["price"] = 0
+                continue
+            if line.startswith("desc:"):
+                current["description"] = line.split(":", 1)[1].strip()
+                continue
+            if line.startswith("pulls:"):
+                try:
+                    current["pull_count"] = int(line.split(":", 1)[1].strip())
+                except Exception:
+                    current["pull_count"] = 1
+                continue
+            if line.startswith("thumbnail:"):
+                val = line.split(":", 1)[1].strip()
+                current["thumbnail"] = val if val else None
+                continue
+            if line.startswith("- "):
+                # card line: "- Name | text | rarity: rarity [ chance: X ]"
+                body = line[2:].strip()
+                parts = [p.strip() for p in body.split("|")]
+                name = parts[0] if len(parts) > 0 else ""
+                text_part = parts[1] if len(parts) > 1 else ""
+                rarity = "common"
+                chance = None
+                # parse trailing "rarity: ..." and optional "chance: ...", which may appear in parts[2] or at end
+                if len(parts) > 2:
+                    tail = parts[2]
+                    # tail can contain "rarity: xyz chance: 0.5"
+                    for token in tail.split():
+                        if token.startswith("rarity:"):
+                            rarity = tail.split("rarity:", 1)[1].split()[0].strip()
+                        # don't rely on tokenization for chance; use simple find
+                    if "rarity:" in tail:
+                        try:
+                            rarity = tail.split("rarity:", 1)[1].split()[0].strip()
+                        except Exception:
+                            pass
+                    if "chance:" in tail:
+                        try:
+                            c = tail.split("chance:", 1)[1].strip()
+                            chance = float(c)
+                        except Exception:
+                            chance = None
+                card = {"name": name, "text": text_part, "image": "", "rarity": rarity}
+                if chance is not None:
+                    card["chance"] = chance
+                current["cards"].append(card)
+
+        # apply to Config: create packs if not exists, or replace existing pack data (cards will be replaced)
+        existing = await self.cog._get_all_packs(guild)
+        created = 0
+        updated = 0
+        for pname, pdata in packs_raw.items():
+            if pname in existing:
+                # update existing pack (overwrite metadata and cards)
+                try:
+                    await self.cog._edit_pack(guild, pname, pname, pdata.get("price", 0), pdata.get("description", ""), pdata.get("pull_count", 1), pdata.get("thumbnail"))
+                    # after edit, set cards
+                    # reuse _delete_card_from_pack/_add_card? Simpler: fetch packs, set cards, save
+                    packs = await self.cog._get_all_packs(guild)
+                    packs[pname]["cards"] = pdata.get("cards", [])
+                    await self.cog.config.guild(guild).packs.set(packs)
+                    updated += 1
+                except Exception:
+                    # fallback: set directly
+                    packs = await self.cog._get_all_packs(guild)
+                    packs[pname] = {
+                        "price": pdata.get("price", 0),
+                        "description": pdata.get("description", ""),
+                        "cards": pdata.get("cards", []),
+                        "rarity_weights": {},
+                        "pull_count": int(pdata.get("pull_count", 1)),
+                        "thumbnail": pdata.get("thumbnail"),
+                    }
+                    await self.cog.config.guild(guild).packs.set(packs)
+                    updated += 1
+            else:
+                # create
+                await self.cog._create_pack(guild, pname, pdata.get("price", 0), pdata.get("description", ""), None, pdata.get("pull_count", 1), pdata.get("thumbnail"))
+                # set cards
+                packs = await self.cog._get_all_packs(guild)
+                packs[pname]["cards"] = pdata.get("cards", [])
+                await self.cog.config.guild(guild).packs.set(packs)
+                created += 1
+
+        return created, updated
+
 
 class PurgeButton(ui.Button):
     def __init__(self, cog: "CardPacks"):
@@ -707,7 +840,22 @@ class ManageView(TimedView):
             for c in data.get("cards", []):
                 chance_part = f" chance: {c.get('chance')}" if c.get("chance") is not None else ""
                 lines.append(f"- {c.get('name')} | {c.get('text')} | rarity: {c.get('rarity','common')} {chance_part}")
-        await interaction.response.send_message(">>>\n" + "\n".join(lines) + "\n>>>", ephemeral=True)
+        payload = "\n".join(lines)
+        # send as text file attachment
+        try:
+            import io
+            fp = io.StringIO(payload)
+            fp.seek(0)
+            file = discord.File(fp, filename="cardpacks_export.txt")
+            await interaction.response.send_message("Exported packs file:", file=file, ephemeral=True)
+        except Exception as e:
+            # fallback to inline text if file sending fails
+            await interaction.response.send_message("Could not send file, here's the export:\n>>> \n" + payload + "\n>>>", ephemeral=True)
+
+    @ui.button(label="Import packs", style=discord.ButtonStyle.primary, custom_id="cardpacks_import_packs")
+    async def import_packs(self, interaction: discord.Interaction, button: ui.Button):
+        """Open a modal to paste export text to quickly import packs/cards."""
+        await interaction.response.send_modal(ImportModal(self.cog))
 
     @ui.button(label="Purge", style=discord.ButtonStyle.danger, custom_id="cardpacks_purge")
     async def purge(self, interaction: discord.Interaction, button: ui.Button):
