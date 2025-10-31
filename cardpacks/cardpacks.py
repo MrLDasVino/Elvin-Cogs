@@ -119,7 +119,7 @@ class ConfirmBuyView(TimedView):
         packs_all = await self.cog._get_all_packs(interaction.guild)
         rarity_map = _rarity_weights_map(packs_all, self.pack_name)
 
-        pull_count = int(pack.get("pull_count", 1))
+        pull_count = int(pack.get("pull_count", 5))
         pulled: List[dict] = []
         for _ in range(max(1, pull_count)):
             chosen_card = None
@@ -206,7 +206,7 @@ class PackCreateModal(ui.Modal, title="Create pack"):
     name = ui.TextInput(label="Pack name", max_length=100)
     price = ui.TextInput(label="Price (integer)", default="0", max_length=20)
     description = ui.TextInput(label="Short description", required=False, max_length=200)
-    pull_count = ui.TextInput(label="Cards pulled on buy (integer, default 1)", default="1", max_length=3, required=False)
+    pull_count = ui.TextInput(label="Cards pulled on buy (integer, default 5)", default="5", max_length=3, required=False)
     thumbnail_url = ui.TextInput(label="Optional thumbnail URL (max 200 chars)", required=False, max_length=200)
 
     def __init__(self, cog: "CardPacks"):
@@ -221,7 +221,7 @@ class PackCreateModal(ui.Modal, title="Create pack"):
             return
 
         try:
-            pull_val = int(self.pull_count.value) if self.pull_count.value.strip() else 1
+            pull_val = int(self.pull_count.value) if self.pull_count.value.strip() else 5
             if pull_val < 1:
                 raise ValueError
         except Exception:
@@ -253,7 +253,7 @@ class EditPackModal(ui.Modal, title="Edit pack"):
         self.name.default = original_pack_name
         self.price.default = str(pack_data.get("price", 0))
         self.description.default = pack_data.get("description", "")
-        self.pull_count.default = str(pack_data.get("pull_count", 1))
+        self.pull_count.default = str(pack_data.get("pull_count", 5))
         self.thumbnail_url.default = pack_data.get("thumbnail") or ""
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -265,7 +265,7 @@ class EditPackModal(ui.Modal, title="Edit pack"):
             return
 
         try:
-            pull_val = int(self.pull_count.value) if self.pull_count.value.strip() else 1
+            pull_val = int(self.pull_count.value) if self.pull_count.value.strip() else 5
             if pull_val < 1:
                 raise ValueError
         except Exception:
@@ -630,7 +630,7 @@ class ImportModal(ui.Modal, title="Import packs (paste export text)"):
             if line.startswith("==") and line.endswith("=="):
                 # new pack header
                 pname = line.strip("=").strip()
-                current = {"price": 0, "description": "", "pull_count": 1, "thumbnail": None, "cards": []}
+                current = {"price": 0, "description": "", "pull_count": 5, "thumbnail": None, "cards": []}
                 packs_raw[pname] = current
                 continue
             if current is None:
@@ -778,7 +778,7 @@ class ManageView(TimedView):
             price = data.get("price", 0)
             desc = data.get("description", "") or "No description"
             card_count = len(data.get("cards", []))
-            pulls = data.get("pull_count", 1)
+            pulls = data.get("pull_count", 5)
             value = f"**Price:** {price}\n**Cards:** {card_count}\n**Pulls:** {pulls}\n{desc}"
             embed.add_field(name=name, value=value, inline=False)
 
@@ -845,7 +845,7 @@ class ManageView(TimedView):
             return
         lines = []
         for name, data in packs.items():
-            lines.append(f"== {name} ==\nprice: {data.get('price')}\ndesc: {data.get('description')}\npulls: {data.get('pull_count', 1)}\nthumbnail: {data.get('thumbnail')}\ncards:")
+            lines.append(f"== {name} ==\nprice: {data.get('price')}\ndesc: {data.get('description')}\npulls: {data.get('pull_count', 5)}\nthumbnail: {data.get('thumbnail')}\ncards:")
             for c in data.get("cards", []):
                 if c.get("chance") is not None:
                     chance_part = f" chance: {c.get('chance')}%"
@@ -1174,11 +1174,11 @@ class CardPacks(commands.Cog):
         except Exception:
             avatar_url = target.display_avatar.url
         embed.set_author(name=target.display_name, icon_url=avatar_url)
-        embed.add_field(name="Totals", value=f"Total cards: **{total_items}**\nUnique stacks: **{unique_stacks}**", inline=False)
+        embed.add_field(name="Totals", value=f"Total cards: **{total_items}**\nUnique cards: **{unique_stacks}**", inline=False)
 
         # Group aggregated entries by primary pack (most common)
         by_pack = defaultdict(list)
-        # We'll compute owned unique-stacks per pack (set of idents)
+        # We'll compute owned unique-cards per pack (set of idents)
         owned_unique_per_pack = defaultdict(set)
 
         for ident, entry in agg.items():
