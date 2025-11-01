@@ -421,11 +421,10 @@ class WordCloudCog(commands.Cog):
     # Commands
     ###########################################################################
 
-    @commands.group()
+    @commands.group(invoke_without_command=True)
     async def wordcloud(self, ctx: commands.Context):
         """Wordcloud management."""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help()
+        await ctx.send_help()
 
     @wordcloud.command(name="shape", hidden=True)
     @checks.admin()
