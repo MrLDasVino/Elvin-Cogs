@@ -472,7 +472,6 @@ class StartSelect(discord.ui.Select):
     def __init__(self, cog):
         opts = []
         for k, v in cog.adventures.items():
-            # make a safe, <=100 char description
             raw_desc = v.get("description", "") or ""
             if len(raw_desc) > 100:
                 desc = raw_desc[:99].rstrip() + "…"
@@ -498,6 +497,22 @@ class StartSelect(discord.ui.Select):
             view.message = msg
         except Exception:
             pass
+
+
+class StartView(discord.ui.View):
+    def __init__(self, cog, timeout: Optional[float] = 60):
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        self.message: Optional[discord.Message] = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 
 
 class AdventureChoiceButton(discord.ui.Button):
@@ -615,9 +630,9 @@ class TaleCog(commands.Cog):
         if not self.adventures:
             await ctx.send("No adventures are currently loaded. Use `tale manage` to import some.")
             return
-        view = discord.ui.View(timeout=60)
+        view = StartView(self, timeout=60)
         select = StartSelect(self)
         view.add_item(select)
         msg = await ctx.send("Choose an adventure to start:", view=view)
-        # store message so view can be edited on timeout
         view.message = msg
+
