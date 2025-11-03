@@ -704,8 +704,7 @@ class TaleCog(commands.Cog):
     @commands.guild_only()
     async def tale(self, ctx: commands.Context):
         """Main group for the Tale cog."""
-        if ctx.invoked_subcommand is None:
-            # show help for this command (only once)
+        if ctx.invoked_subcommand is None and not ctx.subcommand_passed:
             await ctx.send_help(ctx.command)
             return
 
