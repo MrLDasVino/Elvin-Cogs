@@ -18,21 +18,26 @@ EXAMPLE_TEXT = """# Extended example adventure file for the Tale cog
 # - Optional metadata: thumbnail
 # - Each screen block starts with: screen: screen-id
 # - Optional per-screen field: banner: <image-url>
-# - The narrative text of a screen is given with one or more text: lines
+# - Narrative text of a screen is given with one or more text: lines
 # - Options are written as: <emoji> -> <target-screen-id> | <Option label>
 # - Target screen ids must exist somewhere in the same adventure
 # - A screen with id start is required and is the entry point
 # - Lines beginning with # are comments and ignored by the parser
 #
-# Example contains:
-# - a tutorial-style beginning explaining parsed fields
-# - branching choices, a trap route, a safe route, a simple "flag" mechanic shown as comment
-# - several endings and a looped path demonstrating return to earlier screens
+# New mechanics in this example:
+# - gives: flag1, flag2  -> grants session flags (simple inventory/state) when the screen is visited
+# - Option gating: append [requires: flag1, flag2] to an option label to show it only if flags are present
+# - Flags are per-session and not persisted between sessions
+#
+# Example demonstrates:
+# - granting a key (gives)
+# - gating an option that needs the key (requires)
+# - branching, loops, endings
 #
 --- 
 id: tutorial-castle
-title: The Small Castle
-description: A gentle tutorial adventure showing format and branching.
+title: The Small Castle with State
+description: A gentle tutorial adventure showing format, branching, and simple state flags (gives/requires).
 thumbnail: https://i.imgur.com/thumbnail_example.png
 ===
 # start screen - entrance to the castle
@@ -55,92 +60,121 @@ text: You can offer a coin, show a letter, or ask for permission.
 ===
 screen: give_coin
 text: The guard pockets the coin and lets you pass. You enter the courtyard.
+# grant a simple flag showing the player now "has_coin"
+gives: has_coin
 🏰 -> courtyard | Continue into the courtyard
 ===
 screen: show_letter
 text: The guard squints. He recognizes the seal and bows -- you are allowed in.
+# grant a different flag: has_letter
+gives: has_letter
 🏰 -> courtyard | Continue into the courtyard
 ===
 screen: ask_permission
 text: The guard shrugs, unimpressed. He refuses entry unless you wait for the captain.
 🔁 -> start | Go back and choose another approach
 ===
-# If you fight, things go badly
+
+# courtyard with a locked door that requires a key or letter
+screen: courtyard
+banner: https://i.imgur.com/banner_courtyard.png
+text: The courtyard is quiet. To the left is the chapel; to the right, a door with a strange lock.
+⛪ -> chapel | Explore the chapel
+🔐 -> locked_door | Try the locked door
+🔁 -> start | Return to the gate
+===
+
+screen: chapel
+text: Inside the chapel is a small altar and a single candle. A folded note sits on the altar.
+text: The note hides a small iron key you can take.
+📝 -> read_note | Read the note
+🗝️ -> take_key | Take the hidden iron key
+🔁 -> courtyard | Return to the courtyard
+===
+
+screen: read_note
+text: The note reads: "The key is kept where the sun does not reach."
+🔁 -> chapel | Think and return to the chapel
+===
+
+# Taking the key grants the has_key flag; this unlocks options that require it later
+screen: take_key
+text: You find a small iron key tucked into the note's fold.
+gives: has_key
+🔁 -> chapel | Return to the chapel with the key
+===
+
+# The locked door option exists but will only be useful if you have a key or a letter
+screen: locked_door
+text: The door has a puzzle lock. It seems keyed to a half-sun sigil or a letter of passage.
+# Option that requires the key flag (AND semantics)
+🔑 -> open_with_key | Use the iron key to open the locked door [requires: has_key]
+# Option that requires the letter flag
+✉️ -> open_with_letter | Show your letter to the lockkeeper [requires: has_letter]
+🔁 -> courtyard | Return to the courtyard
+===
+
+screen: open_with_key
+text: The key turns with a satisfying click. The door opens to a small treasure room.
+💎 -> treasure | Take the treasure
+🔁 -> courtyard | Leave the treasure and return
+===
+
+screen: open_with_letter
+text: The guard inspects the (fictitious) letter and finds it convincing. You're allowed in as if by key.
+💎 -> treasure | Take the treasure
+🔁 -> courtyard | Return to courtyard
+===
+
+screen: treasure
+text: You've found a small hoard of gems. You're richer now. THE END
+🔚 -> good_ending | The adventure ends with riches
+===
+
 screen: fight_guard
 banner: https://i.imgur.com/banner_sword.png
 text: Attacking the guard draws alarm. More guards arrive. You are pushed out and wounded.
 💀 -> bad_ending | You succumb to your wounds
 🏃 -> leave | Try to flee to safety
 ===
+
 screen: leave
 text: You head to the village. The story ends for now; perhaps you'll try again another day.
 🔚 -> peaceful_ending | The adventure ends peacefully in the village
 ===
-screen: courtyard
-banner: https://i.imgur.com/banner_courtyard.png
-text: The courtyard is quiet. To the left is the chapel; to the right, a door with a strange lock.
-⛪ -> chapel | Explore the chapel
-🔐 -> locked_door | Try the locked door
-===
-screen: chapel
-text: Inside the chapel is a small altar and a single candle. A folded note sits on the altar.
-📝 -> read_note | Read the note
-🔁 -> courtyard | Return to the courtyard
-===
-screen: read_note
-text: The note reads: "The key is kept where the sun does not reach."
-🔁 -> chapel | Think and return to the chapel (this is flavor)
-===
-screen: locked_door
-text: The door has a puzzle lock. Below it is a faded inscription about shadows.
-🕯️ -> use_candle | Use a candle to cast a shadow and try to reveal a key
-🔁 -> courtyard | Return to the courtyard and search elsewhere
-===
-screen: use_candle
-text: You place a candle and notice a seam in the wall where the shadow falls. Inside is a small iron key.
-🔑 -> have_key | Take the key
-🔁 -> locked_door | Inspect the door again
-===
-screen: have_key
-text: You have obtained the iron key. (Note: this example shows a concept of obtaining an item; persistent inventory is not implemented in this format but can be simulated by branching to screens that require key.)
-🔐 -> open_with_key | Use the key to open the locked door
-🔁 -> courtyard | Explore elsewhere with key in hand
-===
-screen: open_with_key
-text: The key turns with a satisfying click. The door opens to a small treasure room.
-💎 -> treasure | Take the treasure
-🔁 -> courtyard | Leave the treasure and return
-===
-screen: treasure
-text: You've found a small hoard of gems. You're richer now. THE END
-🔚 -> good_ending | The adventure ends with riches
-===
-screen: bad_ending
-text: You were defeated at the gate. THE END
-🔚 -> bad_ending_final | A short bad ending
-===
-screen: peaceful_ending
-text: You live a quiet life in the village and tell tales of the small castle. THE END
-🔚 -> peaceful_ending_final | A calm ending
-===
+
 screen: good_ending
 text: Wealth and fame follow you. THE END
 🔚 -> good_ending_final | A triumphant ending
 ===
+
+screen: bad_ending
+text: You were defeated at the gate. THE END
+🔚 -> bad_ending_final | A short bad ending
+===
+
+screen: peaceful_ending
+text: You live a quiet life in the village and tell tales of the small castle. THE END
+🔚 -> peaceful_ending_final | A calm ending
+===
+
 screen: bad_ending_final
 text: Your adventure is over. Better luck next time.
 ===
+
 screen: peaceful_ending_final
 text: You settle into peace. THE END
 ===
+
 screen: good_ending_final
 text: The kingdom sings of your name. THE END
 ===
----
-# Second example adventure showing a short puzzle and loop
+
+--- 
+# Short example showing requires for branching and backtracking
 id: forest-loop
-title: The Twisting Wood
-description: A short, looping forest adventure that demonstrates returning to earlier screens.
+title: The Twisting Wood with Flags
+description: A short, looping forest adventure enhanced with gives/requires mechanics.
 ===
 screen: start
 banner: https://i.imgur.com/forest_start.png
@@ -149,38 +183,61 @@ text: You enter a forest where paths twist oddly. Three signs point in different
 ➡️ -> right_path | Take the right path
 🔄 -> center_path | Take the center path
 ===
+
 screen: left_path
-text: The left path ends at a dead end, but you find a map pointing to a hidden glade.
+text: The left path ends at a dead end, but you find a map pointing to a hidden glade and a token hidden in moss.
+text: You can take the token to use later.
 🗺️ -> glade | Follow the map to the glade
+🪙 -> take_token | Take the hidden token
 🔁 -> start | Return to the fork
 ===
+
+screen: take_token
+text: You slip the small carved token into your pocket.
+gives: has_token
+🔁 -> left_path | Return with token in hand
+===
+
 screen: right_path
 text: The right path loops back and you see familiar trees.
 🔁 -> start | Return to the fork
 ===
+
 screen: center_path
 text: The center path slopes down to a stream with stepping stones.
 💧 -> stream | Cross the stream
 🔁 -> start | Go back up to the fork
 ===
+
 screen: stream
 text: The stones are slick, but you make it across and find a comforting cottage.
 🏠 -> cottage | Knock on the door
 🔁 -> center_path | Return to the center path
 ===
+
 screen: cottage
-text: An old woodcutter offers you tea and a clue about a hidden glade.
-🗝️ -> clue | He points to a hollow oak where the glade sleeps
+text: An old woodcutter offers you tea and a clue about a hidden glade and a test for tokens.
+text: He will exchange a map for a token.
+🗝️ -> trade_token | Trade the token for a map [requires: has_token]
 🔁 -> stream | Return to the stream
 ===
+
+screen: trade_token
+text: You hand over the token; the woodcutter gives you a map showing the hidden glade.
+gives: has_map
+🔁 -> cottage | Return with the map
+===
+
 screen: glade
 text: The hidden glade is peaceful. You rest and the adventure ends contentedly. THE END
 🔚 -> glade_end | Restful ending
 ===
+
 screen: glade_end
 text: You leave the glade with calm memories. THE END
 ===
 """
+
 
 class ParseError(Exception):
     pass
