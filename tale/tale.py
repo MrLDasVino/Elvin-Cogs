@@ -196,8 +196,10 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
     - Requires metadata fields: id, title, description
     - Requires a screen with id 'start'
     """
+    # Normalize line endings and split
     lines = [ln.rstrip("\r") for ln in text.splitlines()]
-    # split into blocks where a line is exactly '---' (after strip)
+
+    # Split into adventure blocks where a line stripped equals '---'
     blocks = []
     current = []
     for ln in lines:
@@ -216,7 +218,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
     for block in blocks:
         raw_lines = [l for l in block.splitlines()]
 
-        # find explicit '===' separator if present
+        # Find explicit '===' separator if present
         sep_idx = None
         for i, l in enumerate(raw_lines):
             if l.strip() == '===':
@@ -227,7 +229,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
             meta_raw = raw_lines[:sep_idx]
             screens_lines = raw_lines[sep_idx + 1 :]
         else:
-            # fallback: find first line that starts with 'screen:' (case-insensitive)
+            # Fallback: find the first 'screen:' line and treat everything before it as metadata
             first_screen_idx = None
             for i, l in enumerate(raw_lines):
                 if l.strip().lower().startswith("screen:"):
@@ -238,6 +240,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
             meta_raw = raw_lines[:first_screen_idx]
             screens_lines = raw_lines[first_screen_idx:]
 
+        # Parse metadata (ignore comments/blank lines)
         meta_lines = [l for l in meta_raw if l.strip() and not l.strip().startswith("#")]
         meta = {}
         for ln in meta_lines:
@@ -249,7 +252,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
         if "id" not in meta or "title" not in meta or "description" not in meta:
             raise ParseError("Adventure metadata must include id, title, description.")
 
-        # split screens by lines that equal '===' (if present inside screens lines)
+        # Split screens by lines equal to '===' if present inside screens_lines
         screen_blocks = []
         cur_screen = []
         for ln in screens_lines:
@@ -266,9 +269,11 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
 
         screens = {}
         for sblock in screen_blocks:
+            # Remove comments and blank lines inside a screen block
             s_lines = [l for l in sblock.splitlines() if l.strip() and not l.strip().startswith("#")]
             if not s_lines:
                 continue
+            # First line must be 'screen: id'
             if ":" not in s_lines[0]:
                 raise ParseError(f"Missing screen header in block: {s_lines[0]}")
             k, v = s_lines[0].split(":", 1)
@@ -279,7 +284,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
             text_lines = []
             options = []
             for ln in s_lines[1:]:
-                low = ln.lower()
+                low = ln.lstrip().lower()
                 if low.startswith("banner:"):
                     banner = ln.split(":", 1)[1].strip()
                     continue
@@ -294,6 +299,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
                     target, label = right.split("|", 1)
                     options.append({"emoji": emoji, "target": target.strip(), "label": label.strip()})
                     continue
+                # Any other non-comment line treated as narrative continuation
                 text_lines.append(ln)
             screens[sid] = {"id": sid, "banner": banner, "text": "\n".join(text_lines).strip(), "options": options}
 
@@ -310,6 +316,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
         adventures[meta["id"]] = adv
 
     return adventures
+
 
 
 
