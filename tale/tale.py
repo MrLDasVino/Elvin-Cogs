@@ -46,7 +46,6 @@ text: The left path leads to a river. A boatman offers a ride.
 🧭 -> lost | Try to find another way
 ===
 screen: right
-banner: https://i.imgur.com/right.png
 text: The right path leads deeper into the trees and a glowing cave.
 🔥 -> cave | Enter the cave
 🏃 -> run | Run away
