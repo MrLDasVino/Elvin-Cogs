@@ -594,7 +594,7 @@ class StartSelect(discord.ui.Select):
 
 
 class StartView(discord.ui.View):
-    def __init__(self, cog, timeout: Optional[float] = 60):
+    def __init__(self, cog, timeout: Optional[float] = 180):
         super().__init__(timeout=timeout)
         self.cog = cog
         self.message: Optional[discord.Message] = None
@@ -629,7 +629,7 @@ class StopButton(discord.ui.Button):
 
 class AdventureSessionView(discord.ui.View):
     def __init__(self, cog, adventure: dict, current_screen_id: str, owner_id: int):
-        super().__init__(timeout=60)
+        super().__init__(timeout=180)
         self.cog = cog
         self.adventure = adventure
         self.current = current_screen_id
@@ -743,7 +743,7 @@ class TaleCog(commands.Cog):
         if not self.adventures:
             await ctx.send("No adventures are currently loaded. Use `tale manage` to import some.")
             return
-        view = StartView(self, timeout=60)
+        view = StartView(self, timeout=180)
         select = StartSelect(self)
         view.add_item(select)
         msg = await ctx.send("Choose an adventure to start:", view=view)
