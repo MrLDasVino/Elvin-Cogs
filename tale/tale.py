@@ -447,7 +447,15 @@ class ManageView(discord.ui.View):
 
 class DeleteSelect(discord.ui.Select):
     def __init__(self, cog, options):
-        super().__init__(placeholder="Select adventure to delete", min_values=1, max_values=1, options=options)
+        # options is already a list of discord.SelectOption; ensure descriptions are <=100 chars
+        safe_options = []
+        for opt in options:
+            desc = (opt.description or "")[:100]
+            if opt.description and len(opt.description) > 100:
+                # preserve a visual clue that it's truncated
+                desc = desc.rstrip()[:-1] + "…"
+            safe_options.append(discord.SelectOption(label=opt.label, description=desc, value=opt.value))
+        super().__init__(placeholder="Select adventure to delete", min_values=1, max_values=1, options=safe_options)
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
@@ -459,13 +467,19 @@ class DeleteSelect(discord.ui.Select):
         else:
             await interaction.response.send_message("Adventure not found.", ephemeral=True)
 
+
 class StartSelect(discord.ui.Select):
     def __init__(self, cog):
-        options = [
-            discord.SelectOption(label=v["title"], description=v["description"], value=k)
-            for k, v in cog.adventures.items()
-        ]
-        super().__init__(placeholder="Choose an adventure...", min_values=1, max_values=1, options=options)
+        opts = []
+        for k, v in cog.adventures.items():
+            # make a safe, <=100 char description
+            raw_desc = v.get("description", "") or ""
+            if len(raw_desc) > 100:
+                desc = raw_desc[:99].rstrip() + "…"
+            else:
+                desc = raw_desc
+            opts.append(discord.SelectOption(label=v.get("title", k), description=desc, value=k))
+        super().__init__(placeholder="Choose an adventure...", min_values=1, max_values=1, options=opts)
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
@@ -484,6 +498,7 @@ class StartSelect(discord.ui.Select):
             view.message = msg
         except Exception:
             pass
+
 
 class AdventureChoiceButton(discord.ui.Button):
     def __init__(self, emoji: str, label: str, target: str, cog, adv):
