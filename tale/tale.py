@@ -294,6 +294,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
             banner = None
             text_lines = []
             options = []
+            gives = []  # flags granted when entering this screen
             for ln in s_lines[1:]:
                 low = ln.lstrip().lower()
                 if low.startswith("banner:"):
@@ -302,17 +303,44 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
                 if low.startswith("text:"):
                     text_lines.append(ln.split(":", 1)[1].strip())
                     continue
+                # new: optional gives: flag1, flag2
+                if low.startswith("gives:"):
+                    raw = ln.split(":", 1)[1].strip()
+                    gives = [f.strip() for f in raw.split(",") if f.strip()]
+                    continue
                 if "->" in ln:
                     left, right = ln.split("->", 1)
                     emoji = left.strip()
                     if "|" not in right:
                         raise ParseError(f"Invalid option format, missing '|': {ln}")
-                    target, label = right.split("|", 1)
-                    options.append({"emoji": emoji, "target": target.strip(), "label": label.strip()})
+                    target_label_part = right.split("|", 1)
+                    target = target_label_part[0].strip()
+                    label_and_req = target_label_part[1].strip()
+                    # parse optional trailing [requires: a, b]
+                    reqs = []
+                    if "[" in label_and_req and label_and_req.rstrip().endswith("]"):
+                        idx = label_and_req.rfind("[")
+                        bracket = label_and_req[idx+1:-1].strip()
+                        label_text = label_and_req[:idx].rstrip()
+                        if bracket.lower().startswith("requires:"):
+                            rawreqs = bracket.split(":", 1)[1]
+                            reqs = [r.strip() for r in rawreqs.split(",") if r.strip()]
+                        else:
+                            # unknown bracket content treated as part of label
+                            label_text = label_and_req
+                    else:
+                        label_text = label_and_req
+                    options.append({"emoji": emoji, "target": target, "label": label_text, "requires": reqs})
                     continue
                 # Any other non-comment line treated as narrative continuation
                 text_lines.append(ln)
-            screens[sid] = {"id": sid, "banner": banner, "text": "\n".join(text_lines).strip(), "options": options}
+            screens[sid] = {
+                "id": sid,
+                "banner": banner,
+                "text": "\n".join(text_lines).strip(),
+                "options": options,
+                "gives": gives,
+            }
 
         if "start" not in screens:
             raise ParseError("Each adventure must include a screen with id 'start'.")
@@ -540,6 +568,7 @@ class AdventureSessionView(discord.ui.View):
         self.adventure = adventure
         self.current = current_screen_id
         self.message: Optional[discord.Message] = None
+        self.flags = set()         
         self.refresh_children_for_current()
 
     async def on_timeout(self):
@@ -558,12 +587,15 @@ class AdventureSessionView(discord.ui.View):
             return
         if screen.get("options"):
             for opt in screen["options"]:
+                # only show option if all required flags are present (AND semantics)
+                reqs = opt.get("requires", []) or []
+                if reqs and not all((r in self.flags) for r in reqs):
+                    continue
                 emoji = opt.get("emoji")
                 label = opt.get("label") or ""
                 target = opt.get("target")
                 btn = AdventureChoiceButton(emoji=emoji, label=label, target=target, cog=self.cog, adv=self.adventure)
                 self.add_item(btn)
-        self.add_item(StopButton())
 
     async def goto_screen(self, interaction: discord.Interaction, screen_id: str):
         screen = self.adventure["screens"].get(screen_id)
@@ -571,6 +603,10 @@ class AdventureSessionView(discord.ui.View):
             await interaction.response.send_message("Target screen not found; the adventure data might be invalid.", ephemeral=True)
             return
         self.current = screen_id
+        # apply any flags granted by arriving at this screen
+        for f in screen.get("gives", []) or []:
+            if f:
+                self.flags.add(f)        
         self.refresh_children_for_current()
         embed = discord.Embed(title=f"{self.adventure['title']} — {screen_id}", color=discord.Color.random())
         if screen.get("banner"):
