@@ -182,7 +182,6 @@ text: You leave the glade with calm memories. THE END
 ===
 """
 
-
 class ParseError(Exception):
     pass
 
@@ -199,7 +198,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
     # Normalize line endings and split
     lines = [ln.rstrip("\r") for ln in text.splitlines()]
 
-    # Split into adventure blocks where a line stripped equals '---'
+    # Split into adventure blocks where a line stripped equals '---' (accept whitespace)
     blocks = []
     current = []
     for ln in lines:
@@ -214,11 +213,23 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
     if current:
         blocks.append("\n".join(current))
 
+    # Remove any blocks that are only comments/blank lines (not real adventures)
+    filtered_blocks = []
+    for b in blocks:
+        has_content = False
+        for line in b.splitlines():
+            if line.strip() and not line.strip().startswith("#"):
+                has_content = True
+                break
+        if has_content:
+            filtered_blocks.append(b)
+    blocks = filtered_blocks
+
     adventures: Dict[str, dict] = {}
     for block in blocks:
         raw_lines = [l for l in block.splitlines()]
 
-        # Find explicit '===' separator if present
+        # Find explicit '===' separator if present (accept surrounding whitespace)
         sep_idx = None
         for i, l in enumerate(raw_lines):
             if l.strip() == '===':
@@ -316,8 +327,6 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
         adventures[meta["id"]] = adv
 
     return adventures
-
-
 
 
 def adventures_to_text(adventures: Dict[str, dict]) -> str:
