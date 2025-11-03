@@ -10,56 +10,178 @@ from redbot.core import commands
 COG_FOLDER = os.path.dirname(__file__)
 STORAGE_PATH = os.path.join(COG_FOLDER, "adventures.txt")
 
-EXAMPLE_TEXT = """# Example adventure file
-# Multiple adventures separated by a line with exactly: ---
-# Each adventure starts with metadata lines, then screens separated by ===
-# Metadata fields:
-# id: unique-id
-# title: Human readable title
-# description: Short description shown in selection embed
-# thumbnail: thumbnail image url (optional)
+EXAMPLE_TEXT = """# Extended example adventure file for the Tale cog
+# Notes:
+# - Multiple adventures separated by a line with exactly: ---
+# - Each adventure has metadata lines, then a screens section separated from metadata by ===
+# - Metadata required: id, title, description
+# - Optional metadata: thumbnail
+# - Each screen block starts with: screen: screen-id
+# - Optional per-screen field: banner: <image-url>
+# - The narrative text of a screen is given with one or more text: lines
+# - Options are written as: <emoji> -> <target-screen-id> | <Option label>
+# - Target screen ids must exist somewhere in the same adventure
+# - A screen with id start is required and is the entry point
+# - Lines beginning with # are comments and ignored by the parser
 #
-# Screens section:
-# Each screen starts with: screen: screen-id
-# banner: banner-image-url (optional)
-# text: The narrative text for this screen
-# then one or more option lines in the form:
-# emoji -> target-screen-id | Option label
+# Example contains:
+# - a tutorial-style beginning explaining parsed fields
+# - branching choices, a trap route, a safe route, a simple "flag" mechanic shown as comment
+# - several endings and a looped path demonstrating return to earlier screens
 #
-# Example:
+--- 
+id: tutorial-castle
+title: The Small Castle
+description: A gentle tutorial adventure showing format and branching.
+thumbnail: https://i.imgur.com/thumbnail_example.png
+===
+# start screen - entrance to the castle
+screen: start
+banner: https://i.imgur.com/banner_castle_gate.png
+text: You stand before the rusted gates of a small castle. A tired guard eyes you.
+text: He grunts and asks what you seek.
+🙂 -> talk_guard | Speak politely to the guard
+⚔️ -> fight_guard | Draw your sword and attack
+🏃 -> leave | Leave and go to the nearby village
+===
+# If you talk, you may get inside peacefully
+screen: talk_guard
+banner: https://i.imgur.com/banner_guard.png
+text: The guard relaxes when you speak politely. He asks if you have coin or a message.
+text: You can offer a coin, show a letter, or ask for permission.
+💰 -> give_coin | Offer the guard a coin
+✉️ -> show_letter | Show the guard a (fictitious) letter of passage
+❓ -> ask_permission | Ask for permission without giving anything
+===
+screen: give_coin
+text: The guard pockets the coin and lets you pass. You enter the courtyard.
+🏰 -> courtyard | Continue into the courtyard
+===
+screen: show_letter
+text: The guard squints. He recognizes the seal and bows -- you are allowed in.
+🏰 -> courtyard | Continue into the courtyard
+===
+screen: ask_permission
+text: The guard shrugs, unimpressed. He refuses entry unless you wait for the captain.
+🔁 -> start | Go back and choose another approach
+===
+# If you fight, things go badly
+screen: fight_guard
+banner: https://i.imgur.com/banner_sword.png
+text: Attacking the guard draws alarm. More guards arrive. You are pushed out and wounded.
+💀 -> bad_ending | You succumb to your wounds
+🏃 -> leave | Try to flee to safety
+===
+screen: leave
+text: You head to the village. The story ends for now; perhaps you'll try again another day.
+🔚 -> peaceful_ending | The adventure ends peacefully in the village
+===
+screen: courtyard
+banner: https://i.imgur.com/banner_courtyard.png
+text: The courtyard is quiet. To the left is the chapel; to the right, a door with a strange lock.
+⛪ -> chapel | Explore the chapel
+🔐 -> locked_door | Try the locked door
+===
+screen: chapel
+text: Inside the chapel is a small altar and a single candle. A folded note sits on the altar.
+📝 -> read_note | Read the note
+🔁 -> courtyard | Return to the courtyard
+===
+screen: read_note
+text: The note reads: "The key is kept where the sun does not reach."
+🔁 -> chapel | Think and return to the chapel (this is flavor)
+===
+screen: locked_door
+text: The door has a puzzle lock. Below it is a faded inscription about shadows.
+🕯️ -> use_candle | Use a candle to cast a shadow and try to reveal a key
+🔁 -> courtyard | Return to the courtyard and search elsewhere
+===
+screen: use_candle
+text: You place a candle and notice a seam in the wall where the shadow falls. Inside is a small iron key.
+🔑 -> have_key | Take the key
+🔁 -> locked_door | Inspect the door again
+===
+screen: have_key
+text: You have obtained the iron key. (Note: this example shows a concept of obtaining an item; persistent inventory is not implemented in this format but can be simulated by branching to screens that require key.)
+🔐 -> open_with_key | Use the key to open the locked door
+🔁 -> courtyard | Explore elsewhere with key in hand
+===
+screen: open_with_key
+text: The key turns with a satisfying click. The door opens to a small treasure room.
+💎 -> treasure | Take the treasure
+🔁 -> courtyard | Leave the treasure and return
+===
+screen: treasure
+text: You've found a small hoard of gems. You're richer now. THE END
+🔚 -> good_ending | The adventure ends with riches
+===
+screen: bad_ending
+text: You were defeated at the gate. THE END
+🔚 -> bad_ending_final | A short bad ending
+===
+screen: peaceful_ending
+text: You live a quiet life in the village and tell tales of the small castle. THE END
+🔚 -> peaceful_ending_final | A calm ending
+===
+screen: good_ending
+text: Wealth and fame follow you. THE END
+🔚 -> good_ending_final | A triumphant ending
+===
+screen: bad_ending_final
+text: Your adventure is over. Better luck next time.
+===
+screen: peaceful_ending_final
+text: You settle into peace. THE END
+===
+screen: good_ending_final
+text: The kingdom sings of your name. THE END
+===
 ---
-id: forest1
-title: The Haunted Forest
-description: Find your way out of the haunted forest.
-thumbnail: https://i.imgur.com/xxx.png
+# Second example adventure showing a short puzzle and loop
+id: forest-loop
+title: The Twisting Wood
+description: A short, looping forest adventure that demonstrates returning to earlier screens.
 ===
 screen: start
-banner: https://i.imgur.com/banner.png
-text: You wake up in a foggy forest. Two paths appear.
-🙂 -> left | Take the left path
-👉 -> right | Take the right path
+banner: https://i.imgur.com/forest_start.png
+text: You enter a forest where paths twist oddly. Three signs point in different directions.
+⬅️ -> left_path | Take the left path
+➡️ -> right_path | Take the right path
+🔄 -> center_path | Take the center path
 ===
-screen: left
-banner: https://i.imgur.com/left.png
-text: The left path leads to a river. A boatman offers a ride.
-🛶 -> boat | Take the boat
-🧭 -> lost | Try to find another way
+screen: left_path
+text: The left path ends at a dead end, but you find a map pointing to a hidden glade.
+🗺️ -> glade | Follow the map to the glade
+🔁 -> start | Return to the fork
 ===
-screen: right
-text: The right path leads deeper into the trees and a glowing cave.
-🔥 -> cave | Enter the cave
-🏃 -> run | Run away
+screen: right_path
+text: The right path loops back and you see familiar trees.
+🔁 -> start | Return to the fork
 ===
-screen: boat
-text: The boat takes you to safety. THE END
+screen: center_path
+text: The center path slopes down to a stream with stepping stones.
+💧 -> stream | Cross the stream
+🔁 -> start | Go back up to the fork
 ===
-screen: lost
-text: You are lost forever. THE END
+screen: stream
+text: The stones are slick, but you make it across and find a comforting cottage.
+🏠 -> cottage | Knock on the door
+🔁 -> center_path | Return to the center path
 ===
-screen: cave
-text: You find treasure. THE END
+screen: cottage
+text: An old woodcutter offers you tea and a clue about a hidden glade.
+🗝️ -> clue | He points to a hollow oak where the glade sleeps
+🔁 -> stream | Return to the stream
+===
+screen: glade
+text: The hidden glade is peaceful. You rest and the adventure ends contentedly. THE END
+🔚 -> glade_end | Restful ending
+===
+screen: glade_end
+text: You leave the glade with calm memories. THE END
 ===
 """
+
 
 class ParseError(Exception):
     pass
