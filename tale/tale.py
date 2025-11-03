@@ -189,9 +189,12 @@ class ParseError(Exception):
 def parse_adventures_from_text(text: str) -> Dict[str, dict]:
     """
     Robust parser for the plain-text adventure format.
-    Splits adventures on lines that contain only '---' (ignoring surrounding whitespace),
-    ignores comment lines starting with '#', and requires each adventure to contain
-    metadata (id,title,description) and a start screen.
+    - Splits adventures on lines that contain only '---' (ignoring surrounding whitespace)
+    - Accepts either an explicit '===' separator between metadata and screens or will
+      infer the split by finding the first 'screen:' header if '===' is missing
+    - Ignores comment lines starting with '#'
+    - Requires metadata fields: id, title, description
+    - Requires a screen with id 'start'
     """
     lines = [ln.rstrip("\r") for ln in text.splitlines()]
     # split into blocks where a line is exactly '---' (after strip)
@@ -203,7 +206,6 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
                 blocks.append("\n".join(current))
                 current = []
             else:
-                # consecutive separators or leading separator: ignore
                 current = []
             continue
         current.append(ln)
@@ -212,21 +214,31 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
 
     adventures: Dict[str, dict] = {}
     for block in blocks:
-        # remove comment lines and empty lines for easier processing, but keep separators '===' lines
         raw_lines = [l for l in block.splitlines()]
 
-        # find the index of the line that is exactly '===' (separator between meta and screens)
+        # find explicit '===' separator if present
         sep_idx = None
         for i, l in enumerate(raw_lines):
             if l.strip() == '===':
                 sep_idx = i
                 break
-        if sep_idx is None:
-            raise ParseError("Missing screens separator === for an adventure block.")
 
-        meta_lines = [l for l in raw_lines[:sep_idx] if l.strip() and not l.strip().startswith("#")]
-        screens_lines = raw_lines[sep_idx + 1 :]
+        if sep_idx is not None:
+            meta_raw = raw_lines[:sep_idx]
+            screens_lines = raw_lines[sep_idx + 1 :]
+        else:
+            # fallback: find first line that starts with 'screen:' (case-insensitive)
+            first_screen_idx = None
+            for i, l in enumerate(raw_lines):
+                if l.strip().lower().startswith("screen:"):
+                    first_screen_idx = i
+                    break
+            if first_screen_idx is None:
+                raise ParseError("Missing screens separator === for an adventure block.")
+            meta_raw = raw_lines[:first_screen_idx]
+            screens_lines = raw_lines[first_screen_idx:]
 
+        meta_lines = [l for l in meta_raw if l.strip() and not l.strip().startswith("#")]
         meta = {}
         for ln in meta_lines:
             if ":" not in ln:
@@ -237,7 +249,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
         if "id" not in meta or "title" not in meta or "description" not in meta:
             raise ParseError("Adventure metadata must include id, title, description.")
 
-        # split screens by lines that equal '==='
+        # split screens by lines that equal '===' (if present inside screens lines)
         screen_blocks = []
         cur_screen = []
         for ln in screens_lines:
@@ -298,6 +310,7 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
         adventures[meta["id"]] = adv
 
     return adventures
+
 
 
 def adventures_to_text(adventures: Dict[str, dict]) -> str:
