@@ -700,11 +700,11 @@ class TaleCog(commands.Cog):
         with open(STORAGE_PATH, "w", encoding="utf-8") as f:
             f.write(content)
 
-    @commands.group()
+    @commands.group(invoke_without_command=True)
     @commands.guild_only()
     async def tale(self, ctx: commands.Context):
         """Main group for the Tale cog."""
-        if ctx.invoked_subcommand is None and not ctx.subcommand_passed:
+        if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
             return
 
