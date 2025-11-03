@@ -159,10 +159,22 @@ def adventures_to_text(adventures: Dict[str, dict]) -> str:
         parts.append(part)
     return "\n---\n".join(parts)
 
+# ----------------- Views -----------------
 class ManageView(discord.ui.View):
     def __init__(self, cog):
-        super().__init__(timeout=120)
+        super().__init__(timeout=60)
         self.cog = cog
+        self.message: Optional[discord.Message] = None
+
+    async def on_timeout(self):
+        # disable all children and edit the original message to update view
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 
     @discord.ui.button(label="Example", style=discord.ButtonStyle.secondary, custom_id="tale_example")
     async def example(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -229,10 +241,17 @@ class ManageView(discord.ui.View):
             discord.SelectOption(label=v["title"], description=v["description"], value=k)
             for k, v in self.cog.adventures.items()
         ]
+
+        select_view = discord.ui.View(timeout=60)
         select = DeleteSelect(self.cog, options)
-        view = discord.ui.View()
-        view.add_item(select)
-        await interaction.response.send_message("Choose an adventure to delete:", view=view, ephemeral=True)
+        select_view.add_item(select)
+        await interaction.response.send_message("Choose an adventure to delete:", view=select_view, ephemeral=True)
+        try:
+            # set message reference so the view can edit on timeout
+            msg = await interaction.original_response()
+            select_view.message = msg
+        except Exception:
+            pass
 
 class DeleteSelect(discord.ui.Select):
     def __init__(self, cog, options):
@@ -268,6 +287,11 @@ class StartSelect(discord.ui.Select):
             embed.set_thumbnail(url=adv["thumbnail"])
         view = AdventureSessionView(self.cog, adv, current_screen_id="start")
         await interaction.response.send_message(embed=embed, view=view)
+        try:
+            msg = await interaction.original_response()
+            view.message = msg
+        except Exception:
+            pass
 
 class AdventureChoiceButton(discord.ui.Button):
     def __init__(self, emoji: str, label: str, target: str, cog, adv):
@@ -289,11 +313,21 @@ class StopButton(discord.ui.Button):
 
 class AdventureSessionView(discord.ui.View):
     def __init__(self, cog, adventure: dict, current_screen_id: str):
-        super().__init__(timeout=600)
+        super().__init__(timeout=60)
         self.cog = cog
         self.adventure = adventure
         self.current = current_screen_id
+        self.message: Optional[discord.Message] = None
         self.refresh_children_for_current()
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 
     def refresh_children_for_current(self):
         self.clear_items()
@@ -323,6 +357,7 @@ class AdventureSessionView(discord.ui.View):
             embed.description = screen["text"]
         await interaction.response.edit_message(embed=embed, view=self)
 
+# ----------------- Cog -----------------
 class TaleCog(commands.Cog):
     """Choose-your-own-adventure cog."""
 
@@ -355,14 +390,17 @@ class TaleCog(commands.Cog):
     async def tale(self, ctx: commands.Context):
         """Main group for the Tale cog."""
         if ctx.invoked_subcommand is None:
-            await ctx.send_help("tale")
+            # show help for this command (only once)
+            await ctx.send_help(ctx.command)
+            return
 
     @tale.command()
     @commands.has_guild_permissions(administrator=True)
     async def manage(self, ctx: commands.Context):
         """Manage adventures: import, export, example, delete. Administrator only."""
         view = ManageView(self)
-        await ctx.send("Tale management", view=view)
+        msg = await ctx.send("Tale management", view=view)
+        view.message = msg
 
     @tale.command()
     async def start(self, ctx: commands.Context):
@@ -370,7 +408,9 @@ class TaleCog(commands.Cog):
         if not self.adventures:
             await ctx.send("No adventures are currently loaded. Use `tale manage` to import some.")
             return
-        view = discord.ui.View()
+        view = discord.ui.View(timeout=60)
         select = StartSelect(self)
         view.add_item(select)
-        await ctx.send("Choose an adventure to start:", view=view)
+        msg = await ctx.send("Choose an adventure to start:", view=view)
+        # store message so view can be edited on timeout
+        view.message = msg
