@@ -545,12 +545,21 @@ class DeleteSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         aid = self.values[0]
-        if aid in self.cog.adventures:
-            del self.cog.adventures[aid]
-            await self.cog._save_to_disk()
-            await interaction.response.send_message(f"Deleted adventure `{aid}`.", ephemeral=True)
-        else:
+        adv = self.cog.adventures.get(aid)
+        if not adv:
             await interaction.response.send_message("Adventure not found.", ephemeral=True)
+            return
+        embed = discord.Embed(title=adv["title"], description=adv["description"], color=discord.Color.random())
+        if adv.get("thumbnail"):
+            embed.set_thumbnail(url=adv["thumbnail"])
+        # pass the interaction.user.id as the owner of the session
+        view = AdventureSessionView(self.cog, adv, current_screen_id="start", owner_id=interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view)
+        try:
+            msg = await interaction.original_response()
+            view.message = msg
+        except Exception:
+            pass
 
 
 class StartSelect(discord.ui.Select):
@@ -575,7 +584,7 @@ class StartSelect(discord.ui.Select):
         embed = discord.Embed(title=adv["title"], description=adv["description"], color=discord.Color.random())
         if adv.get("thumbnail"):
             embed.set_thumbnail(url=adv["thumbnail"])
-        view = AdventureSessionView(self.cog, adv, current_screen_id="start")
+        view = AdventureSessionView(self.cog, adv, current_screen_id="start", owner_id=interaction.user.id)
         await interaction.response.send_message(embed=embed, view=view)
         try:
             msg = await interaction.original_response()
@@ -619,14 +628,26 @@ class StopButton(discord.ui.Button):
         await interaction.response.edit_message(content="Session ended.", embed=None, view=None)
 
 class AdventureSessionView(discord.ui.View):
-    def __init__(self, cog, adventure: dict, current_screen_id: str):
+    def __init__(self, cog, adventure: dict, current_screen_id: str, owner_id: int):
         super().__init__(timeout=60)
         self.cog = cog
         self.adventure = adventure
         self.current = current_screen_id
         self.message: Optional[discord.Message] = None
-        self.flags = set()         
+        self.flags = set()
+        # id of the user who started this session; only they may interact
+        self.owner_id = owner_id
         self.refresh_children_for_current()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # allow the owner and the bot itself to interact; deny others with an ephemeral message
+        if interaction.user.id == self.owner_id or interaction.user.id == self.cog.bot.user.id:
+            return True
+        try:
+            await interaction.response.send_message("Only the player who started this session may use these controls.", ephemeral=True)
+        except Exception:
+            pass
+        return False
 
     async def on_timeout(self):
         for item in self.children:
