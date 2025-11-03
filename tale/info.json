@@ -1,0 +1,7 @@
+{
+  "name": "Tale",
+  "author": ["Elvin"],
+  "description": "Choose-your-own-adventure cog with import/export/manage/start features",
+  "version": "1.0.0",
+  "requirements": []
+}
