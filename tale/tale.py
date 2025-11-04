@@ -373,21 +373,28 @@ def parse_adventures_from_text(text: str) -> Dict[str, dict]:
                     target_label_part = right.split("|", 1)
                     target = target_label_part[0].strip()
                     label_and_req = target_label_part[1].strip()
-                    # parse optional trailing [requires: a, b]
+                    # parse optional trailing bracketed directives, e.g. [requires: a, b] or [consumes: id]
                     reqs = []
+                    consumes = None
                     if "[" in label_and_req and label_and_req.rstrip().endswith("]"):
                         idx = label_and_req.rfind("[")
                         bracket = label_and_req[idx+1:-1].strip()
                         label_text = label_and_req[:idx].rstrip()
-                        if bracket.lower().startswith("requires:"):
-                            rawreqs = bracket.split(":", 1)[1]
-                            reqs = [r.strip() for r in rawreqs.split(",") if r.strip()]
-                        else:
-                            # unknown bracket content treated as part of label
-                            label_text = label_and_req
+                        # allow multiple directives separated by ';'
+                        parts = [p.strip() for p in bracket.split(";") if p.strip()]
+                        for part in parts:
+                            low = part.lower()
+                            if low.startswith("requires:"):
+                                rawreqs = part.split(":", 1)[1]
+                                reqs = [r.strip() for r in rawreqs.split(",") if r.strip()]
+                            elif low.startswith("consumes:"):
+                                consumes = part.split(":", 1)[1].strip()
+                            else:
+                                # unknown directive — treat whole bracket as label fallback
+                                label_text = label_and_req
                     else:
                         label_text = label_and_req
-                    options.append({"emoji": emoji, "target": target, "label": label_text, "requires": reqs})
+                    options.append({"emoji": emoji, "target": target, "label": label_text, "requires": reqs, "consumes": consumes})
                     continue
                 # Any other non-comment line treated as narrative continuation
                 text_lines.append(ln)
@@ -618,6 +625,10 @@ class AdventureChoiceButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         view: AdventureSessionView = self.view  # type: ignore
+        # mark this option's consumes id as used for this session so it disappears
+        consumes = getattr(self, "_consumes", None)
+        if consumes:
+            view.consumed.add(consumes)
         await view.goto_screen(interaction, self.target)
 
 class StopButton(discord.ui.Button):
@@ -635,6 +646,7 @@ class AdventureSessionView(discord.ui.View):
         self.current = current_screen_id
         self.message: Optional[discord.Message] = None
         self.flags = set()
+        self.consumed = set()        
         # id of the user who started this session; only they may interact
         self.owner_id = owner_id
         self.refresh_children_for_current()
@@ -665,6 +677,14 @@ class AdventureSessionView(discord.ui.View):
             return
         if screen.get("options"):
             for opt in screen["options"]:
+                # skip option if it has a consumes id already consumed this session
+                consumes = opt.get("consumes")
+                if consumes and consumes in self.consumed:
+                    continue
+                # skip option if it has a consumes id already consumed this session
+                consumes = opt.get("consumes")
+                if consumes and consumes in self.consumed:
+                    continue
                 # only show option if all required flags are present (AND semantics)
                 reqs = opt.get("requires", []) or []
                 if reqs and not all((r in self.flags) for r in reqs):
@@ -679,6 +699,7 @@ class AdventureSessionView(discord.ui.View):
                     label = None
                 target = opt.get("target")
                 btn = AdventureChoiceButton(emoji=emoji, label=label, target=target, cog=self.cog, adv=self.adventure)
+                btn._consumes = consumes                
                 self.add_item(btn)
 
     async def goto_screen(self, interaction: discord.Interaction, screen_id: str):
