@@ -671,6 +671,12 @@ class AdventureSessionView(discord.ui.View):
                     continue
                 emoji = opt.get("emoji")
                 label = opt.get("label") or ""
+                # ensure label is at most 80 characters (Discord limit)
+                if label:
+                    if len(label) > 80:
+                        label = label[:79].rstrip() + "…"
+                else:
+                    label = None
                 target = opt.get("target")
                 btn = AdventureChoiceButton(emoji=emoji, label=label, target=target, cog=self.cog, adv=self.adventure)
                 self.add_item(btn)
