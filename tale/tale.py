@@ -549,17 +549,17 @@ class DeleteSelect(discord.ui.Select):
         if not adv:
             await interaction.response.send_message("Adventure not found.", ephemeral=True)
             return
-        embed = discord.Embed(title=adv["title"], description=adv["description"], color=discord.Color.random())
-        if adv.get("thumbnail"):
-            embed.set_thumbnail(url=adv["thumbnail"])
-        # pass the interaction.user.id as the owner of the session
-        view = AdventureSessionView(self.cog, adv, current_screen_id="start", owner_id=interaction.user.id)
-        await interaction.response.send_message(embed=embed, view=view)
+
         try:
-            msg = await interaction.original_response()
-            view.message = msg
+            # remove the adventure and persist to disk
+            del self.cog.adventures[aid]
+            await self.cog._save_to_disk()
         except Exception:
-            pass
+            await interaction.response.send_message("Failed to delete the adventure.", ephemeral=True)
+            return
+
+        # confirm deletion to the administrator
+        await interaction.response.send_message(f"Deleted adventure: **{adv.get('title', aid)}**.", ephemeral=True)
 
 
 class StartSelect(discord.ui.Select):
@@ -686,7 +686,7 @@ class AdventureSessionView(discord.ui.View):
             if f:
                 self.flags.add(f)        
         self.refresh_children_for_current()
-        embed = discord.Embed(title=f"{self.adventure['title']} — {screen_id}", color=discord.Color.random())
+        embed = discord.Embed(title=self.adventure['title'], color=discord.Color.random())
         if screen.get("banner"):
             embed.set_image(url=screen["banner"])
         if screen.get("text"):
