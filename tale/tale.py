@@ -20,6 +20,7 @@ EXAMPLE_TEXT = """# Extended example adventure file for the Tale cog
 # - Optional per-screen field: banner: <image-url>
 # - Narrative text of a screen is given with one or more text: lines
 # - Options are written as: <emoji> -> <target-screen-id> | <Option label>
+# - Option can include [requires: flag1, flag2] to gate it, and/or [consumes: id] to make it one-use
 # - Target screen ids must exist somewhere in the same adventure
 # - A screen with id start is required and is the entry point
 # - Lines beginning with # are comments and ignored by the parser
@@ -27,17 +28,13 @@ EXAMPLE_TEXT = """# Extended example adventure file for the Tale cog
 # New mechanics in this example:
 # - gives: flag1, flag2  -> grants session flags (simple inventory/state) when the screen is visited
 # - Option gating: append [requires: flag1, flag2] to an option label to show it only if flags are present
+# - One-time options: append [consumes: id] to make an option disappear after it's used in a session
 # - Flags are per-session and not persisted between sessions
-#
-# Example demonstrates:
-# - granting a key (gives)
-# - gating an option that needs the key (requires)
-# - branching, loops, endings
 #
 --- 
 id: tutorial-castle
 title: The Small Castle with State
-description: A gentle tutorial adventure showing format, branching, and simple state flags (gives/requires).
+description: A gentle tutorial adventure showing format, branching, and simple state flags (gives/requires) and one-use options (consumes).
 thumbnail: https://i.imgur.com/thumbnail_example.png
 ===
 # start screen - entrance to the castle
@@ -54,19 +51,17 @@ screen: talk_guard
 banner: https://i.imgur.com/banner_guard.png
 text: The guard relaxes when you speak politely. He asks if you have coin or a message.
 text: You can offer a coin, show a letter, or ask for permission.
-💰 -> give_coin | Offer the guard a coin
-✉️ -> show_letter | Show the guard a (fictitious) letter of passage
+💰 -> give_coin | Offer the guard a coin [consumes: gave_coin]
+✉️ -> show_letter | Show the guard a (fictitious) letter of passage [consumes: gave_letter]
 ❓ -> ask_permission | Ask for permission without giving anything
 ===
 screen: give_coin
 text: The guard pockets the coin and lets you pass. You enter the courtyard.
-# grant a simple flag showing the player now "has_coin"
 gives: has_coin
 🏰 -> courtyard | Continue into the courtyard
 ===
 screen: show_letter
 text: The guard squints. He recognizes the seal and bows -- you are allowed in.
-# grant a different flag: has_letter
 gives: has_letter
 🏰 -> courtyard | Continue into the courtyard
 ===
@@ -88,7 +83,7 @@ screen: chapel
 text: Inside the chapel is a small altar and a single candle. A folded note sits on the altar.
 text: The note hides a small iron key you can take.
 📝 -> read_note | Read the note
-🗝️ -> take_key | Take the hidden iron key
+🗝️ -> take_key | Take the hidden iron key [consumes: chapel_took_key]
 🔁 -> courtyard | Return to the courtyard
 ===
 
@@ -116,13 +111,13 @@ text: The door has a puzzle lock. It seems keyed to a half-sun sigil or a letter
 
 screen: open_with_key
 text: The key turns with a satisfying click. The door opens to a small treasure room.
-💎 -> treasure | Take the treasure
+💎 -> treasure | Take the treasure [consumes: took_treasure]
 🔁 -> courtyard | Leave the treasure and return
 ===
 
 screen: open_with_letter
 text: The guard inspects the (fictitious) letter and finds it convincing. You're allowed in as if by key.
-💎 -> treasure | Take the treasure
+💎 -> treasure | Take the treasure [consumes: took_treasure]
 🔁 -> courtyard | Return to courtyard
 ===
 
@@ -173,8 +168,8 @@ text: The kingdom sings of your name. THE END
 --- 
 # Short example showing requires for branching and backtracking
 id: forest-loop
-title: The Twisting Wood with Flags
-description: A short, looping forest adventure enhanced with gives/requires mechanics.
+title: The Twisting Wood with Flags and Consumables
+description: A short, looping forest adventure enhanced with gives/requires mechanics and one-use options via consumes.
 ===
 screen: start
 banner: https://i.imgur.com/forest_start.png
@@ -188,7 +183,7 @@ screen: left_path
 text: The left path ends at a dead end, but you find a map pointing to a hidden glade and a token hidden in moss.
 text: You can take the token to use later.
 🗺️ -> glade | Follow the map to the glade
-🪙 -> take_token | Take the hidden token
+🪙 -> take_token | Take the hidden token [consumes: forest_token_1]
 🔁 -> start | Return to the fork
 ===
 
@@ -218,7 +213,8 @@ text: The stones are slick, but you make it across and find a comforting cottage
 screen: cottage
 text: An old woodcutter offers you tea and a clue about a hidden glade and a test for tokens.
 text: He will exchange a map for a token.
-🗝️ -> trade_token | Trade the token for a map [requires: has_token]
+# This option requires you have the token and consumes it when trading
+🗝️ -> trade_token | Trade the token for a map [requires: has_token; consumes: has_token]
 🔁 -> stream | Return to the stream
 ===
 
@@ -236,6 +232,7 @@ text: The hidden glade is peaceful. You rest and the adventure ends contentedly.
 screen: glade_end
 text: You leave the glade with calm memories. THE END
 ===
+
 """
 
 
