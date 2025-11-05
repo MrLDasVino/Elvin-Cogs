@@ -325,29 +325,90 @@ class RetroAchievements(commands.Cog):
     @retroachievements.command(name="leaderboard", aliases=["top"])
     async def leaderboard(self, ctx, game_id: Optional[int] = None, top: int = 10):
         """Get global or per-game leaderboard.
-        If game_id is provided, returns leaderboard for that game; otherwise global leaderboard.
+        Uses documented per-game endpoint and a fallback list for global queries.
         """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
 
         top = max(1, min(50, top))
-        endpoint = "API_GetLeaderboard.php"
+
+        # If a game_id is provided, use the documented per-game leaderboard endpoint
         if game_id:
+            endpoint = "API_GetGameLeaderboards.php"
             params = {"i": str(game_id), "y": api_key}
-        else:
+            data = await self._api_get(endpoint, params=params)
+            if isinstance(data, dict) and "error" in data:
+                body = data.get("body") or ""
+                url = data.get("url") or ""
+                await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+                return
+
+            # Expect documented response format: dict with Results list
+            results = data.get("Results") if isinstance(data, dict) else None
+            if not isinstance(results, list) or not results:
+                await ctx.send(embed=self._error_embed("No leaderboards returned for that game."))
+                return
+
+            lines = []
+            for entry in results:
+                title = entry.get("Title") or "Unknown"
+                top_entry = entry.get("TopEntry") or {}
+                user = top_entry.get("User") or top_entry.get("ULID") or "—"
+                score = top_entry.get("Score") or top_entry.get("FormattedScore") or "—"
+                lines.append(f"**{title}** — {user} — {score}")
+
+            # Paginate and show
+            pages = []
+            chunk = 12
+            for i in range(0, len(lines), chunk):
+                emb = discord.Embed(title=f"Leaderboards for game {game_id}", description="\n".join(lines[i:i+chunk]), color=COLOR_INFO)
+                emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(lines))} of {len(lines)}")
+                pages.append(emb)
+
+            await self._paginate_embeds(ctx, pages)
+            return
+
+        # Global leaderboard: try a small set of candidate endpoints until one succeeds
+        candidates = [
+            "API_GetLeaderboards.php",
+            "API_GetLeaderboard.php",
+            "API_GetGlobalLeaderboard.php",
+            "API_GetTop.php",
+            "API_GetTopTen.php",
+        ]
+
+        last_error = None
+        data = None
+        used_endpoint = None
+        for ep in candidates:
             params = {"c": str(top), "y": api_key}
+            res = await self._api_get(ep, params=params)
+            if not (isinstance(res, dict) and "error" in res):
+                data = res
+                used_endpoint = ep
+                break
+            last_error = res
 
-        data = await self._api_get(endpoint, params=params)
-        if isinstance(data, dict) and "error" in data:
-            body = data.get("body") or ""
-            url = data.get("url") or ""
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+        if data is None:
+            body = last_error.get("body") if isinstance(last_error, dict) else ""
+            url = last_error.get("url") if isinstance(last_error, dict) else ""
+            await ctx.send(embed=self._error_embed(f"No global leaderboard endpoint succeeded. Last error: {last_error.get('error') if isinstance(last_error, dict) else last_error}\nURL: {url}\nBody: {body}"))
             return
 
+        # Normalize returned data to a list if possible
         if not isinstance(data, list) or not data:
-            await ctx.send(embed=self._error_embed("No leaderboard data found or unexpected response format."))
-            return
+            found_list = None
+            if isinstance(data, dict):
+                for v in data.values():
+                    if isinstance(v, list):
+                        found_list = v
+                        break
+            if found_list is not None:
+                data = found_list
+            else:
+                await ctx.send(embed=self._error_embed(f"Leaderboard endpoint {used_endpoint} returned unexpected format."))
+                return
 
         lines = []
         for idx, e in enumerate(data[:top], start=1):
@@ -355,12 +416,11 @@ class RetroAchievements(commands.Cog):
             pts = e.get("Points") or e.get("Score") or e.get("TotalPoints") or "0"
             lines.append(f"{idx}. **{name}** — {pts} pts")
 
-        # Paginate lines
         pages = []
         chunk = 12
         for i in range(0, len(lines), chunk):
-            emb = discord.Embed(title=(f"Leaderboard for game {game_id}" if game_id else "Global Leaderboard"), description="\n".join(lines[i:i+chunk]), color=COLOR_INFO)
-            emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(lines))} of {len(lines)}")
+            emb = discord.Embed(title="Global Leaderboard", description="\n".join(lines[i:i+chunk]), color=COLOR_INFO)
+            emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(lines))} of {len(lines)}; endpoint={used_endpoint}")
             pages.append(emb)
 
         await self._paginate_embeds(ctx, pages)
