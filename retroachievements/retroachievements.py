@@ -16,6 +16,7 @@ COLOR_NEUTRAL = 0x3498DB
 PAGINATION_TIMEOUT = 120  # seconds
 PAGINATION_EMOJIS = ("◀️", "▶️", "⛔")
 
+
 class RetroAchievements(commands.Cog):
     """Interact with the RetroAchievements API."""
 
@@ -31,7 +32,9 @@ class RetroAchievements(commands.Cog):
 
     def cog_unload(self):
         try:
-            asyncio.create_task(self.session.close())
+            if not self.session.closed:
+                # schedule close, don't block Red shutdown; this is standard for cogs
+                asyncio.create_task(self.session.close())
         except Exception:
             pass
 
@@ -39,7 +42,7 @@ class RetroAchievements(commands.Cog):
         """
         Perform a GET against the RetroAchievements API.
         Normalizes endpoint and returns parsed JSON on 200.
-        On non-200, returns {'error': 'HTTP <status>', 'body': <text>, 'url': <requested_url>, 'params': <params>} for easier debugging.
+        On non-200, returns dict with error/status/body/url/params for debugging.
         """
         base = BASE_API.rstrip("/")
         ep = endpoint.lstrip("/")
@@ -53,11 +56,13 @@ class RetroAchievements(commands.Cog):
             async with self.session.get(url, params=params, headers=headers, timeout=timeout) as resp:
                 text = await resp.text()
                 if resp.status == 200:
+                    # Try JSON first, fallback to text
                     try:
                         return await resp.json(content_type=None)
                     except Exception:
                         return text
-                return {"error": f"HTTP {resp.status}", "body": text, "url": url, "params": params}
+                # Non-200 response: return structured debug info
+                return {"error": f"HTTP {resp.status}", "status": resp.status, "body": text, "url": url, "params": params}
         except asyncio.TimeoutError:
             return {"error": "Request timed out", "url": url, "params": params}
         except aiohttp.ClientError as e:
@@ -152,6 +157,7 @@ class RetroAchievements(commands.Cog):
         """
         Accepts a numeric ID or a name string.
         Returns numeric game ID or None if unresolved.
+        Tries several endpoints and response shapes commonly used by RA installs.
         """
         # If already integer or numeric string -> return int
         if isinstance(game, int):
@@ -160,55 +166,76 @@ class RetroAchievements(commands.Cog):
         if s.isdigit():
             return int(s)
 
-        # Candidate search endpoints and param shapes. Stop on first useful match.
+        # Candidate search endpoints and param shapes (order matters)
         candidates = [
             ("API_SearchGames.php", {"q": s, "y": api_key}),
-            ("API_GetGames.php", {"title": s, "y": api_key}),
-            ("API_GetGame.php", {"title": s, "y": api_key}),  # some installs accept title param
             ("API_Search.php", {"q": s, "y": api_key}),
+            ("API_GetGames.php", {"title": s, "y": api_key}),
             ("API_GetGameByName.php", {"name": s, "y": api_key}),
+            ("API_GetGame.php", {"title": s, "y": api_key}),
         ]
+
+        def _extract_id_from_obj(obj) -> Optional[int]:
+            for k in ("ID", "GameID", "GameId", "i", "id", "Game_Id"):
+                if k in obj:
+                    try:
+                        return int(obj[k])
+                    except Exception:
+                        pass
+            # Some objects embed id under other nested keys; try common fallbacks
+            for k in ("gameid", "Game_Id", "game_id"):
+                if k in obj:
+                    try:
+                        return int(obj[k])
+                    except Exception:
+                        pass
+            return None
 
         for ep, params in candidates:
             res = await self._api_get(ep, params=params)
+            # Skip endpoints that returned HTTP errors
             if isinstance(res, dict) and "error" in res:
                 continue
+
             # If list -> assume list of game objects
             if isinstance(res, list) and res:
                 # prefer exact case-insensitive title match, otherwise first
                 for entry in res:
+                    if not isinstance(entry, dict):
+                        continue
                     title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
                     if isinstance(title, str) and title.lower() == s.lower():
-                        gid = entry.get("ID") or entry.get("GameID") or entry.get("GameId") or entry.get("i") or entry.get("id")
-                        try:
-                            return int(gid)
-                        except Exception:
-                            continue
+                        gid = _extract_id_from_obj(entry)
+                        if gid:
+                            return gid
                 # fallback to first entry's ID
                 first = res[0]
-                gid = first.get("ID") or first.get("GameID") or first.get("GameId") or first.get("i") or first.get("id")
-                try:
-                    return int(gid)
-                except Exception:
-                    continue
+                if isinstance(first, dict):
+                    gid = _extract_id_from_obj(first)
+                    if gid:
+                        return gid
+                continue
+
             # If dict -> look for common list keys
             if isinstance(res, dict):
-                for key in ("Results", "Games", "GamesList", "results", "games"):
+                for key in ("Results", "Games", "GamesList", "results", "games", "ResultSet"):
                     if key in res and isinstance(res[key], list) and res[key]:
                         for entry in res[key]:
+                            if not isinstance(entry, dict):
+                                continue
                             title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
                             if isinstance(title, str) and title.lower() == s.lower():
-                                gid = entry.get("ID") or entry.get("GameID") or entry.get("GameId") or entry.get("i") or entry.get("id")
-                                try:
-                                    return int(gid)
-                                except Exception:
-                                    continue
+                                gid = _extract_id_from_obj(entry)
+                                if gid:
+                                    return gid
+                        # fallback to first entry
                         first = res[key][0]
-                        gid = first.get("ID") or first.get("GameID") or first.get("GameId") or first.get("i") or first.get("id")
-                        try:
-                            return int(gid)
-                        except Exception:
-                            continue
+                        if isinstance(first, dict):
+                            gid = _extract_id_from_obj(first)
+                            if gid:
+                                return gid
+                        break
+
                 # Some installs return mapping id->object
                 is_map = all(isinstance(k, str) and isinstance(v, dict) for k, v in res.items()) if res else False
                 if is_map:
@@ -218,12 +245,12 @@ class RetroAchievements(commands.Cog):
                             try:
                                 return int(k)
                             except Exception:
-                                continue
+                                pass
                     # fallback to first key
                     try:
                         return int(next(iter(res.keys())))
                     except Exception:
-                        continue
+                        pass
         return None
 
     @commands.group(name="retroachievements", aliases=["ra"], invoke_without_command=True)
@@ -280,13 +307,16 @@ class RetroAchievements(commands.Cog):
 
         cfg_api, cfg_username = await self._get_auth(username)
         if not cfg_username:
-            await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`." ))
+            await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`."))
             return
 
         params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
+            # include body/status in debug when available
+            err = data.get("error")
+            body = data.get("body") or ""
+            await ctx.send(embed=self._error_embed(f"API error: {err}\n{body}"))
             return
 
         if not isinstance(data, dict):
@@ -294,6 +324,7 @@ class RetroAchievements(commands.Cog):
             return
 
         embed = discord.Embed(title=f"{cfg_username} — RetroAchievements profile", color=COLOR_NEUTRAL)
+
         def maybe_add(key, label=None):
             val = data.get(key)
             if val not in (None, "", "0"):
@@ -318,7 +349,6 @@ class RetroAchievements(commands.Cog):
         embed.set_footer(text="Data from RetroAchievements.org")
         await ctx.send(embed=embed)
 
-    # game command: accepts numeric ID or name
     @retroachievements.command(name="game")
     async def game(self, ctx, *, game: str):
         """Get game info by RetroAchievements game ID or name."""
@@ -335,8 +365,7 @@ class RetroAchievements(commands.Cog):
         data = await self._api_get("API_GetGame.php", params=params)
         if isinstance(data, dict) and "error" in data:
             body = data.get("body") or ""
-            url = data.get("url") or ""
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nBody: {body}"))
             return
 
         if not isinstance(data, dict):
@@ -376,8 +405,7 @@ class RetroAchievements(commands.Cog):
         data = await self._api_get("API_GetRecentAchievements.php", params=params)
         if isinstance(data, dict) and "error" in data:
             body = data.get("body") or ""
-            url = data.get("url") or ""
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\n{body}"))
             return
 
         if not isinstance(data, list) or not data:
@@ -395,7 +423,7 @@ class RetroAchievements(commands.Cog):
             lines.append(f"**{user}** — {game} — {ach} — {when}")
 
         for i in range(0, len(lines), chunk_size):
-            emb = discord.Embed(title="Recent RetroAchievements Unlocks", description="\n".join(lines[i:i+chunk_size]), color=COLOR_INFO)
+            emb = discord.Embed(title="Recent RetroAchievements Unlocks", description="\n".join(lines[i:i + chunk_size]), color=COLOR_INFO)
             emb.set_footer(text=f"Showing {i+1}-{min(i+chunk_size, len(lines))} of {len(lines)}")
             pages.append(emb)
 
@@ -426,8 +454,7 @@ class RetroAchievements(commands.Cog):
             data = await self._api_get(endpoint, params=params)
             if isinstance(data, dict) and "error" in data:
                 body = data.get("body") or ""
-                url = data.get("url") or ""
-                await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+                await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nBody: {body}"))
                 return
 
             results = data.get("Results") if isinstance(data, dict) else None
@@ -446,7 +473,7 @@ class RetroAchievements(commands.Cog):
             pages = []
             chunk = 12
             for i in range(0, len(lines), chunk):
-                emb = discord.Embed(title=f"Leaderboards for game {gid}", description="\n".join(lines[i:i+chunk]), color=COLOR_INFO)
+                emb = discord.Embed(title=f"Leaderboards for game {gid}", description="\n".join(lines[i:i + chunk]), color=COLOR_INFO)
                 emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(lines))} of {len(lines)}")
                 pages.append(emb)
 
@@ -459,8 +486,7 @@ class RetroAchievements(commands.Cog):
         data = await self._api_get(endpoint, params=params)
         if isinstance(data, dict) and "error" in data:
             body = data.get("body") or ""
-            url = data.get("url") or ""
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\n{body}"))
             return
 
         if not isinstance(data, list) or not data:
@@ -476,7 +502,7 @@ class RetroAchievements(commands.Cog):
         pages = []
         chunk = 12
         for i in range(0, len(lines), chunk):
-            emb = discord.Embed(title="Top users", description="\n".join(lines[i:i+chunk]), color=COLOR_INFO)
+            emb = discord.Embed(title="Top users", description="\n".join(lines[i:i + chunk]), color=COLOR_INFO)
             emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(lines))} of {len(lines)}")
             pages.append(emb)
 
@@ -508,7 +534,7 @@ class RetroAchievements(commands.Cog):
 
         # Try to find achievements list in response
         achs = None
-        for key in ("Achievements", "achievements", "AchievementList", "AchievementsList"):
+        for key in ("Achievements", "achievements", "AchievementList", "AchievementsList", "Achievement", "AchievementList"):
             if isinstance(data, dict) and key in data:
                 achs = data[key]
                 break
@@ -529,6 +555,8 @@ class RetroAchievements(commands.Cog):
 
         lines = []
         for a in items:
+            if not isinstance(a, dict):
+                continue
             title = a.get("Title") or a.get("Name") or a.get("AchievementTitle") or "Unnamed"
             points = a.get("Points") or a.get("PointValue") or ""
             if details:
@@ -540,7 +568,7 @@ class RetroAchievements(commands.Cog):
         pages = []
         chunk = 10
         for i in range(0, len(lines), chunk):
-            emb = discord.Embed(title=f"Achievements for Game {gid}", description="\n".join(lines[i:i+chunk]), color=COLOR_NEUTRAL)
+            emb = discord.Embed(title=f"Achievements for Game {gid}", description="\n".join(lines[i:i + chunk]), color=COLOR_NEUTRAL)
             emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(lines))} of {len(lines)}")
             pages.append(emb)
 
@@ -555,7 +583,7 @@ class RetroAchievements(commands.Cog):
 
         cfg_api, cfg_username = await self._get_auth(username)
         if not cfg_username:
-            await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`." ))
+            await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`."))
             return
 
         limit = max(1, min(50, limit))
@@ -587,7 +615,7 @@ class RetroAchievements(commands.Cog):
         pages = []
         chunk = 12
         for i in range(0, len(lines), chunk):
-            emb = discord.Embed(title=f"Recent games for {cfg_username}", description="\n".join(lines[i:i+chunk]), color=COLOR_INFO)
+            emb = discord.Embed(title=f"Recent games for {cfg_username}", description="\n".join(lines[i:i + chunk]), color=COLOR_INFO)
             emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(lines))} of {len(lines)}")
             pages.append(emb)
 
@@ -607,7 +635,7 @@ class RetroAchievements(commands.Cog):
 
         cfg_api, cfg_username = await self._get_auth(username)
         if not cfg_username:
-            await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`." ))
+            await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`."))
             return
 
         if game:
@@ -640,7 +668,7 @@ class RetroAchievements(commands.Cog):
             pages = []
             chunk = 10
             for i in range(0, len(lines), chunk):
-                emb = discord.Embed(title=f"{cfg_username}'s unachieved on game {gid}", description="\n".join(lines[i:i+chunk]), color=COLOR_WARN)
+                emb = discord.Embed(title=f"{cfg_username}'s unachieved on game {gid}", description="\n".join(lines[i:i + chunk]), color=COLOR_WARN)
                 emb.set_footer(text=f"{i+1}-{min(i+chunk, total)} of {total} unachieved")
                 pages.append(emb)
 
@@ -692,7 +720,13 @@ class RetroAchievements(commands.Cog):
             param_dict["y"] = await self.config.api_key()
 
         data = await self._api_get(endpoint, params=param_dict)
+        # If response is a long string or JSON, show boxed output up to safe length
         if isinstance(data, str):
             await ctx.send(box(data[:1900]))
         else:
-            await ctx.send(box(str(data)[:1900]))
+            # For dicts include structured debug info for easier troubleshooting
+            try:
+                s = str(data)
+            except Exception:
+                s = repr(data)
+            await ctx.send(box(s[:1900]))
