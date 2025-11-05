@@ -33,7 +33,6 @@ class RetroAchievements(commands.Cog):
     def cog_unload(self):
         try:
             if not self.session.closed:
-                # schedule close, don't block Red shutdown; this is standard for cogs
                 asyncio.create_task(self.session.close())
         except Exception:
             pass
@@ -56,12 +55,10 @@ class RetroAchievements(commands.Cog):
             async with self.session.get(url, params=params, headers=headers, timeout=timeout) as resp:
                 text = await resp.text()
                 if resp.status == 200:
-                    # Try JSON first, fallback to text
                     try:
                         return await resp.json(content_type=None)
                     except Exception:
                         return text
-                # Non-200 response: return structured debug info
                 return {"error": f"HTTP {resp.status}", "status": resp.status, "body": text, "url": url, "params": params}
         except asyncio.TimeoutError:
             return {"error": "Request timed out", "url": url, "params": params}
@@ -159,14 +156,12 @@ class RetroAchievements(commands.Cog):
         Returns numeric game ID or None if unresolved.
         Tries several endpoints and response shapes commonly used by RA installs.
         """
-        # If already integer or numeric string -> return int
         if isinstance(game, int):
             return game
         s = str(game).strip()
         if s.isdigit():
             return int(s)
 
-        # Candidate search endpoints and param shapes (order matters)
         candidates = [
             ("API_SearchGames.php", {"q": s, "y": api_key}),
             ("API_Search.php", {"q": s, "y": api_key}),
@@ -176,14 +171,7 @@ class RetroAchievements(commands.Cog):
         ]
 
         def _extract_id_from_obj(obj) -> Optional[int]:
-            for k in ("ID", "GameID", "GameId", "i", "id", "Game_Id"):
-                if k in obj:
-                    try:
-                        return int(obj[k])
-                    except Exception:
-                        pass
-            # Some objects embed id under other nested keys; try common fallbacks
-            for k in ("gameid", "Game_Id", "game_id"):
+            for k in ("ID", "GameID", "GameId", "i", "id", "Game_Id", "game_id", "gameid"):
                 if k in obj:
                     try:
                         return int(obj[k])
@@ -193,18 +181,26 @@ class RetroAchievements(commands.Cog):
 
         for ep, params in candidates:
             res = await self._api_get(ep, params=params)
-            # Skip endpoints that returned HTTP errors
             if isinstance(res, dict) and "error" in res:
+                # skip endpoints that returned HTTP errors
                 continue
 
-            # If list -> assume list of game objects
+            # If response is a list of game objects
             if isinstance(res, list) and res:
-                # prefer exact case-insensitive title match, otherwise first
                 for entry in res:
                     if not isinstance(entry, dict):
                         continue
                     title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
                     if isinstance(title, str) and title.lower() == s.lower():
+                        gid = _extract_id_from_obj(entry)
+                        if gid:
+                            return gid
+                # permissive fallback: substring match
+                for entry in res:
+                    if not isinstance(entry, dict):
+                        continue
+                    title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
+                    if isinstance(title, str) and s.lower() in title.lower():
                         gid = _extract_id_from_obj(entry)
                         if gid:
                             return gid
@@ -228,7 +224,15 @@ class RetroAchievements(commands.Cog):
                                 gid = _extract_id_from_obj(entry)
                                 if gid:
                                     return gid
-                        # fallback to first entry
+                        # substring fallback
+                        for entry in res[key]:
+                            if not isinstance(entry, dict):
+                                continue
+                            title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
+                            if isinstance(title, str) and s.lower() in title.lower():
+                                gid = _extract_id_from_obj(entry)
+                                if gid:
+                                    return gid
                         first = res[key][0]
                         if isinstance(first, dict):
                             gid = _extract_id_from_obj(first)
@@ -242,6 +246,14 @@ class RetroAchievements(commands.Cog):
                     for k, v in res.items():
                         title = v.get("Title") or v.get("Name") or ""
                         if isinstance(title, str) and title.lower() == s.lower():
+                            try:
+                                return int(k)
+                            except Exception:
+                                pass
+                    # substring fallback
+                    for k, v in res.items():
+                        title = v.get("Title") or v.get("Name") or ""
+                        if isinstance(title, str) and s.lower() in title.lower():
                             try:
                                 return int(k)
                             except Exception:
@@ -313,7 +325,6 @@ class RetroAchievements(commands.Cog):
         params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            # include body/status in debug when available
             err = data.get("error")
             body = data.get("body") or ""
             await ctx.send(embed=self._error_embed(f"API error: {err}\n{body}"))
@@ -340,6 +351,8 @@ class RetroAchievements(commands.Cog):
         maybe_add("LastActive", "Last Active")
         avatar = data.get("Avatar")
         if avatar:
+            if isinstance(avatar, str) and avatar.startswith("/"):
+                avatar = f"https://retroachievements.org{avatar}"
             embed.set_thumbnail(url=avatar)
 
         if not embed.fields:
@@ -396,7 +409,6 @@ class RetroAchievements(commands.Cog):
             or data.get("BoxArt")
         )
         if boxart and isinstance(boxart, str):
-            # API may return relative paths like "/Images/051872.png" — make absolute
             if boxart.startswith("/"):
                 boxart = f"https://retroachievements.org{boxart}"
             embed.set_thumbnail(url=boxart)
@@ -545,9 +557,8 @@ class RetroAchievements(commands.Cog):
             await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
             return
 
-        # Try to find achievements list in response
         achs = None
-        for key in ("Achievements", "achievements", "AchievementList", "AchievementsList", "Achievement", "AchievementList"):
+        for key in ("Achievements", "achievements", "AchievementList", "AchievementsList", "Achievement"):
             if isinstance(data, dict) and key in data:
                 achs = data[key]
                 break
@@ -733,11 +744,9 @@ class RetroAchievements(commands.Cog):
             param_dict["y"] = await self.config.api_key()
 
         data = await self._api_get(endpoint, params=param_dict)
-        # If response is a long string or JSON, show boxed output up to safe length
         if isinstance(data, str):
             await ctx.send(box(data[:1900]))
         else:
-            # For dicts include structured debug info for easier troubleshooting
             try:
                 s = str(data)
             except Exception:
