@@ -38,10 +38,13 @@ class RetroAchievements(commands.Cog):
     async def _api_get(self, endpoint: str, params: dict = None, timeout: int = 15):
         """
         Perform a GET against the RetroAchievements API.
-        Returns parsed JSON when possible. For non-200 responses returns a dict with
-        'error' and 'body' keys so you can see the API's response text for debugging.
+        Normalizes endpoint and returns parsed JSON on 200.
+        On non-200, returns {'error': 'HTTP <status>', 'body': <text>, 'url': <requested_url>, 'params': <params>} for easier debugging.
         """
-        url = BASE_API + endpoint
+        base = BASE_API.rstrip("/")
+        ep = endpoint.lstrip("/")
+        url = f"{base}/{ep}"
+
         headers = {
             "User-Agent": "RedBot/RetroAchievementsCog (+https://your.bot/info)",
             "Accept": "application/json, text/plain, */*",
@@ -49,20 +52,18 @@ class RetroAchievements(commands.Cog):
         try:
             async with self.session.get(url, params=params, headers=headers, timeout=timeout) as resp:
                 text = await resp.text()
-                # Successful response: try parse JSON, otherwise return raw text
                 if resp.status == 200:
                     try:
                         return await resp.json(content_type=None)
                     except Exception:
                         return text
-                # Non-200: return status and body so you can see the API message (e.g., 401 details)
-                return {"error": f"HTTP {resp.status}", "body": text}
+                return {"error": f"HTTP {resp.status}", "body": text, "url": url, "params": params}
         except asyncio.TimeoutError:
-            return {"error": "Request timed out"}
+            return {"error": "Request timed out", "url": url, "params": params}
         except aiohttp.ClientError as e:
-            return {"error": f"HTTP error: {e}"}
+            return {"error": f"HTTP error: {e}", "url": url, "params": params}
         except Exception as e:
-            return {"error": f"Unexpected error: {e}"}
+            return {"error": f"Unexpected error: {e}", "url": url, "params": params}
 
     async def _ensure_api_key(self, ctx):
         cfg = await self.config.all()
@@ -102,7 +103,6 @@ class RetroAchievements(commands.Cog):
                 for e in PAGINATION_EMOJIS:
                     await message.add_reaction(e)
             except Exception:
-                # if bot cannot add reactions, just stop
                 return
 
             def check(reaction, user):
@@ -158,12 +158,7 @@ class RetroAchievements(commands.Cog):
     @retroachievements.command(name="set")
     @commands.admin_or_permissions(manage_guild=True)
     async def set_credentials(self, ctx, api_key: Optional[str] = None, username: Optional[str] = None):
-        """Set the RetroAchievements API key and optional default username.
-        Examples:
-        - `retroachievements set MY_API_KEY`
-        - `retroachievements set MY_API_KEY myusername`
-        - pass `-` for a value to clear it: `retroachievements set - -`
-        """
+        """Set the RetroAchievements API key and optional default username."""
         if api_key is None:
             await ctx.send(embed=self._error_embed("No API key provided. You must provide your RetroAchievements web API key."))
             return
@@ -194,9 +189,6 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="profile", aliases=["user"])
     async def profile(self, ctx, username: Optional[str] = None):
-        """Get a RetroAchievements user profile summary.
-        Uses configured username if none is provided.
-        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -209,7 +201,10 @@ class RetroAchievements(commands.Cog):
         params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
+            # Include returned body for easier debugging
+            body = data.get("body") or ""
+            url = data.get("url") or ""
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
             return
 
         if not isinstance(data, dict):
@@ -243,7 +238,6 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="game")
     async def game(self, ctx, game_id: int):
-        """Get game info by RetroAchievements game ID."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -251,7 +245,9 @@ class RetroAchievements(commands.Cog):
         params = {"i": str(game_id), "y": api_key}
         data = await self._api_get("API_GetGame.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
+            body = data.get("body") or ""
+            url = data.get("url") or ""
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
             return
 
         if not isinstance(data, dict):
@@ -279,9 +275,6 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="recent")
     async def recent_global(self, ctx, limit: int = 5):
-        """Show recent achievements unlocked globally.
-        Limit defaults to 5 (max recommended 25).
-        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -290,14 +283,15 @@ class RetroAchievements(commands.Cog):
         params = {"c": str(limit), "y": api_key}
         data = await self._api_get("API_GetRecentAchievements.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
+            body = data.get("body") or ""
+            url = data.get("url") or ""
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
             return
 
         if not isinstance(data, list) or not data:
             await ctx.send(embed=self._error_embed("No recent achievements found or unexpected response format."))
             return
 
-        # Build pages of description (max ~12 lines per page for neatness)
         pages = []
         chunk_size = 12
         lines = []
@@ -317,9 +311,6 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="leaderboard", aliases=["top"])
     async def leaderboard(self, ctx, game_id: Optional[int] = None, top: int = 10):
-        """Get global or per-game leaderboard.
-        If game_id is provided, returns leaderboard for that game; otherwise global leaderboard.
-        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -334,7 +325,9 @@ class RetroAchievements(commands.Cog):
 
         data = await self._api_get(endpoint, params=params)
         if isinstance(data, dict) and "error" in data:
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
+            body = data.get("body") or ""
+            url = data.get("url") or ""
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
             return
 
         if not isinstance(data, list) or not data:
@@ -347,7 +340,6 @@ class RetroAchievements(commands.Cog):
             pts = e.get("Points") or e.get("Score") or e.get("TotalPoints") or "0"
             lines.append(f"{idx}. **{name}** — {pts} pts")
 
-        # Paginate lines
         pages = []
         chunk = 12
         for i in range(0, len(lines), chunk):
@@ -359,14 +351,10 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.group(name="achievements", invoke_without_command=True)
     async def achievements_group(self, ctx):
-        """Achievements related commands."""
         await ctx.send_help(ctx.command)
 
     @achievements_group.command(name="list")
     async def achievements_list(self, ctx, game_id: int, details: bool = False):
-        """List achievements for a game.
-        Use `details` True to show more info per achievement (may be long).
-        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -374,19 +362,18 @@ class RetroAchievements(commands.Cog):
         params = {"i": str(game_id), "y": api_key}
         data = await self._api_get("API_GetGame.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
+            body = data.get("body") or ""
+            url = data.get("url") or ""
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
             return
 
-        # Try to find achievements list in response
         achs = None
         for key in ("Achievements", "achievements", "AchievementList", "AchievementsList"):
             if isinstance(data, dict) and key in data:
                 achs = data[key]
                 break
 
-        # Some API variants include an "achievements" top-level list
         if achs is None and isinstance(data, dict) and "AchievementCount" in data:
-            # API didn't return the detailed list
             await ctx.send(embed=self._info_embed("No achievement list returned", "The API did not return a detailed achievement list for this game. Use the raw command for debugging."))
             return
 
@@ -410,7 +397,6 @@ class RetroAchievements(commands.Cog):
             else:
                 lines.append(f"**{title}** — {points} pts")
 
-        # Build paged embed list
         pages = []
         chunk = 10
         for i in range(0, len(lines), chunk):
@@ -422,9 +408,6 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="recentgames")
     async def recent_games(self, ctx, username: Optional[str] = None, limit: int = 5):
-        """Show recent games a user has played (based on recent achievements).
-        Uses configured username if none provided.
-        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -438,7 +421,9 @@ class RetroAchievements(commands.Cog):
         params = {"u": cfg_username, "c": str(limit), "y": api_key}
         data = await self._api_get("API_GetRecentAchievements.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
+            body = data.get("body") or ""
+            url = data.get("url") or ""
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
             return
 
         if not isinstance(data, list) or not data:
@@ -471,11 +456,6 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="progress")
     async def progress(self, ctx, username: Optional[str] = None, game_id: Optional[int] = None):
-        """Show achievements progress.
-        - If username and game_id provided: progress for that user in that game.
-        - If username provided without game_id: summary progress for that user.
-        - Uses configured username if none provided.
-        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -489,7 +469,9 @@ class RetroAchievements(commands.Cog):
             params = {"u": cfg_username, "i": str(game_id), "y": api_key}
             data = await self._api_get("API_GetUnachieved.php", params=params)
             if isinstance(data, dict) and "error" in data:
-                await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
+                body = data.get("body") or ""
+                url = data.get("url") or ""
+                await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
                 return
 
             if not isinstance(data, list):
@@ -507,7 +489,6 @@ class RetroAchievements(commands.Cog):
                 points = item.get("Points") or ""
                 lines.append(f"**{title}** — {points} pts")
 
-            # Paginate unachieved list
             pages = []
             chunk = 10
             for i in range(0, len(lines), chunk):
@@ -518,11 +499,12 @@ class RetroAchievements(commands.Cog):
             await self._paginate_embeds(ctx, pages)
             return
 
-        # User summary
         params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
+            body = data.get("body") or ""
+            url = data.get("url") or ""
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
             return
 
         if not isinstance(data, dict):
@@ -545,10 +527,6 @@ class RetroAchievements(commands.Cog):
     @commands.is_owner()
     @retroachievements.command(name="raw")
     async def raw(self, ctx, endpoint: str, *, params: str = ""):
-        """Owner-only: raw API request for debugging.
-        endpoint should be the API endpoint file name, e.g., API_GetUserSummary.php
-        params should be URL query string style: key1=val1&key2=val2
-        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
