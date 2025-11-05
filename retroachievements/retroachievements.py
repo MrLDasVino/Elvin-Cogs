@@ -206,7 +206,7 @@ class RetroAchievements(commands.Cog):
             await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`." ))
             return
 
-        params = {"u": cfg_username, "k": api_key}
+        params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
             await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
@@ -519,7 +519,7 @@ class RetroAchievements(commands.Cog):
             return
 
         # User summary
-        params = {"u": cfg_username, "k": api_key}
+        params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
             await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
@@ -559,8 +559,8 @@ class RetroAchievements(commands.Cog):
                 if "=" in pair:
                     k, v = pair.split("=", 1)
                     param_dict[k] = v
-        if "k" not in param_dict:
-            param_dict["k"] = await self.config.api_key()
+        if "y" not in param_dict:
+            param_dict["y"] = await self.config.api_key()
 
         data = await self._api_get(endpoint, params=param_dict)
         if isinstance(data, str):
