@@ -16,6 +16,24 @@ COLOR_NEUTRAL = 0x3498DB
 PAGINATION_TIMEOUT = 120  # seconds
 PAGINATION_EMOJIS = ("◀️", "▶️", "⛔")
 
+# simple structure to hold last attempted endpoints and responses for debugging
+_last_resolve_attempts = []
+
+
+def _record_resolve_attempt(ep, params, res):
+    try:
+        summary = {"endpoint": ep, "params": params, "type": type(res).__name__}
+        if isinstance(res, (dict, list)):
+            s = str(res)
+            summary["preview"] = s[:400]
+        else:
+            summary["preview"] = str(res)[:400]
+        _last_resolve_attempts.append(summary)
+        if len(_last_resolve_attempts) > 40:
+            _last_resolve_attempts.pop(0)
+    except Exception:
+        pass
+
 
 class RetroAchievements(commands.Cog):
     """Interact with the RetroAchievements API."""
@@ -155,6 +173,7 @@ class RetroAchievements(commands.Cog):
         Accepts a numeric ID or a name string.
         Returns numeric game ID or None if unresolved.
         Tries several endpoints and response shapes commonly used by RA installs.
+        Records attempt summaries via _record_resolve_attempt for debugging.
         """
         if isinstance(game, int):
             return game
@@ -162,12 +181,18 @@ class RetroAchievements(commands.Cog):
         if s.isdigit():
             return int(s)
 
-        candidates = [
-            ("API_SearchGames.php", {"q": s, "y": api_key}),
-            ("API_Search.php", {"q": s, "y": api_key}),
-            ("API_GetGames.php", {"title": s, "y": api_key}),
-            ("API_GetGameByName.php", {"name": s, "y": api_key}),
-            ("API_GetGame.php", {"title": s, "y": api_key}),
+        # try common expanded queries to increase likelihood of match
+        alt_queries = [s]
+        if not s.lower().startswith("the "):
+            alt_queries.append("The " + s)
+        alt_queries.append(s.replace(" (USA)", "").replace(" (Europe)", "").strip())
+
+        candidates_base = [
+            ("API_SearchGames.php", "q"),
+            ("API_Search.php", "q"),
+            ("API_GetGames.php", "title"),
+            ("API_GetGameByName.php", "name"),
+            ("API_GetGame.php", "title"),
         ]
 
         def _extract_id_from_obj(obj) -> Optional[int]:
@@ -179,90 +204,94 @@ class RetroAchievements(commands.Cog):
                         pass
             return None
 
-        for ep, params in candidates:
-            res = await self._api_get(ep, params=params)
-            if isinstance(res, dict) and "error" in res:
-                # skip endpoints that returned HTTP errors
-                continue
+        for q in alt_queries:
+            for ep, param_key in candidates_base:
+                params = {param_key: q, "y": api_key}
+                res = await self._api_get(ep, params=params)
+                _record_resolve_attempt(ep, params, res)
 
-            # If response is a list of game objects
-            if isinstance(res, list) and res:
-                for entry in res:
-                    if not isinstance(entry, dict):
-                        continue
-                    title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
-                    if isinstance(title, str) and title.lower() == s.lower():
-                        gid = _extract_id_from_obj(entry)
-                        if gid:
-                            return gid
-                # permissive fallback: substring match
-                for entry in res:
-                    if not isinstance(entry, dict):
-                        continue
-                    title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
-                    if isinstance(title, str) and s.lower() in title.lower():
-                        gid = _extract_id_from_obj(entry)
-                        if gid:
-                            return gid
-                # fallback to first entry's ID
-                first = res[0]
-                if isinstance(first, dict):
-                    gid = _extract_id_from_obj(first)
-                    if gid:
-                        return gid
-                continue
+                if isinstance(res, dict) and "error" in res:
+                    continue
 
-            # If dict -> look for common list keys
-            if isinstance(res, dict):
-                for key in ("Results", "Games", "GamesList", "results", "games", "ResultSet"):
-                    if key in res and isinstance(res[key], list) and res[key]:
-                        for entry in res[key]:
-                            if not isinstance(entry, dict):
-                                continue
-                            title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
-                            if isinstance(title, str) and title.lower() == s.lower():
-                                gid = _extract_id_from_obj(entry)
-                                if gid:
-                                    return gid
-                        # substring fallback
-                        for entry in res[key]:
-                            if not isinstance(entry, dict):
-                                continue
-                            title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
-                            if isinstance(title, str) and s.lower() in title.lower():
-                                gid = _extract_id_from_obj(entry)
-                                if gid:
-                                    return gid
-                        first = res[key][0]
-                        if isinstance(first, dict):
-                            gid = _extract_id_from_obj(first)
+                # If response is a list of game objects
+                if isinstance(res, list) and res:
+                    # exact match first
+                    for entry in res:
+                        if not isinstance(entry, dict):
+                            continue
+                        title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
+                        if isinstance(title, str) and title.lower() == q.lower():
+                            gid = _extract_id_from_obj(entry)
                             if gid:
                                 return gid
-                        break
+                    # permissive substring match
+                    for entry in res:
+                        if not isinstance(entry, dict):
+                            continue
+                        title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
+                        if isinstance(title, str) and q.lower() in title.lower():
+                            gid = _extract_id_from_obj(entry)
+                            if gid:
+                                return gid
+                    # fallback to first entry's ID
+                    first = res[0]
+                    if isinstance(first, dict):
+                        gid = _extract_id_from_obj(first)
+                        if gid:
+                            return gid
+                    continue
 
-                # Some installs return mapping id->object
-                is_map = all(isinstance(k, str) and isinstance(v, dict) for k, v in res.items()) if res else False
-                if is_map:
-                    for k, v in res.items():
-                        title = v.get("Title") or v.get("Name") or ""
-                        if isinstance(title, str) and title.lower() == s.lower():
-                            try:
-                                return int(k)
-                            except Exception:
-                                pass
-                    # substring fallback
-                    for k, v in res.items():
-                        title = v.get("Title") or v.get("Name") or ""
-                        if isinstance(title, str) and s.lower() in title.lower():
-                            try:
-                                return int(k)
-                            except Exception:
-                                pass
-                    # fallback to first key
-                    try:
-                        return int(next(iter(res.keys())))
-                    except Exception:
-                        pass
+                # If dict -> look for common list keys
+                if isinstance(res, dict):
+                    for key in ("Results", "Games", "GamesList", "results", "games", "ResultSet"):
+                        if key in res and isinstance(res[key], list) and res[key]:
+                            for entry in res[key]:
+                                if not isinstance(entry, dict):
+                                    continue
+                                title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
+                                if isinstance(title, str) and title.lower() == q.lower():
+                                    gid = _extract_id_from_obj(entry)
+                                    if gid:
+                                        return gid
+                            # substring fallback
+                            for entry in res[key]:
+                                if not isinstance(entry, dict):
+                                    continue
+                                title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
+                                if isinstance(title, str) and q.lower() in title.lower():
+                                    gid = _extract_id_from_obj(entry)
+                                    if gid:
+                                        return gid
+                            first = res[key][0]
+                            if isinstance(first, dict):
+                                gid = _extract_id_from_obj(first)
+                                if gid:
+                                    return gid
+                            break
+
+                    # Some installs return mapping id->object
+                    is_map = all(isinstance(k, str) and isinstance(v, dict) for k, v in res.items()) if res else False
+                    if is_map:
+                        for k, v in res.items():
+                            title = v.get("Title") or v.get("Name") or ""
+                            if isinstance(title, str) and title.lower() == q.lower():
+                                try:
+                                    return int(k)
+                                except Exception:
+                                    pass
+                        # substring fallback
+                        for k, v in res.items():
+                            title = v.get("Title") or v.get("Name") or ""
+                            if isinstance(title, str) and q.lower() in title.lower():
+                                try:
+                                    return int(k)
+                                except Exception:
+                                    pass
+                        # fallback to first key
+                        try:
+                            return int(next(iter(res.keys())))
+                        except Exception:
+                            pass
         return None
 
     @commands.group(name="retroachievements", aliases=["ra"], invoke_without_command=True)
@@ -372,6 +401,17 @@ class RetroAchievements(commands.Cog):
         gid = await self._resolve_game_id(api_key, game)
         if not gid:
             await ctx.send(embed=self._error_embed("Could not resolve game name to an ID. Try the owner-only raw command to probe search endpoints."))
+            try:
+                if await self.bot.is_owner(ctx.author):
+                    lines = []
+                    for a in _last_resolve_attempts[-8:]:
+                        lines.append(f"{a['endpoint']} params={a['params']} -> {a['type']} preview={a.get('preview','')}")
+                    try:
+                        await ctx.author.send("Resolve attempts:\n" + "\n\n".join(lines)[:1900])
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             return
 
         params = {"i": str(gid), "y": api_key}
@@ -472,6 +512,17 @@ class RetroAchievements(commands.Cog):
             gid = await self._resolve_game_id(api_key, game)
             if not gid:
                 await ctx.send(embed=self._error_embed("Could not resolve game name to an ID. Try the owner-only raw command to probe search endpoints."))
+                try:
+                    if await self.bot.is_owner(ctx.author):
+                        lines = []
+                        for a in _last_resolve_attempts[-8:]:
+                            lines.append(f"{a['endpoint']} params={a['params']} -> {a['type']} preview={a.get('preview','')}")
+                        try:
+                            await ctx.author.send("Resolve attempts:\n" + "\n\n".join(lines)[:1900])
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 return
 
             endpoint = "API_GetGameLeaderboards.php"
@@ -549,6 +600,17 @@ class RetroAchievements(commands.Cog):
         gid = await self._resolve_game_id(api_key, game)
         if not gid:
             await ctx.send(embed=self._error_embed("Could not resolve game name to an ID. Try the owner-only raw command to probe search endpoints."))
+            try:
+                if await self.bot.is_owner(ctx.author):
+                    lines = []
+                    for a in _last_resolve_attempts[-8:]:
+                        lines.append(f"{a['endpoint']} params={a['params']} -> {a['type']} preview={a.get('preview','')}")
+                    try:
+                        await ctx.author.send("Resolve attempts:\n" + "\n\n".join(lines)[:1900])
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             return
 
         params = {"i": str(gid), "y": api_key}
@@ -666,6 +728,17 @@ class RetroAchievements(commands.Cog):
             gid = await self._resolve_game_id(api_key, game)
             if not gid:
                 await ctx.send(embed=self._error_embed("Could not resolve game name to an ID. Try the owner-only raw command to probe search endpoints."))
+                try:
+                    if await self.bot.is_owner(ctx.author):
+                        lines = []
+                        for a in _last_resolve_attempts[-8:]:
+                            lines.append(f"{a['endpoint']} params={a['params']} -> {a['type']} preview={a.get('preview','')}")
+                        try:
+                            await ctx.author.send("Resolve attempts:\n" + "\n\n".join(lines)[:1900])
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 return
 
             params = {"u": cfg_username, "i": str(gid), "y": api_key}
