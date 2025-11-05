@@ -36,17 +36,27 @@ class RetroAchievements(commands.Cog):
             pass
 
     async def _api_get(self, endpoint: str, params: dict = None, timeout: int = 15):
+        """
+        Perform a GET against the RetroAchievements API.
+        Returns parsed JSON when possible. For non-200 responses returns a dict with
+        'error' and 'body' keys so you can see the API's response text for debugging.
+        """
         url = BASE_API + endpoint
+        headers = {
+            "User-Agent": "RedBot/RetroAchievementsCog (+https://your.bot/info)",
+            "Accept": "application/json, text/plain, */*",
+        }
         try:
-            async with self.session.get(url, params=params, timeout=timeout) as resp:
-                if resp.status != 200:
-                    return {"error": f"HTTP {resp.status}"}
+            async with self.session.get(url, params=params, headers=headers, timeout=timeout) as resp:
                 text = await resp.text()
-                try:
-                    data = await resp.json(content_type=None)
-                except Exception:
-                    data = text
-                return data
+                # Successful response: try parse JSON, otherwise return raw text
+                if resp.status == 200:
+                    try:
+                        return await resp.json(content_type=None)
+                    except Exception:
+                        return text
+                # Non-200: return status and body so you can see the API message (e.g., 401 details)
+                return {"error": f"HTTP {resp.status}", "body": text}
         except asyncio.TimeoutError:
             return {"error": "Request timed out"}
         except aiohttp.ClientError as e:
