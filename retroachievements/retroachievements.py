@@ -374,7 +374,10 @@ class RetroAchievements(commands.Cog):
 
         title = data.get("Title") or f"Game {gid}"
         embed = discord.Embed(title=title, color=COLOR_NEUTRAL)
-        embed.add_field(name="System", value=data.get("ConsoleName", "Unknown"), inline=True)
+
+        # Console name (some installs include ConsoleName or Console)
+        console_name = data.get("ConsoleName") or data.get("Console") or data.get("ConsoleTitle") or "Unknown"
+        embed.add_field(name="System", value=console_name, inline=True)
         embed.add_field(name="Publisher", value=data.get("Publisher", "Unknown"), inline=True)
         embed.add_field(name="Developer", value=data.get("Developer", "Unknown"), inline=True)
         embed.add_field(name="Achievements", value=str(data.get("AchievementCount", "Unknown")), inline=True)
@@ -384,8 +387,18 @@ class RetroAchievements(commands.Cog):
         if desc:
             embed.description = (desc[:2040] + "...") if len(desc) > 2048 else desc
 
-        boxart = data.get("BoxArt")
-        if boxart:
+        # Image keys per API docs: ImageBoxArt / ImageTitle / ImageIcon / ImageIngame
+        boxart = (
+            data.get("ImageBoxArt")
+            or data.get("ImageBox")
+            or data.get("ImageTitle")
+            or data.get("ImageIcon")
+            or data.get("BoxArt")
+        )
+        if boxart and isinstance(boxart, str):
+            # API may return relative paths like "/Images/051872.png" — make absolute
+            if boxart.startswith("/"):
+                boxart = f"https://retroachievements.org{boxart}"
             embed.set_thumbnail(url=boxart)
 
         embed.set_footer(text="Data from RetroAchievements.org")
