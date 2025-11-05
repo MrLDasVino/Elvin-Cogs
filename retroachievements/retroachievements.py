@@ -248,7 +248,7 @@ class RetroAchievements(commands.Cog):
         if not api_key:
             return
 
-        params = {"i": str(game_id), "k": api_key}
+        params = {"i": str(game_id), "y": api_key}
         data = await self._api_get("API_GetGame.php", params=params)
         if isinstance(data, dict) and "error" in data:
             await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
@@ -287,7 +287,7 @@ class RetroAchievements(commands.Cog):
             return
 
         limit = max(1, min(50, limit))
-        params = {"c": str(limit), "k": api_key}
+        params = {"c": str(limit), "y": api_key}
         data = await self._api_get("API_GetRecentAchievements.php", params=params)
         if isinstance(data, dict) and "error" in data:
             await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
@@ -327,10 +327,10 @@ class RetroAchievements(commands.Cog):
         top = max(1, min(50, top))
         if game_id:
             endpoint = "API_GetLeaderboard.php"
-            params = {"i": str(game_id), "k": api_key}
+            params = {"i": str(game_id), "y": api_key}
         else:
             endpoint = "API_GetGlobalLeaderboard.php"
-            params = {"c": str(top), "k": api_key}
+            params = {"c": str(top), "y": api_key}
 
         data = await self._api_get(endpoint, params=params)
         if isinstance(data, dict) and "error" in data:
@@ -371,7 +371,7 @@ class RetroAchievements(commands.Cog):
         if not api_key:
             return
 
-        params = {"i": str(game_id), "k": api_key}
+        params = {"i": str(game_id), "y": api_key}
         data = await self._api_get("API_GetGame.php", params=params)
         if isinstance(data, dict) and "error" in data:
             await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
@@ -431,11 +431,11 @@ class RetroAchievements(commands.Cog):
 
         cfg_api, cfg_username = await self._get_auth(username)
         if not cfg_username:
-            await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`."))
+            await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`." ))
             return
 
         limit = max(1, min(50, limit))
-        params = {"u": cfg_username, "c": str(limit), "k": api_key}
+        params = {"u": cfg_username, "c": str(limit), "y": api_key}
         data = await self._api_get("API_GetRecentAchievements.php", params=params)
         if isinstance(data, dict) and "error" in data:
             await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
@@ -486,7 +486,7 @@ class RetroAchievements(commands.Cog):
             return
 
         if game_id:
-            params = {"u": cfg_username, "i": str(game_id), "k": api_key}
+            params = {"u": cfg_username, "i": str(game_id), "y": api_key}
             data = await self._api_get("API_GetUnachieved.php", params=params)
             if isinstance(data, dict) and "error" in data:
                 await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
