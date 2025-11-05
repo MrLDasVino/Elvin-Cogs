@@ -103,6 +103,7 @@ class RetroAchievements(commands.Cog):
                 for e in PAGINATION_EMOJIS:
                     await message.add_reaction(e)
             except Exception:
+                # if bot cannot add reactions, just stop
                 return
 
             def check(reaction, user):
@@ -158,7 +159,12 @@ class RetroAchievements(commands.Cog):
     @retroachievements.command(name="set")
     @commands.admin_or_permissions(manage_guild=True)
     async def set_credentials(self, ctx, api_key: Optional[str] = None, username: Optional[str] = None):
-        """Set the RetroAchievements API key and optional default username."""
+        """Set the RetroAchievements API key and optional default username.
+        Examples:
+        - `retroachievements set MY_API_KEY`
+        - `retroachievements set MY_API_KEY myusername`
+        - pass `-` for a value to clear it: `retroachievements set - -`
+        """
         if api_key is None:
             await ctx.send(embed=self._error_embed("No API key provided. You must provide your RetroAchievements web API key."))
             return
@@ -189,6 +195,9 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="profile", aliases=["user"])
     async def profile(self, ctx, username: Optional[str] = None):
+        """Get a RetroAchievements user profile summary.
+        Uses configured username if none is provided.
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -201,7 +210,6 @@ class RetroAchievements(commands.Cog):
         params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            # Include returned body for easier debugging
             body = data.get("body") or ""
             url = data.get("url") or ""
             await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
@@ -238,6 +246,7 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="game")
     async def game(self, ctx, game_id: int):
+        """Get game info by RetroAchievements game ID."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -275,6 +284,9 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="recent")
     async def recent_global(self, ctx, limit: int = 5):
+        """Show recent achievements unlocked globally.
+        Limit defaults to 5 (max recommended 25).
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -292,6 +304,7 @@ class RetroAchievements(commands.Cog):
             await ctx.send(embed=self._error_embed("No recent achievements found or unexpected response format."))
             return
 
+        # Build pages of description (max ~12 lines per page for neatness)
         pages = []
         chunk_size = 12
         lines = []
@@ -311,16 +324,18 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="leaderboard", aliases=["top"])
     async def leaderboard(self, ctx, game_id: Optional[int] = None, top: int = 10):
+        """Get global or per-game leaderboard.
+        If game_id is provided, returns leaderboard for that game; otherwise global leaderboard.
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
 
         top = max(1, min(50, top))
+        endpoint = "API_GetLeaderboard.php"
         if game_id:
-            endpoint = "API_GetLeaderboard.php"
             params = {"i": str(game_id), "y": api_key}
         else:
-            endpoint = "API_GetGlobalLeaderboard.php"
             params = {"c": str(top), "y": api_key}
 
         data = await self._api_get(endpoint, params=params)
@@ -340,6 +355,7 @@ class RetroAchievements(commands.Cog):
             pts = e.get("Points") or e.get("Score") or e.get("TotalPoints") or "0"
             lines.append(f"{idx}. **{name}** — {pts} pts")
 
+        # Paginate lines
         pages = []
         chunk = 12
         for i in range(0, len(lines), chunk):
@@ -351,10 +367,14 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.group(name="achievements", invoke_without_command=True)
     async def achievements_group(self, ctx):
+        """Achievements related commands."""
         await ctx.send_help(ctx.command)
 
     @achievements_group.command(name="list")
     async def achievements_list(self, ctx, game_id: int, details: bool = False):
+        """List achievements for a game.
+        Use `details` True to show more info per achievement (may be long).
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -367,13 +387,16 @@ class RetroAchievements(commands.Cog):
             await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
             return
 
+        # Try to find achievements list in response
         achs = None
         for key in ("Achievements", "achievements", "AchievementList", "AchievementsList"):
             if isinstance(data, dict) and key in data:
                 achs = data[key]
                 break
 
+        # Some API variants include an "achievements" top-level list
         if achs is None and isinstance(data, dict) and "AchievementCount" in data:
+            # API didn't return the detailed list
             await ctx.send(embed=self._info_embed("No achievement list returned", "The API did not return a detailed achievement list for this game. Use the raw command for debugging."))
             return
 
@@ -397,6 +420,7 @@ class RetroAchievements(commands.Cog):
             else:
                 lines.append(f"**{title}** — {points} pts")
 
+        # Build paged embed list
         pages = []
         chunk = 10
         for i in range(0, len(lines), chunk):
@@ -408,6 +432,9 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="recentgames")
     async def recent_games(self, ctx, username: Optional[str] = None, limit: int = 5):
+        """Show recent games a user has played (based on recent achievements).
+        Uses configured username if none provided.
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -456,6 +483,11 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="progress")
     async def progress(self, ctx, username: Optional[str] = None, game_id: Optional[int] = None):
+        """Show achievements progress.
+        - If username and game_id provided: progress for that user in that game.
+        - If username provided without game_id: summary progress for that user.
+        - Uses configured username if none provided.
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -489,6 +521,7 @@ class RetroAchievements(commands.Cog):
                 points = item.get("Points") or ""
                 lines.append(f"**{title}** — {points} pts")
 
+            # Paginate unachieved list
             pages = []
             chunk = 10
             for i in range(0, len(lines), chunk):
@@ -499,6 +532,7 @@ class RetroAchievements(commands.Cog):
             await self._paginate_embeds(ctx, pages)
             return
 
+        # User summary
         params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
@@ -527,6 +561,10 @@ class RetroAchievements(commands.Cog):
     @commands.is_owner()
     @retroachievements.command(name="raw")
     async def raw(self, ctx, endpoint: str, *, params: str = ""):
+        """Owner-only: raw API request for debugging.
+        endpoint should be the API endpoint file name, e.g., API_GetUserSummary.php
+        params should be URL query string style: key1=val1&key2=val2
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
