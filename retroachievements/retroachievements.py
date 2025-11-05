@@ -36,6 +36,11 @@ class RetroAchievements(commands.Cog):
             pass
 
     async def _api_get(self, endpoint: str, params: dict = None, timeout: int = 15):
+        """
+        Perform a GET against the RetroAchievements API.
+        Normalizes endpoint and returns parsed JSON on 200.
+        On non-200, returns {'error': 'HTTP <status>', 'body': <text>, 'url': <requested_url>, 'params': <params>} for easier debugging.
+        """
         base = BASE_API.rstrip("/")
         ep = endpoint.lstrip("/")
         url = f"{base}/{ep}"
@@ -84,6 +89,7 @@ class RetroAchievements(commands.Cog):
         use_username = username or cfg_username
         return api_key, use_username
 
+    # Simple paginator utility using embeds list
     async def _paginate_embeds(self, ctx, embeds: List[discord.Embed]):
         if not embeds:
             await ctx.send(embed=self._error_embed("Nothing to show."))
@@ -91,11 +97,13 @@ class RetroAchievements(commands.Cog):
 
         index = 0
         message = await ctx.send(embed=embeds[index])
+        # add reactions if more than one page
         if len(embeds) > 1:
             try:
                 for e in PAGINATION_EMOJIS:
                     await message.add_reaction(e)
             except Exception:
+                # if bot cannot add reactions, just stop
                 return
 
             def check(reaction, user):
@@ -151,6 +159,12 @@ class RetroAchievements(commands.Cog):
     @retroachievements.command(name="set")
     @commands.admin_or_permissions(manage_guild=True)
     async def set_credentials(self, ctx, api_key: Optional[str] = None, username: Optional[str] = None):
+        """Set the RetroAchievements API key and optional default username.
+        Examples:
+        - `retroachievements set MY_API_KEY`
+        - `retroachievements set MY_API_KEY myusername`
+        - pass `-` for a value to clear it: `retroachievements set - -`
+        """
         if api_key is None:
             await ctx.send(embed=self._error_embed("No API key provided. You must provide your RetroAchievements web API key."))
             return
@@ -181,6 +195,9 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="profile", aliases=["user"])
     async def profile(self, ctx, username: Optional[str] = None):
+        """Get a RetroAchievements user profile summary.
+        Uses configured username if none is provided.
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -229,6 +246,7 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="game")
     async def game(self, ctx, game_id: int):
+        """Get game info by RetroAchievements game ID."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -266,6 +284,9 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="recent")
     async def recent_global(self, ctx, limit: int = 5):
+        """Show recent achievements unlocked globally.
+        Limit defaults to 5 (max recommended 25).
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -283,6 +304,7 @@ class RetroAchievements(commands.Cog):
             await ctx.send(embed=self._error_embed("No recent achievements found or unexpected response format."))
             return
 
+        # Build pages of description (max ~12 lines per page for neatness)
         pages = []
         chunk_size = 12
         lines = []
@@ -305,7 +327,7 @@ class RetroAchievements(commands.Cog):
         """Get global or per-game leaderboard.
 
         Per-game: uses documented API_GetGameLeaderboards.php.
-        Global: the installation you're hitting does not expose a documented global leaderboard endpoint — use the owner-only raw command to discover it.
+        Global: this installation may not expose a global endpoint; use the raw command to discover one.
         """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
@@ -336,6 +358,7 @@ class RetroAchievements(commands.Cog):
                 score = top_entry.get("Score") or top_entry.get("FormattedScore") or "—"
                 lines.append(f"**{title}** — {user} — {score}")
 
+            # Paginate and show
             pages = []
             chunk = 12
             for i in range(0, len(lines), chunk):
@@ -355,12 +378,138 @@ class RetroAchievements(commands.Cog):
             "Then update the cog to use that endpoint or run the raw command for global queries."
         ))
 
+    @retroachievements.command(name="retrogame", aliases=["findgame", "gamebyname"])
+    async def find_game_by_name(self, ctx, *, query: str):
+        """
+        Find a game by name or accept a numeric game ID.
+        - If query is numeric, looks up API_GetGame.php by id.
+        - If query is non-numeric, tries a few plausible search endpoints and returns the first match.
+        """
+        api_key = await self._ensure_api_key(ctx)
+        if not api_key:
+            return
+
+        query = query.strip()
+        # If numeric, delegate to the existing game command behavior (lookup by id)
+        if query.isdigit():
+            game_id = int(query)
+            params = {"i": str(game_id), "y": api_key}
+            data = await self._api_get("API_GetGame.php", params=params)
+            if isinstance(data, dict) and "error" in data:
+                body = data.get("body") or ""
+                url = data.get("url") or ""
+                await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+                return
+            if not isinstance(data, dict):
+                await ctx.send(embed=self._error_embed("Unexpected response formatting when looking up game by ID."))
+                return
+            # Reuse the existing output formatting (minimal)
+            title = data.get("Title") or f"Game {game_id}"
+            embed = discord.Embed(title=f"{title} — Game {game_id}", color=COLOR_NEUTRAL)
+            embed.add_field(name="System", value=data.get("ConsoleName", "Unknown"), inline=True)
+            embed.add_field(name="Publisher", value=data.get("Publisher", "Unknown"), inline=True)
+            embed.add_field(name="Developer", value=data.get("Developer", "Unknown"), inline=True)
+            embed.add_field(name="Achievements", value=str(data.get("AchievementCount", "Unknown")), inline=True)
+            boxart = data.get("BoxArt")
+            if boxart:
+                embed.set_thumbnail(url=boxart)
+            embed.set_footer(text="Data from RetroAchievements.org")
+            await ctx.send(embed=embed)
+            return
+
+        # Non-numeric query: try candidate search endpoints
+        candidates = [
+            ("API_SearchGames.php", {"q": query, "y": api_key}),
+            ("API_GetGames.php", {"title": query, "y": api_key}),
+            ("API_GetGame.php", {"title": query, "y": api_key}),  # sometimes supports title param
+            ("API_Search.php", {"q": query, "y": api_key}),
+            ("API_GetGameByName.php", {"name": query, "y": api_key}),
+        ]
+
+        last_error = None
+        found = None
+        used_ep = None
+        for ep, params in candidates:
+            res = await self._api_get(ep, params=params)
+            if isinstance(res, dict) and "error" in res:
+                last_error = res
+                continue
+            # Accept a list of games or a dict containing a list
+            if isinstance(res, list) and res:
+                found = res
+                used_ep = ep
+                break
+            if isinstance(res, dict):
+                # common shapes: { "Results": [...]} or { "Games": [...] } or a direct keyed dict mapping ids->obj
+                for key in ("Results", "Games", "GamesList", "results", "games"):
+                    if key in res and isinstance(res[key], list) and res[key]:
+                        found = res[key]
+                        used_ep = ep
+                        break
+                if found:
+                    break
+                # also accept dicts which map id->game object
+                is_map = all(isinstance(k, str) and isinstance(v, dict) for k, v in res.items())
+                if is_map and res:
+                    # convert to list of game dicts and include id
+                    entries = []
+                    for k, v in res.items():
+                        entry = dict(v)
+                        entry.setdefault("ID", k)
+                        entries.append(entry)
+                    found = entries
+                    used_ep = ep
+                    break
+
+        if not found:
+            if last_error:
+                body = last_error.get("body") or ""
+                url = last_error.get("url") or ""
+                await ctx.send(embed=self._info_embed(
+                    "Game search not found",
+                    "No search endpoint returned results. Try the owner-only raw command to probe endpoints, for example:\n"
+                    "`retroachievements raw API_SearchGames.php q=sonic y=YOUR_KEY`\n"
+                    f"Last attempted URL: {url}\nLast response body: {body}"
+                ))
+            else:
+                await ctx.send(embed=self._info_embed(
+                    "Game search not found",
+                    "No candidate search endpoint returned results for that query on this server. Use the owner-only raw command to investigate available endpoints."
+                ))
+            return
+
+        # Build readable list of matches (limit to top 20)
+        matches = []
+        for g in found[:20]:
+            gid = str(g.get("ID") or g.get("GameID") or g.get("GameId") or g.get("i") or g.get("id") or g.get("Game") or "")
+            title = g.get("Title") or g.get("Name") or g.get("title") or ""
+            console = g.get("ConsoleName") or g.get("System") or g.get("Console") or g.get("Platform") or ""
+            matches.append(f"{gid or 'unknown'} — **{title}** — {console}")
+
+        if not matches:
+            await ctx.send(embed=self._error_embed("Search returned no usable matches."))
+            return
+
+        # Paginate match list
+        pages = []
+        chunk = 12
+        for i in range(0, len(matches), chunk):
+            emb = discord.Embed(title=f"Search results for \"{query}\" (endpoint={used_ep})", description="\n".join(matches[i:i+chunk]), color=COLOR_INFO)
+            emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(matches))} of {len(matches)}")
+            pages.append(emb)
+
+        await self._paginate_embeds(ctx, pages)
+
     @retroachievements.group(name="achievements", invoke_without_command=True)
     async def achievements_group(self, ctx):
+        """Achievements related commands."""
         await ctx.send_help(ctx.command)
 
     @achievements_group.command(name="list")
     async def achievements_list(self, ctx, game_id: int, details: bool = False):
+        """List achievements for a game.
+        Use `details` True to show more info per achievement (may be long).
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -373,13 +522,16 @@ class RetroAchievements(commands.Cog):
             await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
             return
 
+        # Try to find achievements list in response
         achs = None
         for key in ("Achievements", "achievements", "AchievementList", "AchievementsList"):
             if isinstance(data, dict) and key in data:
                 achs = data[key]
                 break
 
+        # Some API variants include an "achievements" top-level list
         if achs is None and isinstance(data, dict) and "AchievementCount" in data:
+            # API didn't return the detailed list
             await ctx.send(embed=self._info_embed("No achievement list returned", "The API did not return a detailed achievement list for this game. Use the raw command for debugging."))
             return
 
@@ -403,6 +555,7 @@ class RetroAchievements(commands.Cog):
             else:
                 lines.append(f"**{title}** — {points} pts")
 
+        # Build paged embed list
         pages = []
         chunk = 10
         for i in range(0, len(lines), chunk):
@@ -414,6 +567,9 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="recentgames")
     async def recent_games(self, ctx, username: Optional[str] = None, limit: int = 5):
+        """Show recent games a user has played (based on recent achievements).
+        Uses configured username if none provided.
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -462,6 +618,11 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="progress")
     async def progress(self, ctx, username: Optional[str] = None, game_id: Optional[int] = None):
+        """Show achievements progress.
+        - If username and game_id provided: progress for that user in that game.
+        - If username provided without game_id: summary progress for that user.
+        - Uses configured username if none provided.
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -495,6 +656,7 @@ class RetroAchievements(commands.Cog):
                 points = item.get("Points") or ""
                 lines.append(f"**{title}** — {points} pts")
 
+            # Paginate unachieved list
             pages = []
             chunk = 10
             for i in range(0, len(lines), chunk):
@@ -505,6 +667,7 @@ class RetroAchievements(commands.Cog):
             await self._paginate_embeds(ctx, pages)
             return
 
+        # User summary
         params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
@@ -533,6 +696,10 @@ class RetroAchievements(commands.Cog):
     @commands.is_owner()
     @retroachievements.command(name="raw")
     async def raw(self, ctx, endpoint: str, *, params: str = ""):
+        """Owner-only: raw API request for debugging.
+        endpoint should be the API endpoint file name, e.g., API_GetUserSummary.php
+        params should be URL query string style: key1=val1&key2=val2
+        """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
