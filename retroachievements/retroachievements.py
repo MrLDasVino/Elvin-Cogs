@@ -1,5 +1,6 @@
 import asyncio
 import time
+import re
 import aiohttp
 from typing import Optional, List, Union
 import discord
@@ -7,6 +8,7 @@ from redbot.core import commands, Config
 from redbot.core.utils.chat_formatting import box
 
 BASE_API = "https://retroachievements.org/API/"
+BASE_SITE = "https://retroachievements.org"
 
 # Colors
 COLOR_INFO = 0x2ECC71
@@ -19,7 +21,7 @@ PAGINATION_EMOJIS = ("◀️", "▶️", "⛔")
 
 # debugging and caching globals
 _last_resolve_attempts: List[dict] = []
-_resolve_cache: dict = {}  # name_lower -> game id
+_resolve_cache: dict = {}  # name_lower -> game id (in-memory)
 _endpoint_disabled_until: dict = {}  # endpoint -> unix timestamp
 
 
@@ -32,21 +34,38 @@ def _record_resolve_attempt(ep, params, res):
         else:
             summary["preview"] = str(res)[:400]
         _last_resolve_attempts.append(summary)
-        if len(_last_resolve_attempts) > 40:
+        if len(_last_resolve_attempts) > 80:
             _last_resolve_attempts.pop(0)
     except Exception:
         pass
 
 
 class RetroAchievements(commands.Cog):
-    """Interact with the RetroAchievements API."""
+    """Interact with the RetroAchievements API with site-scrape fallback for name lookups."""
 
     def __init__(self, bot):
         self.bot = bot
         self.session = aiohttp.ClientSession()
         self.config = Config.get_conf(self, identifier=0xA1B2C3D4E7)
-        default_global = {"api_key": None, "username": None}
+        default_global = {"api_key": None, "username": None, "name_map": {}}
         self.config.register_global(**default_global)
+        # load persistent name_map into in-memory cache asynchronously
+        try:
+            asyncio.create_task(self._load_persistent_name_map())
+        except Exception:
+            pass
+
+    async def _load_persistent_name_map(self):
+        try:
+            cfg = await self.config.all()
+            pm = cfg.get("name_map") or {}
+            for k, v in pm.items():
+                try:
+                    _resolve_cache[k.lower()] = int(v)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def cog_unload(self):
         try:
@@ -56,11 +75,6 @@ class RetroAchievements(commands.Cog):
             pass
 
     async def _api_get(self, endpoint: str, params: dict = None, timeout: int = 15):
-        """
-        Perform a GET against the RetroAchievements API.
-        Returns parsed JSON on 200, text fallback if JSON parsing fails.
-        On non-200 returns a dict with error/status/body/url/params for debugging.
-        """
         base = BASE_API.rstrip("/")
         ep = endpoint.lstrip("/")
         url = f"{base}/{ep}"
@@ -177,7 +191,94 @@ class RetroAchievements(commands.Cog):
         else:
             return
 
-    # Resilient game name -> id resolver with caching, throttling, backoff, and debug recording
+    # --- SCRAPE HELPERS ---
+    async def _scrape_site_search(self, query: str) -> Optional[int]:
+        """
+        Scrape the RetroAchievements site for a query and return the first numeric game ID found.
+        Tries several known search paths and parses HTML to find the first /Game/<id>/ link.
+        """
+        # Respect caching: if in-memory cached already, return quickly
+        key = query.strip().lower()
+        if key in _resolve_cache:
+            return _resolve_cache[key]
+
+        # common site search paths to try (order matters)
+        paths = [
+            f"/Search?search={aiohttp.helpers.quote(query)}",
+            f"/Game/Search?search={aiohttp.helpers.quote(query)}",
+            f"/Search?Search={aiohttp.helpers.quote(query)}",
+            f"/Search?query={aiohttp.helpers.quote(query)}",
+        ]
+
+        headers = {"User-Agent": "RedBot/RetroAchievementsCog (+https://your.bot/info)", "Accept": "text/html"}
+        # small throttle across site requests
+        for path in paths:
+            url = BASE_SITE.rstrip("/") + path
+            # skip if we've disabled site scraping recently (avoid hammering)
+            disabled_until = _endpoint_disabled_until.get("site_scrape")
+            if disabled_until and time.time() < disabled_until:
+                continue
+            try:
+                async with self.session.get(url, headers=headers, timeout=10) as resp:
+                    text = await resp.text()
+                    # handle rate-limited or blocked responses (common)
+                    if resp.status == 429:
+                        # back off site scraping for a while
+                        _endpoint_disabled_until["site_scrape"] = time.time() + 60.0
+                        _record_resolve_attempt("site_scrape", {"url": url}, {"status": 429, "body": text[:400]})
+                        await asyncio.sleep(1.0)
+                        continue
+                    if resp.status >= 400:
+                        _record_resolve_attempt("site_scrape", {"url": url}, {"status": resp.status, "body": text[:400]})
+                        continue
+                    # try to find first /Game/<id>/ link
+                    # Example link formats: /Game/9190/the-legend-of-zelda-the-wind-waker or /Game/9190
+                    m = re.search(r'href=["\'](?:/Game/)(\d+)(?:/[^"\']*)?["\']', text, re.IGNORECASE)
+                    if m:
+                        gid = int(m.group(1))
+                        _record_resolve_attempt("site_scrape", {"url": url}, {"found": gid})
+                        # cache persistently
+                        _resolve_cache[key] = gid
+                        await self._persist_name_map_entry(key, gid)
+                        return gid
+                    # sometimes site shows JSON or script-embedded results containing game id
+                    m2 = re.search(r'GameId["\']?\s*[:=]\s*["\']?(\d+)["\']?', text, re.IGNORECASE)
+                    if m2:
+                        gid = int(m2.group(1))
+                        _record_resolve_attempt("site_scrape", {"url": url}, {"found": gid})
+                        _resolve_cache[key] = gid
+                        await self._persist_name_map_entry(key, gid)
+                        return gid
+                    _record_resolve_attempt("site_scrape", {"url": url}, {"found": None, "preview": text[:200]})
+            except asyncio.TimeoutError:
+                _record_resolve_attempt("site_scrape", {"url": url}, {"error": "timeout"})
+                continue
+            except aiohttp.ClientError as e:
+                _record_resolve_attempt("site_scrape", {"url": url}, {"error": f"client_error:{e}"})
+                continue
+            except Exception as e:
+                _record_resolve_attempt("site_scrape", {"url": url}, {"error": f"exception:{e}"})
+                continue
+            # polite pause between tries
+            await asyncio.sleep(0.35)
+        return None
+
+    async def _persist_name_map_entry(self, name_lower: str, gid: int):
+        """
+        Persist a single name->id entry into Red Config name_map.
+        This keeps mappings across restarts to avoid re-scraping.
+        """
+        try:
+            cfg = await self.config.all()
+            pm = cfg.get("name_map") or {}
+            if pm.get(name_lower) == gid:
+                return
+            pm[name_lower] = int(gid)
+            await self.config.name_map.set(pm)
+        except Exception:
+            pass
+
+    # --- RESOLVER: tries API endpoints first, then site-scrape fallback ---
     async def _resolve_game_id(self, api_key: str, game: Union[str, int]) -> Optional[int]:
         # numeric quick path
         if isinstance(game, int):
@@ -187,10 +288,11 @@ class RetroAchievements(commands.Cog):
             return int(s)
 
         key = s.lower()
-        # cache hit
+        # in-memory cache
         if key in _resolve_cache:
             return _resolve_cache[key]
 
+        # attempt API-based lookup (existing resilient approach)
         candidates_base = [
             ("API_SearchGames.php", "q"),
             ("API_Search.php", "q"),
@@ -208,18 +310,17 @@ class RetroAchievements(commands.Cog):
                         pass
             return None
 
-        async def _call_with_backoff(ep, params, max_retries=3):
+        # internal backoff caller for API endpoints
+        async def _call_api_with_backoff(ep, params, max_retries=3):
             backoff = 1.0
             for attempt in range(max_retries):
                 disabled_until = _endpoint_disabled_until.get(ep)
                 if disabled_until and time.time() < disabled_until:
                     return {"error": "disabled", "status": 404, "body": "endpoint disabled due to previous 404"}
                 res = await self._api_get(ep, params=params)
-                # our _api_get annotates non-200 with "status" key in dict
                 if isinstance(res, dict) and "status" in res:
                     st = res.get("status")
                     if st == 404:
-                        # disable endpoint for a while
                         _endpoint_disabled_until[ep] = time.time() + 600.0
                         return res
                     if st == 429:
@@ -230,7 +331,7 @@ class RetroAchievements(commands.Cog):
                 return res
             return res
 
-        # generate query variants
+        # queries to try (try exact, a "The " prefixed variation, and stripped region tags)
         alt_queries = [s]
         if not s.lower().startswith("the "):
             alt_queries.append("The " + s)
@@ -239,21 +340,18 @@ class RetroAchievements(commands.Cog):
         for q in alt_queries:
             for ep, param_key in candidates_base:
                 params = {param_key: q, "y": api_key}
-                res = await _call_with_backoff(ep, params)
-                # small throttle to avoid rapid-fire requests
+                res = await _call_api_with_backoff(ep, params)
                 await asyncio.sleep(0.25)
                 _record_resolve_attempt(ep, params, res)
 
                 if isinstance(res, dict) and "status" in res:
                     st = res.get("status")
                     if st in (404, 429):
-                        # skip endpoint on 404 or on exhausted 429
                         continue
                     continue
 
-                # list of objects
+                # list response
                 if isinstance(res, list) and res:
-                    # exact match first
                     for entry in res:
                         if not isinstance(entry, dict):
                             continue
@@ -262,8 +360,8 @@ class RetroAchievements(commands.Cog):
                             gid = _extract_id_from_obj(entry)
                             if gid:
                                 _resolve_cache[key] = gid
+                                await self._persist_name_map_entry(key, gid)
                                 return gid
-                    # substring fallback
                     for entry in res:
                         if not isinstance(entry, dict):
                             continue
@@ -272,19 +370,19 @@ class RetroAchievements(commands.Cog):
                             gid = _extract_id_from_obj(entry)
                             if gid:
                                 _resolve_cache[key] = gid
+                                await self._persist_name_map_entry(key, gid)
                                 return gid
-                    # fallback to first entry
                     first = res[0]
                     if isinstance(first, dict):
                         gid = _extract_id_from_obj(first)
                         if gid:
                             _resolve_cache[key] = gid
+                            await self._persist_name_map_entry(key, gid)
                             return gid
                     continue
 
-                # dict: nested list or id->object map or single object
+                # dict response: look for list keys or id->object map or single object
                 if isinstance(res, dict):
-                    # nested list keys
                     for list_key in ("Results", "Games", "GamesList", "results", "games", "ResultSet"):
                         if list_key in res and isinstance(res[list_key], list) and res[list_key]:
                             for entry in res[list_key]:
@@ -295,6 +393,7 @@ class RetroAchievements(commands.Cog):
                                     gid = _extract_id_from_obj(entry)
                                     if gid:
                                         _resolve_cache[key] = gid
+                                        await self._persist_name_map_entry(key, gid)
                                         return gid
                             for entry in res[list_key]:
                                 if not isinstance(entry, dict):
@@ -304,15 +403,17 @@ class RetroAchievements(commands.Cog):
                                     gid = _extract_id_from_obj(entry)
                                     if gid:
                                         _resolve_cache[key] = gid
+                                        await self._persist_name_map_entry(key, gid)
                                         return gid
                             first = res[list_key][0]
                             if isinstance(first, dict):
                                 gid = _extract_id_from_obj(first)
                                 if gid:
                                     _resolve_cache[key] = gid
+                                    await self._persist_name_map_entry(key, gid)
                                     return gid
 
-                    # mapping id -> object
+                    # mapping id->object
                     is_map = all(isinstance(k, str) and isinstance(v, dict) for k, v in res.items()) if res else False
                     if is_map:
                         for k, v in res.items():
@@ -321,6 +422,7 @@ class RetroAchievements(commands.Cog):
                                 try:
                                     gid = int(k)
                                     _resolve_cache[key] = gid
+                                    await self._persist_name_map_entry(key, gid)
                                     return gid
                                 except Exception:
                                     pass
@@ -330,24 +432,41 @@ class RetroAchievements(commands.Cog):
                                 try:
                                     gid = int(k)
                                     _resolve_cache[key] = gid
+                                    await self._persist_name_map_entry(key, gid)
                                     return gid
                                 except Exception:
                                     pass
                         try:
                             gid = int(next(iter(res.keys())))
                             _resolve_cache[key] = gid
+                            await self._persist_name_map_entry(key, gid)
                             return gid
                         except Exception:
                             pass
 
-                    # single game object returned directly
-                    gid = _extract_id_from_obj(res)
+                    # single object: try extract id directly
+                    gid = None
+                    try:
+                        gid = None
+                        for k in ("ID", "GameID", "GameId", "i", "id", "Game_Id", "game_id", "gameid"):
+                            if k in res:
+                                gid = int(res[k])
+                                break
+                    except Exception:
+                        gid = None
                     if gid:
                         _resolve_cache[key] = gid
+                        await self._persist_name_map_entry(key, gid)
                         return gid
+
+        # if API-based attempts failed, try scraping the site (if not disabled)
+        site_gid = await self._scrape_site_search(s)
+        if site_gid:
+            return site_gid
 
         return None
 
+    # --- commands below are unchanged except they benefit from new resolver and persistent name_map ---
     @commands.group(name="retroachievements", aliases=["ra"], invoke_without_command=True)
     @commands.guild_only()
     async def retroachievements(self, ctx):
@@ -388,18 +507,14 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="profile", aliases=["user"])
     async def profile(self, ctx, username: Optional[str] = None):
-        """Get a RetroAchievements user profile summary. Uses configured username if none is provided."""
+        """Get a RetroAchievements user profile summary."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
 
         cfg_api, cfg_username = await self._get_auth(username)
         if not cfg_username:
-            await ctx.send(
-                embed=self._error_embed(
-                    "No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`."
-                )
-            )
+            await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`."))
             return
 
         params = {"u": cfg_username, "y": api_key}
@@ -749,12 +864,7 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="progress")
     async def progress(self, ctx, username: Optional[str] = None, game: Optional[str] = None):
-        """
-        Show achievements progress.
-        - If username and game provided: progress for that user in that game (game may be name or ID).
-        - If only username provided: summary progress for that user.
-        - Uses configured username if none provided.
-        """
+        """Show achievements progress."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
