@@ -1,6 +1,6 @@
 import asyncio
 import aiohttp
-from typing import Optional, List
+from typing import Optional, List, Union
 import discord
 from redbot.core import commands, Config
 from redbot.core.utils.chat_formatting import box
@@ -89,7 +89,6 @@ class RetroAchievements(commands.Cog):
         use_username = username or cfg_username
         return api_key, use_username
 
-    # Simple paginator utility using embeds list
     async def _paginate_embeds(self, ctx, embeds: List[discord.Embed]):
         if not embeds:
             await ctx.send(embed=self._error_embed("Nothing to show."))
@@ -97,13 +96,11 @@ class RetroAchievements(commands.Cog):
 
         index = 0
         message = await ctx.send(embed=embeds[index])
-        # add reactions if more than one page
         if len(embeds) > 1:
             try:
                 for e in PAGINATION_EMOJIS:
                     await message.add_reaction(e)
             except Exception:
-                # if bot cannot add reactions, just stop
                 return
 
             def check(reaction, user):
@@ -149,6 +146,85 @@ class RetroAchievements(commands.Cog):
                     break
         else:
             return
+
+    # Helper: try to resolve a game identifier (ID or name) to a numeric ID
+    async def _resolve_game_id(self, api_key: str, game: Union[str, int]) -> Optional[int]:
+        """
+        Accepts a numeric ID or a name string.
+        Returns numeric game ID or None if unresolved.
+        """
+        # If already integer or numeric string -> return int
+        if isinstance(game, int):
+            return game
+        s = str(game).strip()
+        if s.isdigit():
+            return int(s)
+
+        # Candidate search endpoints and param shapes. Stop on first useful match.
+        candidates = [
+            ("API_SearchGames.php", {"q": s, "y": api_key}),
+            ("API_GetGames.php", {"title": s, "y": api_key}),
+            ("API_GetGame.php", {"title": s, "y": api_key}),  # some installs accept title param
+            ("API_Search.php", {"q": s, "y": api_key}),
+            ("API_GetGameByName.php", {"name": s, "y": api_key}),
+        ]
+
+        for ep, params in candidates:
+            res = await self._api_get(ep, params=params)
+            if isinstance(res, dict) and "error" in res:
+                continue
+            # If list -> assume list of game objects
+            if isinstance(res, list) and res:
+                # prefer exact case-insensitive title match, otherwise first
+                for entry in res:
+                    title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
+                    if isinstance(title, str) and title.lower() == s.lower():
+                        gid = entry.get("ID") or entry.get("GameID") or entry.get("GameId") or entry.get("i") or entry.get("id")
+                        try:
+                            return int(gid)
+                        except Exception:
+                            continue
+                # fallback to first entry's ID
+                first = res[0]
+                gid = first.get("ID") or first.get("GameID") or first.get("GameId") or first.get("i") or first.get("id")
+                try:
+                    return int(gid)
+                except Exception:
+                    continue
+            # If dict -> look for common list keys
+            if isinstance(res, dict):
+                for key in ("Results", "Games", "GamesList", "results", "games"):
+                    if key in res and isinstance(res[key], list) and res[key]:
+                        for entry in res[key]:
+                            title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
+                            if isinstance(title, str) and title.lower() == s.lower():
+                                gid = entry.get("ID") or entry.get("GameID") or entry.get("GameId") or entry.get("i") or entry.get("id")
+                                try:
+                                    return int(gid)
+                                except Exception:
+                                    continue
+                        first = res[key][0]
+                        gid = first.get("ID") or first.get("GameID") or first.get("GameId") or first.get("i") or first.get("id")
+                        try:
+                            return int(gid)
+                        except Exception:
+                            continue
+                # Some installs return mapping id->object
+                is_map = all(isinstance(k, str) and isinstance(v, dict) for k, v in res.items()) if res else False
+                if is_map:
+                    for k, v in res.items():
+                        title = v.get("Title") or v.get("Name") or ""
+                        if isinstance(title, str) and title.lower() == s.lower():
+                            try:
+                                return int(k)
+                            except Exception:
+                                continue
+                    # fallback to first key
+                    try:
+                        return int(next(iter(res.keys())))
+                    except Exception:
+                        continue
+        return None
 
     @commands.group(name="retroachievements", aliases=["ra"], invoke_without_command=True)
     @commands.guild_only()
@@ -210,9 +286,7 @@ class RetroAchievements(commands.Cog):
         params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            body = data.get("body") or ""
-            url = data.get("url") or ""
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
             return
 
         if not isinstance(data, dict):
@@ -244,14 +318,20 @@ class RetroAchievements(commands.Cog):
         embed.set_footer(text="Data from RetroAchievements.org")
         await ctx.send(embed=embed)
 
+    # game command: accepts numeric ID or name
     @retroachievements.command(name="game")
-    async def game(self, ctx, game_id: int):
-        """Get game info by RetroAchievements game ID."""
+    async def game(self, ctx, *, game: str):
+        """Get game info by RetroAchievements game ID or name."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
 
-        params = {"i": str(game_id), "y": api_key}
+        gid = await self._resolve_game_id(api_key, game)
+        if not gid:
+            await ctx.send(embed=self._error_embed("Could not resolve game name to an ID. Try the owner-only raw command to probe search endpoints."))
+            return
+
+        params = {"i": str(gid), "y": api_key}
         data = await self._api_get("API_GetGame.php", params=params)
         if isinstance(data, dict) and "error" in data:
             body = data.get("body") or ""
@@ -263,7 +343,7 @@ class RetroAchievements(commands.Cog):
             await ctx.send(embed=self._error_embed("Unexpected API response format for game info."))
             return
 
-        title = data.get("Title") or f"Game {game_id}"
+        title = data.get("Title") or f"Game {gid}"
         embed = discord.Embed(title=title, color=COLOR_NEUTRAL)
         embed.add_field(name="System", value=data.get("ConsoleName", "Unknown"), inline=True)
         embed.add_field(name="Publisher", value=data.get("Publisher", "Unknown"), inline=True)
@@ -304,7 +384,6 @@ class RetroAchievements(commands.Cog):
             await ctx.send(embed=self._error_embed("No recent achievements found or unexpected response format."))
             return
 
-        # Build pages of description (max ~12 lines per page for neatness)
         pages = []
         chunk_size = 12
         lines = []
@@ -323,11 +402,11 @@ class RetroAchievements(commands.Cog):
         await self._paginate_embeds(ctx, pages)
 
     @retroachievements.command(name="leaderboard", aliases=["top"])
-    async def leaderboard(self, ctx, game_id: Optional[int] = None, top: int = 10):
-        """Get global or per-game leaderboard.
-
-        Per-game: uses documented API_GetGameLeaderboards.php.
-        Global: this installation may not expose a global endpoint; use the raw command to discover one.
+    async def leaderboard(self, ctx, game: Optional[str] = None, top: int = 10):
+        """
+        Get global or per-game leaderboard.
+        Accepts game name or numeric ID for per-game mode.
+        For global top users, uses documented API_GetTopTenUsers.php (fixed top 10).
         """
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
@@ -335,9 +414,15 @@ class RetroAchievements(commands.Cog):
 
         top = max(1, min(50, top))
 
-        if game_id:
+        # Per-game: resolve game to ID first
+        if game:
+            gid = await self._resolve_game_id(api_key, game)
+            if not gid:
+                await ctx.send(embed=self._error_embed("Could not resolve game name to an ID. Try the owner-only raw command to probe search endpoints."))
+                return
+
             endpoint = "API_GetGameLeaderboards.php"
-            params = {"i": str(game_id), "y": api_key}
+            params = {"i": str(gid), "y": api_key}
             data = await self._api_get(endpoint, params=params)
             if isinstance(data, dict) and "error" in data:
                 body = data.get("body") or ""
@@ -358,144 +443,41 @@ class RetroAchievements(commands.Cog):
                 score = top_entry.get("Score") or top_entry.get("FormattedScore") or "—"
                 lines.append(f"**{title}** — {user} — {score}")
 
-            # Paginate and show
             pages = []
             chunk = 12
             for i in range(0, len(lines), chunk):
-                emb = discord.Embed(title=f"Leaderboards for game {game_id}", description="\n".join(lines[i:i+chunk]), color=COLOR_INFO)
+                emb = discord.Embed(title=f"Leaderboards for game {gid}", description="\n".join(lines[i:i+chunk]), color=COLOR_INFO)
                 emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(lines))} of {len(lines)}")
                 pages.append(emb)
 
             await self._paginate_embeds(ctx, pages)
             return
 
-        # Global leaderboards not provided by this installation (explicit message)
-        await ctx.send(embed=self._info_embed(
-            "Global leaderboard not available",
-            "This server does not expose a documented global leaderboard endpoint. "
-            "If your RetroAchievements installation provides one, discover it with the owner-only raw command, for example:\n"
-            "`retroachievements raw API_GetGameLeaderboards.php i=GAME_ID y=YOUR_KEY`\n"
-            "Then update the cog to use that endpoint or run the raw command for global queries."
-        ))
-
-    @retroachievements.command(name="retrogame", aliases=["findgame", "gamebyname"])
-    async def find_game_by_name(self, ctx, *, query: str):
-        """
-        Find a game by name or accept a numeric game ID.
-        - If query is numeric, looks up API_GetGame.php by id.
-        - If query is non-numeric, tries a few plausible search endpoints and returns the first match.
-        """
-        api_key = await self._ensure_api_key(ctx)
-        if not api_key:
+        # Global: documented quick-start top users endpoint (fixed top 10)
+        endpoint = "API_GetTopTenUsers.php"
+        params = {"y": api_key}
+        data = await self._api_get(endpoint, params=params)
+        if isinstance(data, dict) and "error" in data:
+            body = data.get("body") or ""
+            url = data.get("url") or ""
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
             return
 
-        query = query.strip()
-        # If numeric, delegate to the existing game command behavior (lookup by id)
-        if query.isdigit():
-            game_id = int(query)
-            params = {"i": str(game_id), "y": api_key}
-            data = await self._api_get("API_GetGame.php", params=params)
-            if isinstance(data, dict) and "error" in data:
-                body = data.get("body") or ""
-                url = data.get("url") or ""
-                await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
-                return
-            if not isinstance(data, dict):
-                await ctx.send(embed=self._error_embed("Unexpected response formatting when looking up game by ID."))
-                return
-            # Reuse the existing output formatting (minimal)
-            title = data.get("Title") or f"Game {game_id}"
-            embed = discord.Embed(title=f"{title} — Game {game_id}", color=COLOR_NEUTRAL)
-            embed.add_field(name="System", value=data.get("ConsoleName", "Unknown"), inline=True)
-            embed.add_field(name="Publisher", value=data.get("Publisher", "Unknown"), inline=True)
-            embed.add_field(name="Developer", value=data.get("Developer", "Unknown"), inline=True)
-            embed.add_field(name="Achievements", value=str(data.get("AchievementCount", "Unknown")), inline=True)
-            boxart = data.get("BoxArt")
-            if boxart:
-                embed.set_thumbnail(url=boxart)
-            embed.set_footer(text="Data from RetroAchievements.org")
-            await ctx.send(embed=embed)
+        if not isinstance(data, list) or not data:
+            await ctx.send(embed=self._error_embed("No global leaderboard data returned."))
             return
 
-        # Non-numeric query: try candidate search endpoints
-        candidates = [
-            ("API_SearchGames.php", {"q": query, "y": api_key}),
-            ("API_GetGames.php", {"title": query, "y": api_key}),
-            ("API_GetGame.php", {"title": query, "y": api_key}),  # sometimes supports title param
-            ("API_Search.php", {"q": query, "y": api_key}),
-            ("API_GetGameByName.php", {"name": query, "y": api_key}),
-        ]
+        lines = []
+        for idx, e in enumerate(data, start=1):
+            name = e.get("UserName") or e.get("User") or e.get("Username") or "Unknown"
+            pts = e.get("Points") or e.get("Score") or e.get("TotalPoints") or "0"
+            lines.append(f"{idx}. **{name}** — {pts} pts")
 
-        last_error = None
-        found = None
-        used_ep = None
-        for ep, params in candidates:
-            res = await self._api_get(ep, params=params)
-            if isinstance(res, dict) and "error" in res:
-                last_error = res
-                continue
-            # Accept a list of games or a dict containing a list
-            if isinstance(res, list) and res:
-                found = res
-                used_ep = ep
-                break
-            if isinstance(res, dict):
-                # common shapes: { "Results": [...]} or { "Games": [...] } or a direct keyed dict mapping ids->obj
-                for key in ("Results", "Games", "GamesList", "results", "games"):
-                    if key in res and isinstance(res[key], list) and res[key]:
-                        found = res[key]
-                        used_ep = ep
-                        break
-                if found:
-                    break
-                # also accept dicts which map id->game object
-                is_map = all(isinstance(k, str) and isinstance(v, dict) for k, v in res.items())
-                if is_map and res:
-                    # convert to list of game dicts and include id
-                    entries = []
-                    for k, v in res.items():
-                        entry = dict(v)
-                        entry.setdefault("ID", k)
-                        entries.append(entry)
-                    found = entries
-                    used_ep = ep
-                    break
-
-        if not found:
-            if last_error:
-                body = last_error.get("body") or ""
-                url = last_error.get("url") or ""
-                await ctx.send(embed=self._info_embed(
-                    "Game search not found",
-                    "No search endpoint returned results. Try the owner-only raw command to probe endpoints, for example:\n"
-                    "`retroachievements raw API_SearchGames.php q=sonic y=YOUR_KEY`\n"
-                    f"Last attempted URL: {url}\nLast response body: {body}"
-                ))
-            else:
-                await ctx.send(embed=self._info_embed(
-                    "Game search not found",
-                    "No candidate search endpoint returned results for that query on this server. Use the owner-only raw command to investigate available endpoints."
-                ))
-            return
-
-        # Build readable list of matches (limit to top 20)
-        matches = []
-        for g in found[:20]:
-            gid = str(g.get("ID") or g.get("GameID") or g.get("GameId") or g.get("i") or g.get("id") or g.get("Game") or "")
-            title = g.get("Title") or g.get("Name") or g.get("title") or ""
-            console = g.get("ConsoleName") or g.get("System") or g.get("Console") or g.get("Platform") or ""
-            matches.append(f"{gid or 'unknown'} — **{title}** — {console}")
-
-        if not matches:
-            await ctx.send(embed=self._error_embed("Search returned no usable matches."))
-            return
-
-        # Paginate match list
         pages = []
         chunk = 12
-        for i in range(0, len(matches), chunk):
-            emb = discord.Embed(title=f"Search results for \"{query}\" (endpoint={used_ep})", description="\n".join(matches[i:i+chunk]), color=COLOR_INFO)
-            emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(matches))} of {len(matches)}")
+        for i in range(0, len(lines), chunk):
+            emb = discord.Embed(title="Top users", description="\n".join(lines[i:i+chunk]), color=COLOR_INFO)
+            emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(lines))} of {len(lines)}")
             pages.append(emb)
 
         await self._paginate_embeds(ctx, pages)
@@ -505,21 +487,23 @@ class RetroAchievements(commands.Cog):
         """Achievements related commands."""
         await ctx.send_help(ctx.command)
 
+    # achievements list: accept game ID or name
     @achievements_group.command(name="list")
-    async def achievements_list(self, ctx, game_id: int, details: bool = False):
-        """List achievements for a game.
-        Use `details` True to show more info per achievement (may be long).
-        """
+    async def achievements_list(self, ctx, game: str, details: bool = False):
+        """List achievements for a game by ID or name. Use details True for descriptions."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
 
-        params = {"i": str(game_id), "y": api_key}
+        gid = await self._resolve_game_id(api_key, game)
+        if not gid:
+            await ctx.send(embed=self._error_embed("Could not resolve game name to an ID. Try the owner-only raw command to probe search endpoints."))
+            return
+
+        params = {"i": str(gid), "y": api_key}
         data = await self._api_get("API_GetGame.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            body = data.get("body") or ""
-            url = data.get("url") or ""
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
             return
 
         # Try to find achievements list in response
@@ -529,9 +513,7 @@ class RetroAchievements(commands.Cog):
                 achs = data[key]
                 break
 
-        # Some API variants include an "achievements" top-level list
         if achs is None and isinstance(data, dict) and "AchievementCount" in data:
-            # API didn't return the detailed list
             await ctx.send(embed=self._info_embed("No achievement list returned", "The API did not return a detailed achievement list for this game. Use the raw command for debugging."))
             return
 
@@ -555,11 +537,10 @@ class RetroAchievements(commands.Cog):
             else:
                 lines.append(f"**{title}** — {points} pts")
 
-        # Build paged embed list
         pages = []
         chunk = 10
         for i in range(0, len(lines), chunk):
-            emb = discord.Embed(title=f"Achievements for Game {game_id}", description="\n".join(lines[i:i+chunk]), color=COLOR_NEUTRAL)
+            emb = discord.Embed(title=f"Achievements for Game {gid}", description="\n".join(lines[i:i+chunk]), color=COLOR_NEUTRAL)
             emb.set_footer(text=f"Showing {i+1}-{min(i+chunk, len(lines))} of {len(lines)}")
             pages.append(emb)
 
@@ -567,9 +548,7 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="recentgames")
     async def recent_games(self, ctx, username: Optional[str] = None, limit: int = 5):
-        """Show recent games a user has played (based on recent achievements).
-        Uses configured username if none provided.
-        """
+        """Show recent games a user has played (based on recent achievements). Uses configured username if none provided."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -583,9 +562,7 @@ class RetroAchievements(commands.Cog):
         params = {"u": cfg_username, "c": str(limit), "y": api_key}
         data = await self._api_get("API_GetRecentAchievements.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            body = data.get("body") or ""
-            url = data.get("url") or ""
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
             return
 
         if not isinstance(data, list) or not data:
@@ -617,10 +594,11 @@ class RetroAchievements(commands.Cog):
         await self._paginate_embeds(ctx, pages)
 
     @retroachievements.command(name="progress")
-    async def progress(self, ctx, username: Optional[str] = None, game_id: Optional[int] = None):
-        """Show achievements progress.
-        - If username and game_id provided: progress for that user in that game.
-        - If username provided without game_id: summary progress for that user.
+    async def progress(self, ctx, username: Optional[str] = None, game: Optional[str] = None):
+        """
+        Show achievements progress.
+        - If username and game provided: progress for that user in that game (game may be name or ID).
+        - If only username provided: summary progress for that user.
         - Uses configured username if none provided.
         """
         api_key = await self._ensure_api_key(ctx)
@@ -632,13 +610,16 @@ class RetroAchievements(commands.Cog):
             await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`." ))
             return
 
-        if game_id:
-            params = {"u": cfg_username, "i": str(game_id), "y": api_key}
+        if game:
+            gid = await self._resolve_game_id(api_key, game)
+            if not gid:
+                await ctx.send(embed=self._error_embed("Could not resolve game name to an ID. Try the owner-only raw command to probe search endpoints."))
+                return
+
+            params = {"u": cfg_username, "i": str(gid), "y": api_key}
             data = await self._api_get("API_GetUnachieved.php", params=params)
             if isinstance(data, dict) and "error" in data:
-                body = data.get("body") or ""
-                url = data.get("url") or ""
-                await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+                await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
                 return
 
             if not isinstance(data, list):
@@ -647,7 +628,7 @@ class RetroAchievements(commands.Cog):
 
             total = len(data)
             if total == 0:
-                await ctx.send(embed=self._info_embed("All achievements unlocked", f"{cfg_username} has unlocked all achievements for game {game_id}."))
+                await ctx.send(embed=self._info_embed("All achievements unlocked", f"{cfg_username} has unlocked all achievements for game {gid}."))
                 return
 
             lines = []
@@ -656,11 +637,10 @@ class RetroAchievements(commands.Cog):
                 points = item.get("Points") or ""
                 lines.append(f"**{title}** — {points} pts")
 
-            # Paginate unachieved list
             pages = []
             chunk = 10
             for i in range(0, len(lines), chunk):
-                emb = discord.Embed(title=f"{cfg_username}'s unachieved on game {game_id}", description="\n".join(lines[i:i+chunk]), color=COLOR_WARN)
+                emb = discord.Embed(title=f"{cfg_username}'s unachieved on game {gid}", description="\n".join(lines[i:i+chunk]), color=COLOR_WARN)
                 emb.set_footer(text=f"{i+1}-{min(i+chunk, total)} of {total} unachieved")
                 pages.append(emb)
 
@@ -671,9 +651,7 @@ class RetroAchievements(commands.Cog):
         params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
-            body = data.get("body") or ""
-            url = data.get("url") or ""
-            await ctx.send(embed=self._error_embed(f"API error: {data['error']}\nURL: {url}\nBody: {body}"))
+            await ctx.send(embed=self._error_embed(f"API error: {data['error']}"))
             return
 
         if not isinstance(data, dict):
