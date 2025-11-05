@@ -1,4 +1,5 @@
 import asyncio
+import time
 import aiohttp
 from typing import Optional, List, Union
 import discord
@@ -16,8 +17,10 @@ COLOR_NEUTRAL = 0x3498DB
 PAGINATION_TIMEOUT = 120  # seconds
 PAGINATION_EMOJIS = ("◀️", "▶️", "⛔")
 
-# simple structure to hold last attempted endpoints and responses for debugging
-_last_resolve_attempts = []
+# debugging and caching globals
+_last_resolve_attempts: List[dict] = []
+_resolve_cache: dict = {}  # name_lower -> game id
+_endpoint_disabled_until: dict = {}  # endpoint -> unix timestamp
 
 
 def _record_resolve_attempt(ep, params, res):
@@ -42,10 +45,7 @@ class RetroAchievements(commands.Cog):
         self.bot = bot
         self.session = aiohttp.ClientSession()
         self.config = Config.get_conf(self, identifier=0xA1B2C3D4E7)
-        default_global = {
-            "api_key": None,
-            "username": None
-        }
+        default_global = {"api_key": None, "username": None}
         self.config.register_global(**default_global)
 
     def cog_unload(self):
@@ -58,8 +58,8 @@ class RetroAchievements(commands.Cog):
     async def _api_get(self, endpoint: str, params: dict = None, timeout: int = 15):
         """
         Perform a GET against the RetroAchievements API.
-        Normalizes endpoint and returns parsed JSON on 200.
-        On non-200, returns dict with error/status/body/url/params for debugging.
+        Returns parsed JSON on 200, text fallback if JSON parsing fails.
+        On non-200 returns a dict with error/status/body/url/params for debugging.
         """
         base = BASE_API.rstrip("/")
         ep = endpoint.lstrip("/")
@@ -77,7 +77,13 @@ class RetroAchievements(commands.Cog):
                         return await resp.json(content_type=None)
                     except Exception:
                         return text
-                return {"error": f"HTTP {resp.status}", "status": resp.status, "body": text, "url": url, "params": params}
+                return {
+                    "error": f"HTTP {resp.status}",
+                    "status": resp.status,
+                    "body": text,
+                    "url": url,
+                    "params": params,
+                }
         except asyncio.TimeoutError:
             return {"error": "Request timed out", "url": url, "params": params}
         except aiohttp.ClientError as e:
@@ -89,7 +95,11 @@ class RetroAchievements(commands.Cog):
         cfg = await self.config.all()
         api_key = cfg.get("api_key")
         if not api_key:
-            await ctx.send(embed=self._error_embed("API key not configured. Use `retroachievements set <API_KEY> [default_username]` to configure."))
+            await ctx.send(
+                embed=self._error_embed(
+                    "API key not configured. Use `retroachievements set <API_KEY> [default_username]` to configure."
+                )
+            )
             return None
         return api_key
 
@@ -167,25 +177,19 @@ class RetroAchievements(commands.Cog):
         else:
             return
 
-    # Helper: try to resolve a game identifier (ID or name) to a numeric ID
+    # Resilient game name -> id resolver with caching, throttling, backoff, and debug recording
     async def _resolve_game_id(self, api_key: str, game: Union[str, int]) -> Optional[int]:
-        """
-        Accepts a numeric ID or a name string.
-        Returns numeric game ID or None if unresolved.
-        Tries several endpoints and response shapes commonly used by RA installs.
-        Records attempt summaries via _record_resolve_attempt for debugging.
-        """
+        # numeric quick path
         if isinstance(game, int):
             return game
         s = str(game).strip()
         if s.isdigit():
             return int(s)
 
-        # try common expanded queries to increase likelihood of match
-        alt_queries = [s]
-        if not s.lower().startswith("the "):
-            alt_queries.append("The " + s)
-        alt_queries.append(s.replace(" (USA)", "").replace(" (Europe)", "").strip())
+        key = s.lower()
+        # cache hit
+        if key in _resolve_cache:
+            return _resolve_cache[key]
 
         candidates_base = [
             ("API_SearchGames.php", "q"),
@@ -204,16 +208,50 @@ class RetroAchievements(commands.Cog):
                         pass
             return None
 
+        async def _call_with_backoff(ep, params, max_retries=3):
+            backoff = 1.0
+            for attempt in range(max_retries):
+                disabled_until = _endpoint_disabled_until.get(ep)
+                if disabled_until and time.time() < disabled_until:
+                    return {"error": "disabled", "status": 404, "body": "endpoint disabled due to previous 404"}
+                res = await self._api_get(ep, params=params)
+                # our _api_get annotates non-200 with "status" key in dict
+                if isinstance(res, dict) and "status" in res:
+                    st = res.get("status")
+                    if st == 404:
+                        # disable endpoint for a while
+                        _endpoint_disabled_until[ep] = time.time() + 600.0
+                        return res
+                    if st == 429:
+                        await asyncio.sleep(backoff)
+                        backoff *= 2
+                        continue
+                    return res
+                return res
+            return res
+
+        # generate query variants
+        alt_queries = [s]
+        if not s.lower().startswith("the "):
+            alt_queries.append("The " + s)
+        alt_queries.append(s.replace(" (USA)", "").replace(" (Europe)", "").strip())
+
         for q in alt_queries:
             for ep, param_key in candidates_base:
                 params = {param_key: q, "y": api_key}
-                res = await self._api_get(ep, params=params)
+                res = await _call_with_backoff(ep, params)
+                # small throttle to avoid rapid-fire requests
+                await asyncio.sleep(0.25)
                 _record_resolve_attempt(ep, params, res)
 
-                if isinstance(res, dict) and "error" in res:
+                if isinstance(res, dict) and "status" in res:
+                    st = res.get("status")
+                    if st in (404, 429):
+                        # skip endpoint on 404 or on exhausted 429
+                        continue
                     continue
 
-                # If response is a list of game objects
+                # list of objects
                 if isinstance(res, list) and res:
                     # exact match first
                     for entry in res:
@@ -223,8 +261,9 @@ class RetroAchievements(commands.Cog):
                         if isinstance(title, str) and title.lower() == q.lower():
                             gid = _extract_id_from_obj(entry)
                             if gid:
+                                _resolve_cache[key] = gid
                                 return gid
-                    # permissive substring match
+                    # substring fallback
                     for entry in res:
                         if not isinstance(entry, dict):
                             continue
@@ -232,66 +271,81 @@ class RetroAchievements(commands.Cog):
                         if isinstance(title, str) and q.lower() in title.lower():
                             gid = _extract_id_from_obj(entry)
                             if gid:
+                                _resolve_cache[key] = gid
                                 return gid
-                    # fallback to first entry's ID
+                    # fallback to first entry
                     first = res[0]
                     if isinstance(first, dict):
                         gid = _extract_id_from_obj(first)
                         if gid:
+                            _resolve_cache[key] = gid
                             return gid
                     continue
 
-                # If dict -> look for common list keys
+                # dict: nested list or id->object map or single object
                 if isinstance(res, dict):
-                    for key in ("Results", "Games", "GamesList", "results", "games", "ResultSet"):
-                        if key in res and isinstance(res[key], list) and res[key]:
-                            for entry in res[key]:
+                    # nested list keys
+                    for list_key in ("Results", "Games", "GamesList", "results", "games", "ResultSet"):
+                        if list_key in res and isinstance(res[list_key], list) and res[list_key]:
+                            for entry in res[list_key]:
                                 if not isinstance(entry, dict):
                                     continue
                                 title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
                                 if isinstance(title, str) and title.lower() == q.lower():
                                     gid = _extract_id_from_obj(entry)
                                     if gid:
+                                        _resolve_cache[key] = gid
                                         return gid
-                            # substring fallback
-                            for entry in res[key]:
+                            for entry in res[list_key]:
                                 if not isinstance(entry, dict):
                                     continue
                                 title = entry.get("Title") or entry.get("Name") or entry.get("title") or ""
                                 if isinstance(title, str) and q.lower() in title.lower():
                                     gid = _extract_id_from_obj(entry)
                                     if gid:
+                                        _resolve_cache[key] = gid
                                         return gid
-                            first = res[key][0]
+                            first = res[list_key][0]
                             if isinstance(first, dict):
                                 gid = _extract_id_from_obj(first)
                                 if gid:
+                                    _resolve_cache[key] = gid
                                     return gid
-                            break
 
-                    # Some installs return mapping id->object
+                    # mapping id -> object
                     is_map = all(isinstance(k, str) and isinstance(v, dict) for k, v in res.items()) if res else False
                     if is_map:
                         for k, v in res.items():
                             title = v.get("Title") or v.get("Name") or ""
                             if isinstance(title, str) and title.lower() == q.lower():
                                 try:
-                                    return int(k)
+                                    gid = int(k)
+                                    _resolve_cache[key] = gid
+                                    return gid
                                 except Exception:
                                     pass
-                        # substring fallback
                         for k, v in res.items():
                             title = v.get("Title") or v.get("Name") or ""
                             if isinstance(title, str) and q.lower() in title.lower():
                                 try:
-                                    return int(k)
+                                    gid = int(k)
+                                    _resolve_cache[key] = gid
+                                    return gid
                                 except Exception:
                                     pass
-                        # fallback to first key
                         try:
-                            return int(next(iter(res.keys())))
+                            gid = int(next(iter(res.keys())))
+                            _resolve_cache[key] = gid
+                            return gid
                         except Exception:
                             pass
+
+                    # single game object returned directly
+                    gid = _extract_id_from_obj(res)
+                    if gid:
+                        _resolve_cache[key] = gid
+                        return gid
+
         return None
 
     @commands.group(name="retroachievements", aliases=["ra"], invoke_without_command=True)
@@ -303,12 +357,7 @@ class RetroAchievements(commands.Cog):
     @retroachievements.command(name="set")
     @commands.admin_or_permissions(manage_guild=True)
     async def set_credentials(self, ctx, api_key: Optional[str] = None, username: Optional[str] = None):
-        """Set the RetroAchievements API key and optional default username.
-        Examples:
-        - `retroachievements set MY_API_KEY`
-        - `retroachievements set MY_API_KEY myusername`
-        - pass `-` for a value to clear it: `retroachievements set - -`
-        """
+        """Set the RetroAchievements API key and optional default username."""
         if api_key is None:
             await ctx.send(embed=self._error_embed("No API key provided. You must provide your RetroAchievements web API key."))
             return
@@ -339,16 +388,18 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="profile", aliases=["user"])
     async def profile(self, ctx, username: Optional[str] = None):
-        """Get a RetroAchievements user profile summary.
-        Uses configured username if none is provided.
-        """
+        """Get a RetroAchievements user profile summary. Uses configured username if none is provided."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
 
         cfg_api, cfg_username = await self._get_auth(username)
         if not cfg_username:
-            await ctx.send(embed=self._error_embed("No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`."))
+            await ctx.send(
+                embed=self._error_embed(
+                    "No username configured and none provided. Provide a username or set a default with `retroachievements set <API_KEY> <username>`."
+                )
+            )
             return
 
         params = {"u": cfg_username, "y": api_key}
@@ -428,7 +479,6 @@ class RetroAchievements(commands.Cog):
         title = data.get("Title") or f"Game {gid}"
         embed = discord.Embed(title=title, color=COLOR_NEUTRAL)
 
-        # Console name (some installs include ConsoleName or Console)
         console_name = data.get("ConsoleName") or data.get("Console") or data.get("ConsoleTitle") or "Unknown"
         embed.add_field(name="System", value=console_name, inline=True)
         embed.add_field(name="Publisher", value=data.get("Publisher", "Unknown"), inline=True)
@@ -440,7 +490,6 @@ class RetroAchievements(commands.Cog):
         if desc:
             embed.description = (desc[:2040] + "...") if len(desc) > 2048 else desc
 
-        # Image keys per API docs: ImageBoxArt / ImageTitle / ImageIcon / ImageIngame
         boxart = (
             data.get("ImageBoxArt")
             or data.get("ImageBox")
@@ -458,9 +507,7 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="recent")
     async def recent_global(self, ctx, limit: int = 5):
-        """Show recent achievements unlocked globally.
-        Limit defaults to 5 (max recommended 25).
-        """
+        """Show recent achievements unlocked globally."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
@@ -496,18 +543,13 @@ class RetroAchievements(commands.Cog):
 
     @retroachievements.command(name="leaderboard", aliases=["top"])
     async def leaderboard(self, ctx, game: Optional[str] = None, top: int = 10):
-        """
-        Get global or per-game leaderboard.
-        Accepts game name or numeric ID for per-game mode.
-        For global top users, uses documented API_GetTopTenUsers.php (fixed top 10).
-        """
+        """Get global or per-game leaderboard."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
 
         top = max(1, min(50, top))
 
-        # Per-game: resolve game to ID first
         if game:
             gid = await self._resolve_game_id(api_key, game)
             if not gid:
@@ -556,7 +598,6 @@ class RetroAchievements(commands.Cog):
             await self._paginate_embeds(ctx, pages)
             return
 
-        # Global: documented quick-start top users endpoint (fixed top 10)
         endpoint = "API_GetTopTenUsers.php"
         params = {"y": api_key}
         data = await self._api_get(endpoint, params=params)
@@ -589,7 +630,6 @@ class RetroAchievements(commands.Cog):
         """Achievements related commands."""
         await ctx.send_help(ctx.command)
 
-    # achievements list: accept game ID or name
     @achievements_group.command(name="list")
     async def achievements_list(self, ctx, game: str, details: bool = False):
         """List achievements for a game by ID or name. Use details True for descriptions."""
@@ -772,7 +812,6 @@ class RetroAchievements(commands.Cog):
             await self._paginate_embeds(ctx, pages)
             return
 
-        # User summary
         params = {"u": cfg_username, "y": api_key}
         data = await self._api_get("API_GetUserSummary.php", params=params)
         if isinstance(data, dict) and "error" in data:
@@ -799,10 +838,7 @@ class RetroAchievements(commands.Cog):
     @commands.is_owner()
     @retroachievements.command(name="raw")
     async def raw(self, ctx, endpoint: str, *, params: str = ""):
-        """Owner-only: raw API request for debugging.
-        endpoint should be the API endpoint file name, e.g., API_GetUserSummary.php
-        params should be URL query string style: key1=val1&key2=val2
-        """
+        """Owner-only: raw API request for debugging."""
         api_key = await self._ensure_api_key(ctx)
         if not api_key:
             return
