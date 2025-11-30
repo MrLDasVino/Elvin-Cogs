@@ -154,9 +154,10 @@ class freegames(commands.Cog):
                 if new_items:
                     channel = guild.get_channel(channel_id) or self.bot.get_channel(channel_id)
                     if channel:
+                        allowed = discord.AllowedMentions(roles=True, users=False, everyone=False)
                         mention = f"<@&{role_id}>"
                         try:
-                            await channel.send(mention + " Check out this free stuff:")
+                            await channel.send(mention + " Check out this free stuff:", allowed_mentions=allowed)
                         except Exception:
                             log.exception("Failed to send role mention in guild %s", gid)
                         for item in new_items[:MAX_EMBEDS_PER_POLL]:
@@ -318,8 +319,9 @@ class freegames(commands.Cog):
         mention = f"<@&{cfg['role_id']}>" if cfg.get("role_id") else ""
         try:
             # Send single mention message in the command channel to ensure ping (if role configured)
+            allowed = discord.AllowedMentions(roles=True, users=False, everyone=False)
             if mention:
-                await ctx.send(mention + " New giveaways (test):")
+                await ctx.send(mention + " New giveaways (test):", allowed_mentions=allowed)
             else:
                 await ctx.send("New giveaways (test):")
         except Exception:
