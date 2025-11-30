@@ -286,6 +286,7 @@ class freegames(commands.Cog):
         Usage:
         [p]freegames test            - posts current unseen giveaways here (does NOT update seen_ids)
         [p]freegames test true       - posts and marks those giveaways as seen (updates seen_ids)
+        If there are no unseen giveaways, the most recent giveaway will be shown instead.
         """
         guild = ctx.guild
         cfg = await self.config.guild(guild).all()
@@ -312,13 +313,36 @@ class freegames(commands.Cog):
             if gid_str not in seen_ids:
                 new_items.append((gid_str, item))
 
+        # If there are no new items, fall back to showing the most recent giveaway (if any)
         if not new_items:
-            await ctx.send("No new giveaways found with your current filters.")
+            if not giveaways:
+                await ctx.send("No giveaways returned by the API.")
+                return
+
+            latest = giveaways[0]  # API returns newest first
+            latest_gid = str(latest.get("id") or latest.get("giveaway_id") or latest.get("title"))
+
+            mention = f"<@&{cfg['role_id']}>" if cfg.get("role_id") else ""
+            try:
+                allowed = discord.AllowedMentions(roles=True, users=False, everyone=False)
+                if mention:
+                    await ctx.send(mention + " Showing the latest giveaway (no unseen giveaways):", allowed_mentions=allowed)
+                else:
+                    await ctx.send("Showing the latest giveaway (no unseen giveaways):")
+            except Exception:
+                log.exception("Failed to send mention message during test fallback in guild %s", guild.id)
+
+            try:
+                embed = self._make_embed_for_item(latest)
+                await ctx.send(embed=embed)
+            except Exception:
+                log.exception("Failed to send fallback latest embed in guild %s for item %s", guild.id, latest.get("title"))
+            await ctx.send("Note: this was the most recent giveaway and was not marked as seen.")
             return
 
+        # Existing behavior when there are new items
         mention = f"<@&{cfg['role_id']}>" if cfg.get("role_id") else ""
         try:
-            # Send single mention message in the command channel to ensure ping (if role configured)
             allowed = discord.AllowedMentions(roles=True, users=False, everyone=False)
             if mention:
                 await ctx.send(mention + " New giveaways (test):", allowed_mentions=allowed)
@@ -337,12 +361,12 @@ class freegames(commands.Cog):
                 log.exception("Failed to send test embed in guild %s for item %s", guild.id, item.get("title"))
 
         if commit and posted_ids:
-            # merge posted ids into seen_ids and persist
             seen_ids.update(posted_ids)
             await self.config.guild(guild).seen_ids.set(list(seen_ids))
             await ctx.send(f"Marked {len(posted_ids)} giveaways as seen.")
         else:
             await ctx.send(f"Posted {len(posted_ids)} giveaways (not marked as seen).")
+
             
     @freegames.command(name="clearseen")
     @checks.admin_or_permissions(manage_guild=True)
