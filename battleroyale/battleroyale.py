@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Set
 import aiohttp
 import discord
 from redbot.core import commands, bank, checks, Config
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw, ImageOps, ImageFont
 
 # File paths (stored next to this file)
 BASE_DIR = os.path.dirname(__file__)
@@ -62,7 +62,8 @@ class JoinView(discord.ui.View):
         self.signup_message_id = signup_message_id
 
     @discord.ui.button(label="Join", style=discord.ButtonStyle.green, custom_id="battleroyale_join")
-    async def join_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # NOTE: parameter order is (interaction, button)
         if not interaction.guild:
             await interaction.response.send_message("This must be used in a server.", ephemeral=True)
             return
@@ -223,12 +224,12 @@ class BattleRoyale(commands.Cog):
     # -----------------------
     # Commands
     # -----------------------
-    @commands.group()
+    @commands.group(invoke_without_command=True)
     @commands.guild_only()
     async def battleroyale(self, ctx: commands.Context):
         """Battle Royale commands group."""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+        await ctx.send_help(ctx.command)
+
 
     @battleroyale.command(name="signup")
     @commands.guild_only()
@@ -728,6 +729,7 @@ class BattleRoyale(commands.Cog):
         """Compose a composite image for the event round. Handles NPC images via image_url."""
         base = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
 
+        # optional background from event
         if event_image_url:
             try:
                 async with self.session.get(event_image_url) as resp:
@@ -735,76 +737,77 @@ class BattleRoyale(commands.Cog):
                         data = await resp.read()
                         bg = Image.open(io.BytesIO(data)).convert("RGBA")
                         bg = bg.resize(COMPOSITE_SIZE)
-                        base.paste(bg, (0, 0))
-                    else:
-                        event_image_url = None
+                        # blend background lightly
+                        base = Image.alpha_composite(base, bg)
             except Exception:
-                event_image_url = None
+                pass
 
-        if not event_image_url:
-            rr, rg, rb = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
-            ra = random.randint(200, 255)
-            random_bg = Image.new("RGBA", COMPOSITE_SIZE, (rr, rg, rb, ra))
-            base = Image.alpha_composite(random_bg, base)
+        draw = ImageDraw.Draw(base)
 
-        spacing = 12
-        total = len(participant_ids)
-        if total == 0:
-            bio = io.BytesIO()
-            base.save(bio, "PNG")
-            bio.seek(0)
-            return bio
+        # simple layout: avatars in a row with spacing
+        padding = 10
+        max_slots = 5
+        slot_w = (COMPOSITE_SIZE[0] - padding * 2) // max_slots
+        slot_h = COMPOSITE_SIZE[1] - padding * 2
+        x = padding
 
-        max_width = COMPOSITE_SIZE[0] - (spacing * (total + 1))
-        avatar_w = min(AVATAR_SIZE, max(48, max_width // total))
-        x = spacing
-        y = (COMPOSITE_SIZE[1] - avatar_w) // 2
+        # helper to make circular avatar
+        def circle_mask(img: Image.Image, size: int) -> Image.Image:
+            mask = Image.new("L", (size, size), 0)
+            mdraw = ImageDraw.Draw(mask)
+            mdraw.ellipse((0, 0, size, size), fill=255)
+            out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            out.paste(img, (0, 0), mask=mask)
+            return out
 
-        # attempt to get guild context for avatar fetches
+        # fetch avatars concurrently
         guild = None
-        for g in self.bot.guilds:
-            for pid in participant_ids:
-                if isinstance(pid, int) and pid > 0 and g.get_member(pid):
-                    guild = g
-                    break
-            if guild:
-                break
+        # try to find a guild from bot if possible (best-effort)
+        if self.bot.guilds:
+            guild = self.bot.guilds[0]
 
-        for pid in participant_ids:
-            avatar = None
-            if isinstance(pid, int) and pid < 0:
-                inst = self.npc_instances.get(pid)
-                if inst and inst.get("image_url"):
-                    avatar = await self.fetch_image_from_url(inst["image_url"], avatar_w)
+        avatar_tasks = [self.fetch_avatar_image(pid, guild) for pid in participant_ids]
+        avatars = await asyncio.gather(*avatar_tasks, return_exceptions=True)
+
+        # draw up to max_slots avatars
+        for idx, pid in enumerate(participant_ids[:max_slots]):
+            av = avatars[idx] if idx < len(avatars) else None
+            if isinstance(av, Exception) or av is None:
+                # placeholder
+                av_img = Image.new("RGBA", (AVATAR_SIZE, AVATAR_SIZE), (100, 100, 100, 255))
+                draw_placeholder = ImageDraw.Draw(av_img)
+                draw_placeholder.text((10, 10), "?", fill=(255, 255, 255, 255))
             else:
-                avatar = await self.fetch_avatar_image(pid, guild)
+                av_img = av
 
-            if avatar:
-                avatar = avatar.resize((avatar_w, avatar_w))
-            else:
-                avatar = Image.new("RGBA", (avatar_w, avatar_w), (100, 100, 100, 255))
+            # make circular and resize to fit slot
+            size = min(AVATAR_SIZE, slot_h)
+            av_circ = circle_mask(ImageOps.fit(av_img, (size, size)), size)
 
+            # center vertically in slot
+            y = padding + (slot_h - size) // 2
+            base.paste(av_circ, (x + (slot_w - size) // 2, y), av_circ)
+
+            # if this participant is eliminated, draw a red X over avatar
             if pid in eliminated_ids:
-                avatar = ImageOps.grayscale(avatar).convert("RGBA")
-                cr, cg, cb = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
-                cross = Image.new("RGBA", avatar.size, (0, 0, 0, 0))
-                cd = ImageDraw.Draw(cross)
-                w, h = avatar.size
-                thickness = max(4, w // 10)
-                cd.line((0, 0, w, h), fill=(cr, cg, cb, 220), width=thickness)
-                cd.line((0, h, w, 0), fill=(cr, cg, cb, 220), width=thickness)
-                avatar = Image.alpha_composite(avatar, cross)
+                ex_x = x + (slot_w - size) // 2
+                ex_y = y
+                ex_w = size
+                ex_draw = ImageDraw.Draw(base)
+                ex_draw.line((ex_x, ex_y, ex_x + ex_w, ex_y + ex_w), fill=(255, 0, 0, 200), width=6)
+                ex_draw.line((ex_x + ex_w, ex_y, ex_x, ex_y + ex_w), fill=(255, 0, 0, 200), width=6)
 
-            base.paste(avatar, (x, y), avatar)
-            x += avatar_w + spacing
+            x += slot_w
 
-        bio = io.BytesIO()
-        base.save(bio, "PNG")
-        bio.seek(0)
-        return bio
+        # small footer text with round summary (optional)
+        try:
+            font = ImageFont.load_default()
+            footer_text = f"Participants: {len(participant_ids)}  Eliminated: {len(eliminated_ids)}"
+            draw.text((padding, COMPOSITE_SIZE[1] - padding - 12), footer_text, fill=(220, 220, 220, 255), font=font)
+        except Exception:
+            pass
 
-
-# Expose the cog for Red to load. Red's async setup should call this class from __init__.py.
-def setup(bot):
-    # Backwards compatibility: synchronous setup for older loaders
-    bot.add_cog(BattleRoyale(bot))
+        out = io.BytesIO()
+        base.convert("RGBA").save(out, format="PNG")
+        out.seek(0)
+        return out
