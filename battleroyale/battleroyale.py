@@ -917,10 +917,23 @@ class BattleRoyale(commands.Cog):
         except Exception:
             font = ImageFont.load_default()
         caption = "Battle Royale"
-        tw, th = draw.textsize(caption, font=font)
+
+        # Use textbbox for reliable measurement across Pillow versions
+        try:
+            bbox = draw.textbbox((0, 0), caption, font=font)
+            tw = bbox[2] - bbox[0]
+            th = bbox[3] - bbox[1]
+        except Exception:
+            # fallback to font.getsize if available
+            try:
+                tw, th = font.getsize(caption)
+            except Exception:
+                tw, th = (len(caption) * 6, 12)
+
         draw.text(((COMPOSITE_SIZE[0] - tw) // 2, COMPOSITE_SIZE[1] - th - 6), caption, fill=(255, 255, 255, 200), font=font)
 
         out = io.BytesIO()
         base.save(out, format="PNG")
         out.seek(0)
         return out
+
