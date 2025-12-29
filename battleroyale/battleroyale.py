@@ -20,16 +20,16 @@ NPCS_FILE = os.path.join(BASE_DIR, "npcs.json")
 
 # Default remote fallback URLs (set to real URLs or leave empty)
 DEFAULT_NPC_URLS = [
-    # "https://files.catbox.moe/zgo9st.png",
-    # "https://files.catbox.moe/tlmusq.png",
+     "https://files.catbox.moe/zgo9st.png",
+     "https://files.catbox.moe/tlmusq.png",
 ]
 DEFAULT_EVENT_URLS = [
-    # "https://files.catbox.moe/9p8hc6.png",
-    # "https://files.catbox.moe/2vqj0b.png",
+     "https://files.catbox.moe/9p8hc6.png",
+     "https://files.catbox.moe/2vqj0b.png",
 ]
 DEFAULT_BG_URLS = [
-    # "https://files.catbox.moe/5vn581.png",
-    # "https://files.catbox.moe/xes0gm.png",
+     "https://files.catbox.moe/5vn581.png",
+     "https://example.com/default_bg2.png",
 ]
 
 # Image constants
@@ -293,7 +293,9 @@ class BattleRoyale(commands.Cog):
         if url in self._image_cache:
             return self._image_cache[url]
         try:
-            async with self.session.get(url, timeout=timeout) as resp:
+            # simple headers to avoid some servers rejecting requests
+            headers = {"User-Agent": "RedBot-BattleRoyale/1.0 (+https://example.invalid/)"}
+            async with self.session.get(url, timeout=timeout, headers=headers, allow_redirects=True) as resp:
                 if resp.status == 200:
                     data = await resp.read()
                     # cache it
@@ -322,6 +324,7 @@ class BattleRoyale(commands.Cog):
         default_url_list: Optional[List[str]],
         size=(AVATAR_SIZE, AVATAR_SIZE),
         default_type: Optional[str] = None,  # "npc", "event", "bg" for config lookup
+        npc_instance: Optional[Dict] = None,  # pass npc instance dict when available
     ) -> Image.Image:
         """
         Try in order:
@@ -329,24 +332,21 @@ class BattleRoyale(commands.Cog):
           2. random default URL from default_url_list (if provided)
           3. configured defaults from self.config (based on default_type)
           4. module DEFAULT_* lists
-          5. generated placeholder
+          5. for NPCs: try enemy_templates that have image_url
+          6. generated placeholder
         Returns a PIL Image resized to `size`.
         """
         img_bytes = None
 
-        # 1) try entity URL
+        # 1) try explicit entity URL
         if image_url:
             img_bytes = await self._fetch_image_bytes(image_url)
 
         # 2) try provided default_url_list
-        tried_candidates: List[str] = []
         if not img_bytes and default_url_list:
-            candidates = default_url_list[:]
+            candidates = [u for u in default_url_list if u]
             random.shuffle(candidates)
             for candidate in candidates:
-                if not candidate:
-                    continue
-                tried_candidates.append(candidate)
                 img_bytes = await self._fetch_image_bytes(candidate)
                 if img_bytes:
                     break
@@ -366,12 +366,9 @@ class BattleRoyale(commands.Cog):
                 cfg_list = []
 
             if cfg_list:
-                candidates = cfg_list[:]
+                candidates = [u for u in cfg_list if u]
                 random.shuffle(candidates)
                 for candidate in candidates:
-                    if not candidate:
-                        continue
-                    tried_candidates.append(candidate)
                     img_bytes = await self._fetch_image_bytes(candidate)
                     if img_bytes:
                         break
@@ -387,12 +384,25 @@ class BattleRoyale(commands.Cog):
                 fallback_list = DEFAULT_BG_URLS
 
             if fallback_list:
-                candidates = fallback_list[:]
+                candidates = [u for u in fallback_list if u]
                 random.shuffle(candidates)
                 for candidate in candidates:
-                    if not candidate:
-                        continue
-                    tried_candidates.append(candidate)
+                    img_bytes = await self._fetch_image_bytes(candidate)
+                    if img_bytes:
+                        break
+
+        # 5) for NPCs, try enemy_templates images if still nothing
+        if not img_bytes and default_type == "npc":
+            # try the npc_instance's template image first (if provided)
+            if npc_instance:
+                tpl_url = npc_instance.get("image_url")
+                if tpl_url:
+                    img_bytes = await self._fetch_image_bytes(tpl_url)
+            # otherwise try any enemy template that has an image_url
+            if not img_bytes and self.enemy_templates:
+                candidates = [t.get("image_url") for t in self.enemy_templates if t.get("image_url")]
+                random.shuffle(candidates)
+                for candidate in candidates:
                     img_bytes = await self._fetch_image_bytes(candidate)
                     if img_bytes:
                         break
@@ -404,7 +414,7 @@ class BattleRoyale(commands.Cog):
             except Exception:
                 img = None
 
-        # 5) fallback placeholder
+        # 6) fallback placeholder
         if img is None:
             img = self._open_fallback_image(size=size)
 
@@ -986,7 +996,7 @@ class BattleRoyale(commands.Cog):
                     inst = self.npc_instances.get(pid, {})
                     name = inst.get("name", f"NPC {pid}")
                     image_url = inst.get("image_url")
-                    avatar = await self._load_image_for_entity(image_url, DEFAULT_NPC_URLS, size=(AVATAR_SIZE, AVATAR_SIZE), default_type="npc")
+                    avatar = await self._load_image_for_entity(image_url, DEFAULT_NPC_URLS, size=(AVATAR_SIZE, AVATAR_SIZE), default_type="npc", npc_instance=inst)
                 else:
                     member = None
                     try:
