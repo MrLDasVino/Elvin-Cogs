@@ -1,26 +1,28 @@
 # battleroyale.py
 import asyncio
-import json
-import random
 import io
+import json
 import os
+import random
 from typing import Dict, List, Optional, Set
 
+import aiohttp
 import discord
 from discord.ext import commands
-from PIL import Image, ImageOps, ImageDraw
-import aiohttp
+from PIL import Image, ImageDraw, ImageOps
 
-# Configuration
+# File paths (stored next to this file)
 BASE_DIR = os.path.dirname(__file__)
 EVENTS_FILE = os.path.join(BASE_DIR, "events.json")
 ENEMIES_FILE = os.path.join(BASE_DIR, "enemies.json")
 GAMES_FILE = os.path.join(BASE_DIR, "games.json")
 NPCS_FILE = os.path.join(BASE_DIR, "npcs.json")
 
+# Image constants
 AVATAR_SIZE = 128
 COMPOSITE_SIZE = (700, 260)
 
+# Utilities for JSON persistence
 def load_json_file(path: str, default):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -28,13 +30,33 @@ def load_json_file(path: str, default):
     except Exception:
         return default
 
+
 def save_json_file(path: str, data):
-    with open(path, "w", encoding="utf-8") as f:
+    # simple atomic-ish write: write to temp then rename
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+    try:
+        os.replace(tmp, path)
+    except Exception:
+        # fallback
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+# Persistent loaders
+def load_events() -> List[Dict]:
+    return load_json_file(EVENTS_FILE, [])
+
+
+def load_enemy_templates() -> List[Dict]:
+    return load_json_file(ENEMIES_FILE, [])
+
 
 class JoinView(discord.ui.View):
-    """Persistent join button view for signups."""
-    def __init__(self, cog, signup_message_id: int):
+    """Persistent Join button view for signups."""
+
+    def __init__(self, cog: "BattleRoyale", signup_message_id: int):
         super().__init__(timeout=None)
         self.cog = cog
         self.signup_message_id = signup_message_id
@@ -56,13 +78,14 @@ class JoinView(discord.ui.View):
             return
 
         game["players"].append(user.id)
-        # persist change
         await self.cog._save_games()
         await interaction.response.send_message("You joined the Battle Royale!", ephemeral=True)
 
+
 class SelectView(discord.ui.View):
     """Dropdown for selecting which signup to start."""
-    def __init__(self, cog, guild_id: int, author_id: int):
+
+    def __init__(self, cog: "BattleRoyale", guild_id: int, author_id: int):
         super().__init__(timeout=60)
         self.cog = cog
         self.guild_id = guild_id
@@ -82,74 +105,94 @@ class SelectView(discord.ui.View):
         self.stop()
 
     async def on_timeout(self):
+        # nothing special
         pass
 
-class BattleRoyale(commands.Cog):
-    """Battle Royale game cog with persistent NPC instances and signups."""
 
-    def __init__(self, bot):
+class BattleRoyale(commands.Cog):
+    """Battle Royale game cog with persistence, NPCs, events, and image composition."""
+
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # load events and enemy templates
-        self.events = load_json_file(EVENTS_FILE, [])
-        self.enemy_templates: List[Dict] = load_json_file(ENEMIES_FILE, [])
-        # active_games: signup_message_id -> game dict
-        # load persisted games (players may include negative NPC ids)
-        self.active_games: Dict[int, Dict] = {}
+
+        # load persisted data
+        self.events: List[Dict] = load_events()
+        self.enemy_templates: List[Dict] = load_enemy_templates()
+
+        # active_games keyed by signup_message_id (int)
         raw_games = load_json_file(GAMES_FILE, {})
+        self.active_games: Dict[int, Dict] = {}
         for k, v in raw_games.items():
             try:
-                mid = int(k)
-                self.active_games[mid] = v
+                self.active_games[int(k)] = v
             except Exception:
                 continue
 
-        # npc_instances: negative id (int) -> {name, image_url}
-        # persisted as string keys in JSON; convert back to int
-        self.npc_instances: Dict[int, Dict] = {}
+        # npc_instances persisted: keys are negative ints stored as strings in JSON
         raw_npcs = load_json_file(NPCS_FILE, {"instances": {}, "next_npc_id": -1})
+        self.npc_instances: Dict[int, Dict] = {}
         for k, v in raw_npcs.get("instances", {}).items():
             try:
-                nid = int(k)
-                self.npc_instances[nid] = v
+                self.npc_instances[int(k)] = v
             except Exception:
                 continue
-        self.next_npc_id = int(raw_npcs.get("next_npc_id", -1))
+        self.next_npc_id: int = int(raw_npcs.get("next_npc_id", -1))
 
+        # aiohttp session for fetching avatars and images
         self.session = aiohttp.ClientSession()
 
-        # restore views for signups that still exist (async)
+        # file locks for safe concurrent writes
+        self._games_lock = asyncio.Lock()
+        self._npcs_lock = asyncio.Lock()
+        self._events_lock = asyncio.Lock()
+        self._templates_lock = asyncio.Lock()
+
+        # restore persistent views after bot ready
         bot.loop.create_task(self._restore_views())
 
     def cog_unload(self):
-        asyncio.create_task(self.session.close())
+        # schedule session close
+        try:
+            asyncio.create_task(self.session.close())
+        except Exception:
+            pass
 
-    # --- persistence helpers ---
+    # -----------------------
+    # Persistence helpers
+    # -----------------------
     async def _save_games(self):
-        # convert keys to strings for JSON
-        serial = {str(k): v for k, v in self.active_games.items()}
-        save_json_file(GAMES_FILE, serial)
+        async with self._games_lock:
+            serial = {str(k): v for k, v in self.active_games.items()}
+            save_json_file(GAMES_FILE, serial)
 
     async def _save_npcs(self):
-        serial = {"instances": {str(k): v for k, v in self.npc_instances.items()}, "next_npc_id": self.next_npc_id}
-        save_json_file(NPCS_FILE, serial)
+        async with self._npcs_lock:
+            serial = {"instances": {str(k): v for k, v in self.npc_instances.items()}, "next_npc_id": self.next_npc_id}
+            save_json_file(NPCS_FILE, serial)
+
+    async def _save_events(self):
+        async with self._events_lock:
+            save_json_file(EVENTS_FILE, self.events)
+
+    async def _save_templates(self):
+        async with self._templates_lock:
+            save_json_file(ENEMIES_FILE, self.enemy_templates)
 
     async def _restore_views(self):
-        # attempt to re-register JoinView for each active signup message id
+        """Re-register JoinView for persisted signups whose messages still exist."""
         await self.bot.wait_until_ready()
         for mid, game in list(self.active_games.items()):
             try:
-                # verify message exists
                 guild = self.bot.get_guild(game["guild_id"])
                 if not guild:
                     continue
                 channel = guild.get_channel(game["channel_id"])
                 if not channel:
                     continue
-                # try to fetch message
                 try:
-                    msg = await channel.fetch_message(mid)
+                    await channel.fetch_message(mid)
                 except Exception:
-                    # message not found; remove persisted signup
+                    # message missing: skip (do not remove automatically)
                     continue
                 view = JoinView(self, signup_message_id=mid)
                 try:
@@ -158,11 +201,13 @@ class BattleRoyale(commands.Cog):
                     pass
             except Exception:
                 continue
-        # ensure persisted files are up to date
+        # ensure persisted files exist
         await self._save_games()
         await self._save_npcs()
 
-    # --- utility ---
+    # -----------------------
+    # Utilities
+    # -----------------------
     def is_mod_or_admin(self, member: discord.Member) -> bool:
         return (
             member.guild_permissions.manage_guild
@@ -171,26 +216,33 @@ class BattleRoyale(commands.Cog):
             or member.guild_permissions.administrator
         )
 
+    def _random_color(self) -> discord.Color:
+        r, g, b = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
+        return discord.Color.from_rgb(r, g, b)
+
+    # -----------------------
+    # Commands
+    # -----------------------
     @commands.group()
     @commands.guild_only()
-    async def battleroyale(self, ctx):
+    async def battleroyale(self, ctx: commands.Context):
         """Battle Royale commands group."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    # --- signup ---
     @battleroyale.command(name="signup")
     @commands.guild_only()
-    async def signup(self, ctx, channel: discord.TextChannel):
+    async def signup(self, ctx: commands.Context, channel: discord.TextChannel):
         """Create a signup embed in the specified channel (mods/admins only)."""
         if not self.is_mod_or_admin(ctx.author):
             await ctx.send("You need to be a moderator or admin to create a signup.")
             return
 
+        color = self._random_color()
         embed = discord.Embed(
             title="Battle Royale Signup",
             description="Click **Join** to enter the next Battle Royale. Mods can add NPCs with `battleroyale addnpc`.",
-            color=discord.Color.dark_red()
+            color=color,
         )
         embed.set_footer(text=f"Signup created by {ctx.author.display_name}")
         view = JoinView(self, signup_message_id=0)
@@ -201,8 +253,8 @@ class BattleRoyale(commands.Cog):
             "channel_id": channel.id,
             "guild_id": ctx.guild.id,
             "creator_id": ctx.author.id,
-            "players": [],   # real user IDs and NPC instance IDs (negative ints)
-            "running": False
+            "players": [],  # real user IDs and NPC instance IDs (negative ints)
+            "running": False,
         }
         self.active_games[msg.id] = game
         view.signup_message_id = msg.id
@@ -215,26 +267,30 @@ class BattleRoyale(commands.Cog):
         await self._save_games()
         await ctx.send(f"Signup posted in {channel.mention} (message id {msg.id}).")
 
-    # --- enemy templates ---
+    # -----------------------
+    # Enemy template management
+    # -----------------------
     @battleroyale.group(name="enemy", invoke_without_command=True)
-    async def enemy(self, ctx):
+    async def enemy(self, ctx: commands.Context):
         """Manage NPC enemy templates. Use subcommands add/list/remove."""
         await ctx.send_help(ctx.command)
 
     @enemy.command(name="add")
     @commands.is_owner()
-    async def enemy_add(self, ctx, name: str, image_url: Optional[str] = None):
+    async def enemy_add(self, ctx: commands.Context, name: str, image_url: Optional[str] = None):
+        """Add an enemy template to enemies.json (owner only)."""
         template = {"name": name, "image_url": image_url}
         self.enemy_templates.append(template)
-        save_json_file(ENEMIES_FILE, self.enemy_templates)
+        await self._save_templates()
         await ctx.send(f"Enemy template **{name}** added.")
 
     @enemy.command(name="remove")
     @commands.is_owner()
-    async def enemy_remove(self, ctx, *, name: str):
+    async def enemy_remove(self, ctx: commands.Context, *, name: str):
+        """Remove an enemy template by name (owner only)."""
         before = len(self.enemy_templates)
-        self.enemy_templates = [t for t in self.enemy_templates if t["name"].lower() != name.lower()]
-        save_json_file(ENEMIES_FILE, self.enemy_templates)
+        self.enemy_templates = [t for t in self.enemy_templates if t.get("name", "").lower() != name.lower()]
+        await self._save_templates()
         after = len(self.enemy_templates)
         if before == after:
             await ctx.send(f"No enemy template named **{name}** found.")
@@ -242,21 +298,24 @@ class BattleRoyale(commands.Cog):
             await ctx.send(f"Enemy template **{name}** removed.")
 
     @enemy.command(name="list")
-    async def enemy_list(self, ctx):
+    async def enemy_list(self, ctx: commands.Context):
+        """List saved enemy templates."""
         if not self.enemy_templates:
             await ctx.send("No enemy templates saved.")
             return
-        embed = discord.Embed(title="Enemy Templates", color=discord.Color.blurple())
+        embed = discord.Embed(title="Enemy Templates", color=self._random_color())
         for t in self.enemy_templates:
             name = t.get("name", "Unnamed")
             url = t.get("image_url") or "None"
             embed.add_field(name=name, value=url, inline=False)
         await ctx.send(embed=embed)
 
-    # --- add/remove NPC instances (persisted) ---
+    # -----------------------
+    # Add / remove NPC instances (persisted)
+    # -----------------------
     @battleroyale.command(name="addnpc")
     @commands.guild_only()
-    async def addnpc(self, ctx, signup_message_id: int, enemy_name: str, count: int = 1):
+    async def addnpc(self, ctx: commands.Context, signup_message_id: int, enemy_name: str, count: int = 1):
         """
         Add NPC instances from a template to a signup.
         Usage:
@@ -276,7 +335,12 @@ class BattleRoyale(commands.Cog):
             return
 
         # clamp count to avoid abuse
-        count = max(1, min(50, int(count)))
+        try:
+            count = max(1, min(50, int(count)))
+        except Exception:
+            count = 1
+
+        added_ids = []
 
         # helper: pick a random template
         def _pick_random_template():
@@ -284,9 +348,6 @@ class BattleRoyale(commands.Cog):
                 return None
             return random.choice(self.enemy_templates)
 
-        added_ids = []
-
-        # If user asked for "random", pick a random template for each NPC
         if enemy_name.lower() == "random":
             if not self.enemy_templates:
                 await ctx.send("No enemy templates available. Add templates with `battleroyale enemy add` first.")
@@ -315,26 +376,26 @@ class BattleRoyale(commands.Cog):
                 game["players"].append(nid)
                 added_ids.append((nid, template["name"]))
 
-        # persist NPCs and games
         await self._save_npcs()
         await self._save_games()
 
-        # build a friendly response
         if not added_ids:
             await ctx.send("No NPCs were added.")
             return
 
-        # summarize added NPCs (show count and example names)
-        names_summary = {}
+        names_summary: Dict[str, int] = {}
         for _, name in added_ids:
             names_summary[name] = names_summary.get(name, 0) + 1
         summary_parts = [f"{v}× {k}" for k, v in names_summary.items()]
         await ctx.send(f"Added {len(added_ids)} NPC(s) to signup {signup_message_id}: " + ", ".join(summary_parts) + ".")
 
-
     @battleroyale.command(name="removenpc")
     @commands.guild_only()
-    async def removenpc(self, ctx, signup_message_id: int, npc_name: str, count: int = 1):
+    async def removenpc(self, ctx: commands.Context, signup_message_id: int, npc_name: str, count: int = 1):
+        """
+        Remove NPC instances by name from a signup.
+        Usage: battleroyale removenpc <signup_message_id> <npc_name> [count]
+        """
         if not self.is_mod_or_admin(ctx.author):
             await ctx.send("You need to be a moderator or admin to remove NPCs.")
             return
@@ -360,10 +421,13 @@ class BattleRoyale(commands.Cog):
         await self._save_games()
         await ctx.send(f"Removed {removed} NPC(s) named **{npc_name}** from signup {signup_message_id}.")
 
-    # --- start with dropdown ---
+    # -----------------------
+    # Start command with dropdown
+    # -----------------------
     @battleroyale.command(name="start")
     @commands.guild_only()
-    async def start(self, ctx, signup_message_id: Optional[int] = None):
+    async def start(self, ctx: commands.Context, signup_message_id: Optional[int] = None):
+        """Start the Battle Royale. If no id provided, shows a dropdown to pick a signup."""
         if not self.is_mod_or_admin(ctx.author):
             await ctx.send("You need to be a moderator or admin to start a game.")
             return
@@ -376,7 +440,7 @@ class BattleRoyale(commands.Cog):
             await self.start_game(ctx, game)
             return
 
-        guild_games = [g for g in self.active_games.values() if g["guild_id"] == ctx.guild.id and not g["running"]]
+        guild_games = [g for g in self.active_games.values() if g["guild_id"] == ctx.guild.id and not g.get("running", False)]
         if not guild_games:
             await ctx.send("No active signup found to start.")
             return
@@ -411,12 +475,13 @@ class BattleRoyale(commands.Cog):
 
         await self.start_game(ctx, selected_game)
 
-    async def start_game(self, ctx, game: Dict):
-        if game["running"]:
+    async def start_game(self, ctx: commands.Context, game: Dict):
+        """Start the provided game dict. Runs the game loop and handles cleanup."""
+        if game.get("running"):
             await ctx.send("That game is already running.")
             return
 
-        if len(game["players"]) < 2:
+        if len(game.get("players", [])) < 2:
             await ctx.send("Need at least 2 players to start.")
             return
 
@@ -426,11 +491,10 @@ class BattleRoyale(commands.Cog):
             await self._run_game_loop(ctx, game)
         finally:
             game["running"] = False
-            # keep NPC instances persisted; remove only instances that are not referenced by any signup
-            # cleanup unused npc instances
-            used_ids = set()
+            # cleanup NPC instances not referenced by any signup
+            used_ids: Set[int] = set()
             for g in self.active_games.values():
-                for pid in g["players"]:
+                for pid in g.get("players", []):
                     if isinstance(pid, int) and pid < 0:
                         used_ids.add(pid)
             for nid in list(self.npc_instances.keys()):
@@ -443,13 +507,17 @@ class BattleRoyale(commands.Cog):
             except Exception:
                 pass
 
-    async def _run_game_loop(self, ctx, game: Dict):
-        players = list(game["players"])
+    # -----------------------
+    # Game loop
+    # -----------------------
+    async def _run_game_loop(self, ctx: commands.Context, game: Dict):
+        players = list(game.get("players", []))
         random.shuffle(players)
         alive: Set[int] = set(players)
         eliminated: List[int] = []
 
-        channel = ctx.guild.get_channel(game["channel_id"])
+        guild = self.bot.get_guild(game["guild_id"])
+        channel = guild.get_channel(game["channel_id"]) if guild else None
         if not channel:
             await ctx.send("Could not find the signup channel.")
             return
@@ -463,23 +531,20 @@ class BattleRoyale(commands.Cog):
 
             event = random.choices(self.events, weights=[e.get("chance", 10) for e in self.events], k=1)[0] if self.events else None
 
-            r, g, b = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
-            embed_color = discord.Color.from_rgb(r, g, b)
+            embed_color = self._random_color()
 
             participants = random.sample(list(alive), k=min(len(alive), random.randint(1, min(4, len(alive)))))
 
             casualties: List[int] = []
 
-            if event:
-                severity_pct = float(event.get("severity", 20.0))
-            else:
-                severity_pct = 20.0
+            severity_pct = float(event.get("severity", 20.0)) if event else 20.0
 
             for pid in participants:
                 roll = random.uniform(0, 100)
                 if roll < severity_pct:
                     casualties.append(pid)
 
+            # PvP duels (NPCs and players both eligible)
             pvp_duels = max(0, min(3, len(alive) // 2))
             for _ in range(pvp_duels):
                 if len(alive) < 2:
@@ -509,13 +574,14 @@ class BattleRoyale(commands.Cog):
             file = discord.File(composite, filename="event.png")
             embed.set_image(url="attachment://event.png")
 
+            # participants names
             names = []
             for pid in participants:
                 if isinstance(pid, int) and pid < 0:
                     inst = self.npc_instances.get(pid)
                     names.append(inst["name"] if inst else f"NPC {pid}")
                 else:
-                    member = ctx.guild.get_member(pid)
+                    member = guild.get_member(pid) if guild else None
                     names.append(member.display_name if member else f"User {pid}")
             embed.add_field(name="Participants", value=", ".join(names)[:1024], inline=False)
 
@@ -526,7 +592,7 @@ class BattleRoyale(commands.Cog):
                         inst = self.npc_instances.get(pid)
                         c_names.append(inst["name"] if inst else f"NPC {pid}")
                     else:
-                        member = ctx.guild.get_member(pid)
+                        member = guild.get_member(pid) if guild else None
                         c_names.append(member.display_name if member else f"User {pid}")
                 embed.add_field(name="Casualties", value=", ".join(c_names)[:1024], inline=False)
             else:
@@ -535,20 +601,28 @@ class BattleRoyale(commands.Cog):
             await channel.send(file=file, embed=embed)
             await asyncio.sleep(1)
 
+            # persist progress (players list updated to current alive + eliminated)
+            game["players"] = list(alive) + eliminated
+            await self._save_games()
+
+        # announce winner
         winner_id = next(iter(alive)) if alive else None
         if winner_id:
             if isinstance(winner_id, int) and winner_id < 0:
                 winner_name = self.npc_instances.get(winner_id, {}).get("name", f"NPC {winner_id}")
                 await channel.send(f"🏆 **{winner_name}** (NPC) is the winner!")
             else:
-                winner = ctx.guild.get_member(winner_id)
+                winner = guild.get_member(winner_id) if guild else None
                 await channel.send(f"🏆 **{winner.display_name if winner else 'Unknown'}** is the winner!")
         else:
             await channel.send("No winners this time.")
 
-    # --- status ---
+    # -----------------------
+    # Status and event management
+    # -----------------------
     @battleroyale.command(name="status")
-    async def status(self, ctx, signup_message_id: Optional[int] = None):
+    async def status(self, ctx: commands.Context, signup_message_id: Optional[int] = None):
+        """Show status of a signup/game."""
         if signup_message_id:
             game = self.active_games.get(signup_message_id)
         else:
@@ -561,24 +635,28 @@ class BattleRoyale(commands.Cog):
             await ctx.send("No active signup found.")
             return
         players = []
-        for pid in game["players"]:
+        for pid in game.get("players", []):
             if isinstance(pid, int) and pid < 0:
                 inst = self.npc_instances.get(pid)
                 players.append(f"{inst['name']} (NPC)" if inst else f"NPC {pid}")
             else:
                 member = ctx.guild.get_member(pid)
                 players.append(member.display_name if member else str(pid))
-        embed = discord.Embed(title="Battle Royale Status", color=discord.Color.blurple())
+        embed = discord.Embed(title="Battle Royale Status", color=self._random_color())
         embed.add_field(name="Signup Message ID", value=str(game["signup_message_id"]), inline=False)
         embed.add_field(name="Channel", value=f"<#{game['channel_id']}>", inline=False)
         embed.add_field(name="Players", value=", ".join(players) or "None", inline=False)
-        embed.add_field(name="Running", value=str(game["running"]), inline=False)
+        embed.add_field(name="Running", value=str(game.get("running", False)), inline=False)
         await ctx.send(embed=embed)
 
-    # --- events management ---
     @battleroyale.command(name="addevent")
     @commands.is_owner()
-    async def addevent(self, ctx, name: str, severity_pct: float, *, description_and_url: str):
+    async def addevent(self, ctx: commands.Context, name: str, severity_pct: float, *, description_and_url: str):
+        """
+        Add an event to events.json.
+        Usage: battleroyale addevent "Name" 25 description | image_url(optional)
+        severity_pct is 0-100 (percent chance for participants to die in the event)
+        """
         parts = description_and_url.split("|")
         description = parts[0].strip()
         image_url = parts[1].strip() if len(parts) > 1 else None
@@ -588,13 +666,15 @@ class BattleRoyale(commands.Cog):
             "image_url": image_url,
             "severity": float(max(0.0, min(100.0, severity_pct))),
             "chance": 10,
-            "pvp_modifier": 0.0
+            "pvp_modifier": 0.0,
         }
         self.events.append(new_event)
-        save_json_file(EVENTS_FILE, self.events)
+        await self._save_events()
         await ctx.send(f"Event '{name}' added with severity {new_event['severity']}%.")
 
-    # --- image helpers ---
+    # -----------------------
+    # Image helpers
+    # -----------------------
     async def fetch_image_from_url(self, url: str, size: int) -> Optional[Image.Image]:
         try:
             async with self.session.get(url) as resp:
@@ -608,6 +688,11 @@ class BattleRoyale(commands.Cog):
             return None
 
     async def fetch_avatar_image(self, pid: int, guild: Optional[discord.Guild]) -> Optional[Image.Image]:
+        """
+        pid may be:
+        - positive int: Discord user id -> fetch avatar
+        - negative int: NPC instance id -> fetch image_url from npc_instances
+        """
         if isinstance(pid, int) and pid < 0:
             inst = self.npc_instances.get(pid)
             if not inst:
@@ -640,6 +725,7 @@ class BattleRoyale(commands.Cog):
             return None
 
     async def compose_event_image(self, participant_ids: List[int], eliminated_ids: List[int], event_image_url: Optional[str] = None) -> io.BytesIO:
+        """Compose a composite image for the event round. Handles NPC images via image_url."""
         base = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
 
         if event_image_url:
@@ -674,6 +760,7 @@ class BattleRoyale(commands.Cog):
         x = spacing
         y = (COMPOSITE_SIZE[1] - avatar_w) // 2
 
+        # attempt to get guild context for avatar fetches
         guild = None
         for g in self.bot.guilds:
             for pid in participant_ids:
@@ -716,5 +803,8 @@ class BattleRoyale(commands.Cog):
         bio.seek(0)
         return bio
 
+
+# Expose the cog for Red to load. Red's async setup should call this class from __init__.py.
 def setup(bot):
+    # Backwards compatibility: synchronous setup for older loaders
     bot.add_cog(BattleRoyale(bot))
