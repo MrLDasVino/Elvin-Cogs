@@ -321,12 +321,15 @@ class BattleRoyale(commands.Cog):
         image_url: Optional[str],
         default_url_list: Optional[List[str]],
         size=(AVATAR_SIZE, AVATAR_SIZE),
+        default_type: Optional[str] = None,  # "npc", "event", "bg" for config lookup
     ) -> Image.Image:
         """
         Try in order:
           1. image_url (entity-specific)
-          2. random default URL from default_url_list
-          3. generated placeholder
+          2. random default URL from default_url_list (if provided)
+          3. configured defaults from self.config (based on default_type)
+          4. module DEFAULT_* lists
+          5. generated placeholder
         Returns a PIL Image resized to `size`.
         """
         img_bytes = None
@@ -335,16 +338,64 @@ class BattleRoyale(commands.Cog):
         if image_url:
             img_bytes = await self._fetch_image_bytes(image_url)
 
-        # 2) try a random default URL from the list
+        # 2) try provided default_url_list
+        tried_candidates: List[str] = []
         if not img_bytes and default_url_list:
             candidates = default_url_list[:]
             random.shuffle(candidates)
             for candidate in candidates:
                 if not candidate:
                     continue
+                tried_candidates.append(candidate)
                 img_bytes = await self._fetch_image_bytes(candidate)
                 if img_bytes:
                     break
+
+        # 3) try configured defaults from self.config if default_type provided
+        if not img_bytes and default_type:
+            try:
+                if default_type == "npc":
+                    cfg_list = await self.config.default_npc_urls()
+                elif default_type == "event":
+                    cfg_list = await self.config.default_event_urls()
+                elif default_type == "bg":
+                    cfg_list = await self.config.default_bg_urls()
+                else:
+                    cfg_list = []
+            except Exception:
+                cfg_list = []
+
+            if cfg_list:
+                candidates = cfg_list[:]
+                random.shuffle(candidates)
+                for candidate in candidates:
+                    if not candidate:
+                        continue
+                    tried_candidates.append(candidate)
+                    img_bytes = await self._fetch_image_bytes(candidate)
+                    if img_bytes:
+                        break
+
+        # 4) try module-level DEFAULT_* lists as a last remote fallback
+        if not img_bytes and default_type:
+            fallback_list = []
+            if default_type == "npc":
+                fallback_list = DEFAULT_NPC_URLS
+            elif default_type == "event":
+                fallback_list = DEFAULT_EVENT_URLS
+            elif default_type == "bg":
+                fallback_list = DEFAULT_BG_URLS
+
+            if fallback_list:
+                candidates = fallback_list[:]
+                random.shuffle(candidates)
+                for candidate in candidates:
+                    if not candidate:
+                        continue
+                    tried_candidates.append(candidate)
+                    img_bytes = await self._fetch_image_bytes(candidate)
+                    if img_bytes:
+                        break
 
         img = None
         if img_bytes:
@@ -353,7 +404,7 @@ class BattleRoyale(commands.Cog):
             except Exception:
                 img = None
 
-        # 3) fallback placeholder
+        # 5) fallback placeholder
         if img is None:
             img = self._open_fallback_image(size=size)
 
@@ -820,16 +871,55 @@ class BattleRoyale(commands.Cog):
             try:
                 composite = await self.compose_event_image(game, participants, casualties, narration_lines)
                 if composite:
-                    # composite is a BytesIO
                     composite.seek(0)
                     file = discord.File(fp=composite, filename="round.png")
-                    await channel.send(file=file)
+                    # build a rich embed that includes the narration and uses the attached image
+                    embed = discord.Embed(
+                        title=f"Battle Royale — Round {round_num}",
+                        description=(narration_lines[0] if narration_lines else "A round unfolds."),
+                        color=(embed_color.value if isinstance(embed_color, discord.Color) else embed_color),
+                    )
+                    # include a short summary field (players involved / casualties)
+                    involved_names = []
+                    for pid in participants:
+                        if isinstance(pid, int) and pid < 0:
+                            involved_names.append(self.npc_instances.get(pid, {}).get("name", f"NPC {pid}"))
+                        else:
+                            member = guild.get_member(pid) if guild else None
+                            involved_names.append(member.display_name if member else f"User {pid}")
+                    embed.add_field(name="Participants", value=", ".join(involved_names[:6]) or "None", inline=False)
+                    if casualties:
+                        casualty_names = []
+                        for c in casualties:
+                            if isinstance(c, int) and c < 0:
+                                casualty_names.append(self.npc_instances.get(c, {}).get("name", f"NPC {c}"))
+                            else:
+                                member = guild.get_member(c) if guild else None
+                                casualty_names.append(member.display_name if member else f"User {c}")
+                        embed.add_field(name="Casualties", value=", ".join(casualty_names[:6]) or "None", inline=False)
+                    # attach the image and reference it inside the embed
+                    embed.set_image(url="attachment://round.png")
+                    await channel.send(embed=embed, file=file)
                 else:
-                    # fallback to text
-                    await channel.send("\n".join(narration_lines[:10]))
+                    # fallback to a rich embed with text only
+                    embed = discord.Embed(
+                        title=f"Battle Royale — Round {round_num}",
+                        description="\n".join(narration_lines[:10]) or "A round unfolded.",
+                        color=(embed_color.value if isinstance(embed_color, discord.Color) else embed_color),
+                    )
+                    await channel.send(embed=embed)
             except Exception:
-                # if image composition fails, send text
-                await channel.send("\n".join(narration_lines[:10]))
+                # if image composition fails, send text embed
+                try:
+                    embed = discord.Embed(
+                        title=f"Battle Royale — Round {round_num}",
+                        description="\n".join(narration_lines[:10]) or "A round unfolded.",
+                        color=(embed_color.value if isinstance(embed_color, discord.Color) else embed_color),
+                    )
+                    await channel.send(embed=embed)
+                except Exception:
+                    # last resort plain text
+                    await channel.send("\n".join(narration_lines[:10]))
 
         # announce winner
         winner = next(iter(alive)) if alive else None
@@ -856,29 +946,8 @@ class BattleRoyale(commands.Cog):
         Returns BytesIO with PNG data or None on failure.
         """
         try:
-            # create base
-            bg_bytes = None
-            # try configured default backgrounds from config, then DEFAULT_BG_URLS
-            try:
-                cfg_bg = await self.config.default_bg_urls()
-                if cfg_bg:
-                    bg_candidates = cfg_bg
-                else:
-                    bg_candidates = DEFAULT_BG_URLS
-            except Exception:
-                bg_candidates = DEFAULT_BG_URLS
-
-            bg_img = None
-            # try to fetch a background
-            if bg_candidates:
-                for url in bg_candidates:
-                    bg_bytes = await self._fetch_image_bytes(url)
-                    if bg_bytes:
-                        try:
-                            bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGBA")
-                            break
-                        except Exception:
-                            bg_img = None
+            # create base background using helper that consults config and defaults
+            bg_img = await self._load_image_for_entity(None, None, size=COMPOSITE_SIZE, default_type="bg")
             if bg_img is None:
                 bg_img = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
 
@@ -921,7 +990,7 @@ class BattleRoyale(commands.Cog):
                     inst = self.npc_instances.get(pid, {})
                     name = inst.get("name", f"NPC {pid}")
                     image_url = inst.get("image_url")
-                    avatar = await self._load_image_for_entity(image_url, DEFAULT_NPC_URLS, size=(AVATAR_SIZE, AVATAR_SIZE))
+                    avatar = await self._load_image_for_entity(image_url, DEFAULT_NPC_URLS, size=(AVATAR_SIZE, AVATAR_SIZE), default_type="npc")
                 else:
                     member = None
                     try:
@@ -933,13 +1002,13 @@ class BattleRoyale(commands.Cog):
                     # fetch avatar bytes from Discord CDN
                     image_url = None
                     try:
-                        if member and member.avatar:
+                        if member and getattr(member, "avatar", None):
                             image_url = member.avatar.url
-                        elif member and member.display_avatar:
+                        elif member and getattr(member, "display_avatar", None):
                             image_url = member.display_avatar.url
                     except Exception:
                         image_url = None
-                    avatar = await self._load_image_for_entity(image_url, [], size=(AVATAR_SIZE, AVATAR_SIZE))
+                    avatar = await self._load_image_for_entity(image_url, DEFAULT_NPC_URLS, size=(AVATAR_SIZE, AVATAR_SIZE), default_type="npc")
 
                 # draw circular mask
                 mask = Image.new("L", (AVATAR_SIZE, AVATAR_SIZE), 0)
