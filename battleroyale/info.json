@@ -1,0 +1,9 @@
+{
+  "name": "BattleRoyale",
+  "author": ["Elvin"],
+  "description": "A very customizable Battle Royale game.",
+  "install_msg": "Thank you for installing .",
+  "short": "Battle Royale game",
+  "requirements": ["Pillow", "aiohttp"],
+  "tags": ["games", "fun"]
+}
