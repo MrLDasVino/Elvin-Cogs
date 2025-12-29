@@ -561,17 +561,42 @@ class BattleRoyale(commands.Cog):
         else:
             return False, f"{target_name} was killed by {attacker_name}."
 
-    async def _compose_and_attach_image(self, ctx_or_channel, title: str, participants: List[int], dead_ids: Set[int], avatar_size: int = AVATAR_SIZE, center: bool = False) -> Tuple[discord.Embed, File]:
+    async def _compose_and_attach_image(self, ctx_or_channel, title: str, participants: List[int], dead_ids: Set[int], avatar_size: int = AVATAR_SIZE, center: bool = False, event: Optional[Dict] = None, victory: bool = False) -> Tuple[discord.Embed, File]:
         """
         Create a composite image for the round and return (embed, discord.File).
+        - Uses an event-specific background if available, otherwise falls back to configured defaults and module defaults.
+        - Does NOT draw any text onto the image; all text is placed in the embed.
         - avatar_size: pixel size to use for each avatar (overrides AVATAR_SIZE)
         - center: if True, center the participants horizontally in the canvas
+        - event: optional event dict to prefer its image as background
+        - victory: if True, prefer victory background fallbacks
         The embed will reference the attachment via attachment://result.png so the image appears inside the embed.
         """
         width, height = COMPOSITE_SIZE
-        canvas = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
+
+        # 1) Try to load a background image:
+        bg_img = None
+        # prefer event image if provided
+        if event:
+            ev_url = event.get("image_url")
+            bg_img = await self._load_image_for_entity(ev_url, DEFAULT_EVENT_URLS, size=COMPOSITE_SIZE, default_type="event")
+        # if no event bg or not provided, try configured bg defaults and module fallbacks
+        if bg_img is None:
+            # if victory, prefer victory fallbacks
+            if victory:
+                bg_img = await self._load_image_for_entity(None, DEFAULT_VICTORY_URLS, size=COMPOSITE_SIZE, default_type="bg")
+            if bg_img is None:
+                bg_img = await self._load_image_for_entity(None, DEFAULT_BG_URLS, size=COMPOSITE_SIZE, default_type="bg")
+
+        # If still None (shouldn't happen), create a neutral canvas
+        if bg_img is None:
+            canvas = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
+        else:
+            canvas = bg_img.copy()
+
         draw = ImageDraw.Draw(canvas)
 
+        # layout avatars on top of background
         n = max(1, len(participants))
         padding = 12
         avail_w = width - padding * 2
@@ -609,27 +634,16 @@ class BattleRoyale(commands.Cog):
             if pid in dead_ids:
                 img = self._apply_dead_overlay(img)
 
-            canvas.paste(img, (x, y), img)
-
-            # draw name below (single-line)
-            name = self._format_participant_name(pid)
+            # paste avatar onto background
             try:
-                font = ImageFont.load_default()
-                tw, th = self._get_text_size(draw, name, font)
-                draw.text((x + (avatar_w - tw) // 2, y + avatar_w + 6), name, fill=(230, 230, 230, 255), font=font)
+                canvas.paste(img, (x, y), img)
             except Exception:
-                pass
+                # fallback: paste without mask
+                canvas.paste(img, (x, y))
 
             x += slot_w + 8
 
-        # title bar
-        try:
-            font = ImageFont.load_default()
-            tw, th = self._get_text_size(draw, title, font)
-            draw.rectangle(((0, 0), (width, 28)), fill=(20, 20, 20, 220))
-            draw.text(((width - tw) // 2, 6), title, fill=(255, 255, 255, 255), font=font)
-        except Exception:
-            pass
+        # Note: no text is drawn onto the image. All textual information is added to the embed.
 
         bio = io.BytesIO()
         canvas.save(bio, "PNG")
@@ -984,7 +998,7 @@ class BattleRoyale(commands.Cog):
             if action == "none":
                 break
 
-            # Build round title
+            # Build round title and result lines
             if action == "pvp":
                 round_title = f"Round {round_num} — PvP"
                 attacker, defender = participants[0], participants[1]
@@ -1014,8 +1028,13 @@ class BattleRoyale(commands.Cog):
             await self._save_npcs()
 
             # compose image and embed, attach file and send
-            embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids)
+            # pass event so event-specific background can be used
+            embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids, event=event, victory=False)
+            # Put all textual info into the embed, not on the image
+            embed.add_field(name="Round", value=str(round_num), inline=True)
+            embed.add_field(name="Type", value=("PvP" if action == "pvp" else (event.get("name") if event else "Event")), inline=True)
             embed.add_field(name="Result", value="\n".join(result_lines), inline=False)
+
             # send as a single message with attachment embedded
             try:
                 await channel.send(embed=embed, file=file)
@@ -1034,13 +1053,12 @@ class BattleRoyale(commands.Cog):
             winner_name = self._format_participant_name(winner)
             embed = discord.Embed(title="Battle Royale — Winner!", description=f"{winner_name} is the last one standing!", color=self._random_color())
             try:
-                # Use a smaller avatar and center it in the victory image
+                # Use a smaller avatar and center it in the victory image; prefer victory background
                 victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))  # e.g., 75% of normal, minimum 48
-                v_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True)
+                v_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True)
                 # send embed with attached file (embed image references attachment://result.png)
                 await channel.send(embed=embed, file=v_file)
             except Exception:
                 await channel.send(f"{winner_name} is the last one standing!")
         else:
             await channel.send("No survivors.")
-
