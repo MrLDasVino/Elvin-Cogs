@@ -73,6 +73,11 @@ class JoinView(discord.ui.View):
             await interaction.response.send_message("This signup is no longer active.", ephemeral=True)
             return
 
+        # Prevent joining after the game has started
+        if game.get("running"):
+            await interaction.response.send_message("This signup is closed — the game has already started.", ephemeral=True)
+            return
+
         user = interaction.user
         if user.id in game["players"]:
             await interaction.response.send_message("You're already signed up.", ephemeral=True)
@@ -194,6 +199,9 @@ class BattleRoyale(commands.Cog):
                     await channel.fetch_message(mid)
                 except Exception:
                     # message missing: skip (do not remove automatically)
+                    continue
+                # Only restore view if the signup is not running
+                if game.get("running"):
                     continue
                 view = JoinView(self, signup_message_id=mid)
                 try:
@@ -486,12 +494,22 @@ class BattleRoyale(commands.Cog):
             await ctx.send("Need at least 2 players to start.")
             return
 
+        # mark running and persist
         game["running"] = True
         await self._save_games()
+
+        # remove the persistent Join view so no more joins are possible
+        try:
+            self.bot.remove_view(view=None, message_id=game["signup_message_id"])
+        except Exception:
+            pass
+
         try:
             await self._run_game_loop(ctx, game)
         finally:
+            # ensure the game is no longer marked running
             game["running"] = False
+
             # cleanup NPC instances not referenced by any signup
             used_ids: Set[int] = set()
             for g in self.active_games.values():
@@ -502,7 +520,16 @@ class BattleRoyale(commands.Cog):
                 if nid not in used_ids:
                     self.npc_instances.pop(nid, None)
             await self._save_npcs()
+
+            # remove this signup so it cannot be reused; require a new signup to start again
+            try:
+                self.active_games.pop(game["signup_message_id"], None)
+            except Exception:
+                pass
+
             await self._save_games()
+
+            # ensure the view is removed (defensive)
             try:
                 self.bot.remove_view(view=None, message_id=game["signup_message_id"])
             except Exception:
@@ -525,53 +552,145 @@ class BattleRoyale(commands.Cog):
 
         await channel.send(f"Battle Royale starting with {len(players)} players (including NPCs)! Good luck.")
 
+        # Flavor text pools
+        event_narrations = [
+            "The world trembles as fate picks its targets.",
+            "A sudden twist of fortune rattles the arena.",
+            "Nature itself seems to take a breath before the chaos.",
+            "A strange hush falls over the battleground, then all hell breaks loose.",
+            "The skies open and destiny writes its name in fire."
+        ]
+        pvp_attack_texts = [
+            "{attacker} lunges at {defender} with a desperate cry.",
+            "{attacker} charges, blades flashing toward {defender}.",
+            "{attacker} feints left and strikes at {defender}.",
+            "{attacker} ambushes {defender} from the shadows.",
+            "{attacker} and {defender} collide in a furious exchange."
+        ]
+        pvp_survive_texts = [
+            "{defender} narrowly escapes, breathing hard and shaken.",
+            "{defender} parries and slips away, wounds shallow but spirit unbroken.",
+            "{defender} ducks under the blow and staggers to safety.",
+            "{defender} finds cover and survives the onslaught.",
+            "{defender} grits their teeth and manages to survive the encounter."
+        ]
+        pvp_kill_texts = [
+            "{defender} falls, life snuffed out in a heartbeat.",
+            "{defender} is struck down, collapsing to the ground.",
+            "{defender} didn't stand a chance and is gone.",
+            "{defender} is cut down amid the chaos.",
+            "{defender} breathes their last as the crowd gasps."
+        ]
+        round_flavor_victory = [
+            "A hush, then cheers — a champion emerges.",
+            "Silence gives way to the roar of victory.",
+            "One stands tall while the rest are dust and memory.",
+            "The arena remembers this name for a long time.",
+            "A final gasp, a final bow — the winner claims the day."
+        ]
+        # Probability split: 35% event, 65% PvP
+        EVENT_PROB = 0.35
+        PVP_DEATH_CHANCE = 0.70  # 70% chance defender dies in PvP; 30% survive
+
         round_num = 0
         while len(alive) > 1:
             round_num += 1
             await asyncio.sleep(2)
 
-            event = random.choices(self.events, weights=[e.get("chance", 10) for e in self.events], k=1)[0] if self.events else None
+            # Decide round type: event or PvP
+            is_event_round = False
+            chosen_event = None
+            if self.events and random.random() < EVENT_PROB:
+                is_event_round = True
+                chosen_event = random.choices(self.events, weights=[e.get("chance", 10) for e in self.events], k=1)[0]
 
             embed_color = self._random_color()
 
+            # participants selection
             participants = random.sample(list(alive), k=min(len(alive), random.randint(1, min(4, len(alive)))))
 
             casualties: List[int] = []
+            narration_lines: List[str] = []
 
-            severity_pct = float(event.get("severity", 20.0)) if event else 20.0
+            if is_event_round and chosen_event:
+                # Event round: use event severity for death chance per participant
+                severity_pct = float(chosen_event.get("severity", 20.0))
+                narration_lines.append(random.choice(event_narrations))
+                narration_lines.append(chosen_event.get("description", "An event unfolds."))
 
-            for pid in participants:
-                roll = random.uniform(0, 100)
-                if roll < severity_pct:
-                    casualties.append(pid)
+                for pid in participants:
+                    roll = random.uniform(0, 100)
+                    if roll < severity_pct:
+                        casualties.append(pid)
+                    else:
+                        # survived the event; add a small flavor line
+                        if isinstance(pid, int) and pid < 0:
+                            name = self.npc_instances.get(pid, {}).get("name", f"NPC {pid}")
+                        else:
+                            member = guild.get_member(pid) if guild else None
+                            name = member.display_name if member else f"User {pid}"
+                        narration_lines.append(f"{name} weathers the event and survives.")
+            else:
+                # PvP round: perform a number of duels
+                narration_lines.append("Player skirmishes erupt across the field.")
+                # Determine number of duels: up to min(3, floor(len(alive)/2))
+                max_duels = max(1, min(3, len(alive) // 2))
+                duels = random.randint(1, max_duels)
+                used_in_duel: Set[int] = set()
+                for _ in range(duels):
+                    # pick attacker and defender not already used in this round if possible
+                    available = [p for p in alive if p not in used_in_duel]
+                    if len(available) < 2:
+                        available = [p for p in alive]
+                    if len(available) < 2:
+                        break
+                    attacker, defender = random.sample(available, 2)
+                    used_in_duel.add(attacker)
+                    used_in_duel.add(defender)
 
-            # PvP duels (NPCs and players both eligible)
-            pvp_duels = max(0, min(3, len(alive) // 2))
-            for _ in range(pvp_duels):
-                if len(alive) < 2:
-                    break
-                attacker, defender = random.sample(list(alive), 2)
-                base_pvp_chance = 30.0
-                event_pvp_mod = float(event.get("pvp_modifier", 0.0)) if event else 0.0
-                kill_chance = max(0.0, min(100.0, base_pvp_chance + event_pvp_mod))
-                roll = random.uniform(0, 100)
-                if roll < kill_chance:
-                    if defender not in casualties:
+                    # flavor attack line
+                    if isinstance(attacker, int) and attacker < 0:
+                        a_name = self.npc_instances.get(attacker, {}).get("name", f"NPC {attacker}")
+                    else:
+                        a_member = guild.get_member(attacker) if guild else None
+                        a_name = a_member.display_name if a_member else f"User {attacker}"
+                    if isinstance(defender, int) and defender < 0:
+                        d_name = self.npc_instances.get(defender, {}).get("name", f"NPC {defender}")
+                    else:
+                        d_member = guild.get_member(defender) if guild else None
+                        d_name = d_member.display_name if d_member else f"User {defender}"
+
+                    attack_line = random.choice(pvp_attack_texts).format(attacker=a_name, defender=d_name)
+                    narration_lines.append(attack_line)
+
+                    # outcome: 30% death, 70% survive
+                    roll = random.random()
+                    if roll < PVP_DEATH_CHANCE:
+                        # defender dies
                         casualties.append(defender)
+                        kill_line = random.choice(pvp_kill_texts).format(defender=d_name)
+                        narration_lines.append(kill_line)
+                    else:
+                        # defender survives
+                        survive_line = random.choice(pvp_survive_texts).format(defender=d_name)
+                        narration_lines.append(survive_line)
 
+            # Apply casualties
             for c in casualties:
                 if c in alive:
                     alive.remove(c)
                     eliminated.append(c)
 
+            # Build embed
             embed = discord.Embed(title=f"Round {round_num}", color=embed_color)
-            if event:
-                embed.title = f"Round {round_num} — {event.get('name', 'Event')}"
-                embed.description = event.get("description", "An event occurred.")
+            if is_event_round and chosen_event:
+                embed.title = f"Round {round_num} — {chosen_event.get('name', 'Event')}"
+                # include a random narration line plus event description
+                embed.description = "\n".join(narration_lines[:3]) if narration_lines else chosen_event.get("description", "An event occurred.")
             else:
-                embed.description = "A random event occurred."
+                embed.description = "\n".join(narration_lines[:4]) if narration_lines else "A clash between players occurred."
 
-            composite = await self.compose_event_image(participants, eliminated, event_image_url=event.get("image_url") if event else None)
+            composite = await self.compose_event_image(participants, eliminated, event_image_url=chosen_event.get("image_url") if chosen_event else None)
             file = discord.File(composite, filename="event.png")
             embed.set_image(url="attachment://event.png")
 
@@ -599,6 +718,11 @@ class BattleRoyale(commands.Cog):
             else:
                 embed.add_field(name="Casualties", value="None", inline=False)
 
+            # Add a short narration field if there are extra lines
+            extra_narration = "\n".join(narration_lines[4:8]) if len(narration_lines) > 4 else None
+            if extra_narration:
+                embed.add_field(name="Narration", value=extra_narration[:1024], inline=False)
+
             await channel.send(file=file, embed=embed)
             await asyncio.sleep(1)
 
@@ -611,10 +735,10 @@ class BattleRoyale(commands.Cog):
         if winner_id:
             if isinstance(winner_id, int) and winner_id < 0:
                 winner_name = self.npc_instances.get(winner_id, {}).get("name", f"NPC {winner_id}")
-                await channel.send(f"🏆 **{winner_name}** (NPC) is the winner!")
+                await channel.send(f"🏆 **{winner_name}** (NPC) is the winner! {random.choice(round_flavor_victory)}")
             else:
                 winner = guild.get_member(winner_id) if guild else None
-                await channel.send(f"🏆 **{winner.display_name if winner else 'Unknown'}** is the winner!")
+                await channel.send(f"🏆 **{winner.display_name if winner else 'Unknown'}** is the winner! {random.choice(round_flavor_victory)}")
         else:
             await channel.send("No winners this time.")
 
@@ -737,77 +861,66 @@ class BattleRoyale(commands.Cog):
                         data = await resp.read()
                         bg = Image.open(io.BytesIO(data)).convert("RGBA")
                         bg = bg.resize(COMPOSITE_SIZE)
-                        # blend background lightly
                         base = Image.alpha_composite(base, bg)
             except Exception:
                 pass
 
         draw = ImageDraw.Draw(base)
 
-        # simple layout: avatars in a row with spacing
+        # layout avatars in a row
         padding = 10
-        max_slots = 5
+        max_slots = max(1, min(5, len(participant_ids)))
         slot_w = (COMPOSITE_SIZE[0] - padding * 2) // max_slots
         slot_h = COMPOSITE_SIZE[1] - padding * 2
-        x = padding
 
-        # helper to make circular avatar
-        def circle_mask(img: Image.Image, size: int) -> Image.Image:
-            mask = Image.new("L", (size, size), 0)
-            mdraw = ImageDraw.Draw(mask)
-            mdraw.ellipse((0, 0, size, size), fill=255)
-            out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-            out.paste(img, (0, 0), mask=mask)
-            return out
+        # load avatars (concurrently-ish)
+        avatars: List[Optional[Image.Image]] = []
+        for pid in participant_ids:
+            try:
+                img = await self.fetch_avatar_image(pid, None)
+            except Exception:
+                img = None
+            avatars.append(img)
 
-        # fetch avatars concurrently
-        guild = None
-        # try to find a guild from bot if possible (best-effort)
-        if self.bot.guilds:
-            guild = self.bot.guilds[0]
-
-        avatar_tasks = [self.fetch_avatar_image(pid, guild) for pid in participant_ids]
-        avatars = await asyncio.gather(*avatar_tasks, return_exceptions=True)
-
-        # draw up to max_slots avatars
-        for idx, pid in enumerate(participant_ids[:max_slots]):
-            av = avatars[idx] if idx < len(avatars) else None
-            if isinstance(av, Exception) or av is None:
-                # placeholder
-                av_img = Image.new("RGBA", (AVATAR_SIZE, AVATAR_SIZE), (100, 100, 100, 255))
-                draw_placeholder = ImageDraw.Draw(av_img)
-                draw_placeholder.text((10, 10), "?", fill=(255, 255, 255, 255))
+        # draw each avatar into its slot
+        for idx, avatar in enumerate(avatars):
+            x = padding + idx * slot_w + (slot_w - AVATAR_SIZE) // 2
+            y = padding + (slot_h - AVATAR_SIZE) // 2
+            if avatar:
+                # circular mask
+                mask = Image.new("L", (AVATAR_SIZE, AVATAR_SIZE), 0)
+                mdraw = ImageDraw.Draw(mask)
+                mdraw.ellipse((0, 0, AVATAR_SIZE, AVATAR_SIZE), fill=255)
+                base.paste(avatar, (x, y), mask)
             else:
-                av_img = av
+                # placeholder
+                placeholder = Image.new("RGBA", (AVATAR_SIZE, AVATAR_SIZE), (80, 80, 80, 255))
+                pdraw = ImageDraw.Draw(placeholder)
+                pdraw.rectangle((0, 0, AVATAR_SIZE, AVATAR_SIZE), fill=(80, 80, 80, 255))
+                base.paste(placeholder, (x, y), placeholder)
 
-            # make circular and resize to fit slot
-            size = min(AVATAR_SIZE, slot_h)
-            av_circ = circle_mask(ImageOps.fit(av_img, (size, size)), size)
-
-            # center vertically in slot
-            y = padding + (slot_h - size) // 2
-            base.paste(av_circ, (x + (slot_w - size) // 2, y), av_circ)
-
-            # if this participant is eliminated, draw a red X over avatar
+            # if this participant is eliminated, draw a red X over them
+            pid = participant_ids[idx]
             if pid in eliminated_ids:
-                ex_x = x + (slot_w - size) // 2
-                ex_y = y
-                ex_w = size
-                ex_draw = ImageDraw.Draw(base)
-                ex_draw.line((ex_x, ex_y, ex_x + ex_w, ex_y + ex_w), fill=(255, 0, 0, 200), width=6)
-                ex_draw.line((ex_x + ex_w, ex_y, ex_x, ex_y + ex_w), fill=(255, 0, 0, 200), width=6)
+                ex = x
+                ey = y
+                ex2 = x + AVATAR_SIZE
+                ey2 = y + AVATAR_SIZE
+                # draw thick red X
+                for off in range(-2, 3):
+                    draw.line((ex + off, ey, ex2 + off, ey2), fill=(220, 20, 60, 255), width=6)
+                    draw.line((ex, ey + off, ex2, ey2 + off), fill=(220, 20, 60, 255), width=6)
 
-            x += slot_w
-
-        # small footer text with round summary (optional)
+        # small caption
         try:
-            font = ImageFont.load_default()
-            footer_text = f"Participants: {len(participant_ids)}  Eliminated: {len(eliminated_ids)}"
-            draw.text((padding, COMPOSITE_SIZE[1] - padding - 12), footer_text, fill=(220, 220, 220, 255), font=font)
+            font = ImageFont.truetype("arial.ttf", 16)
         except Exception:
-            pass
+            font = ImageFont.load_default()
+        caption = "Battle Royale"
+        tw, th = draw.textsize(caption, font=font)
+        draw.text(((COMPOSITE_SIZE[0] - tw) // 2, COMPOSITE_SIZE[1] - th - 6), caption, fill=(255, 255, 255, 200), font=font)
 
         out = io.BytesIO()
-        base.convert("RGBA").save(out, format="PNG")
+        base.save(out, format="PNG")
         out.seek(0)
         return out
