@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Set
 
 import aiohttp
 import discord
-from discord.ext import commands
+from redbot.core import commands
 from PIL import Image, ImageDraw, ImageOps
 
 # File paths (stored next to this file)
