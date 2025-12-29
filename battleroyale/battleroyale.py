@@ -869,14 +869,14 @@ class BattleRoyale(commands.Cog):
 
             # compose and send an image summarizing the round (if possible)
             try:
-                composite = await self.compose_event_image(game, participants, casualties, narration_lines)
+                composite = await self.compose_event_image(game, participants, casualties)
                 if composite:
                     composite.seek(0)
                     file = discord.File(fp=composite, filename="round.png")
                     # build a rich embed that includes the narration and uses the attached image
                     embed = discord.Embed(
                         title=f"Battle Royale — Round {round_num}",
-                        description=(narration_lines[0] if narration_lines else "A round unfolds."),
+                        description="\n".join(narration_lines[:6]) if narration_lines else "A round unfolds.",
                         color=(embed_color.value if isinstance(embed_color, discord.Color) else embed_color),
                     )
                     # include a short summary field (players involved / casualties)
@@ -887,7 +887,7 @@ class BattleRoyale(commands.Cog):
                         else:
                             member = guild.get_member(pid) if guild else None
                             involved_names.append(member.display_name if member else f"User {pid}")
-                    embed.add_field(name="Participants", value=", ".join(involved_names[:6]) or "None", inline=False)
+                    embed.add_field(name="Participants", value=", ".join(involved_names[:10]) or "None", inline=False)
                     if casualties:
                         casualty_names = []
                         for c in casualties:
@@ -896,8 +896,8 @@ class BattleRoyale(commands.Cog):
                             else:
                                 member = guild.get_member(c) if guild else None
                                 casualty_names.append(member.display_name if member else f"User {c}")
-                        embed.add_field(name="Casualties", value=", ".join(casualty_names[:6]) or "None", inline=False)
-                    # attach the image and reference it inside the embed
+                        embed.add_field(name="Casualties", value=", ".join(casualty_names[:10]) or "None", inline=False)
+                    # attach the image and reference it inside the embed so the text is in the embed
                     embed.set_image(url="attachment://round.png")
                     await channel.send(embed=embed, file=file)
                 else:
@@ -936,13 +936,10 @@ class BattleRoyale(commands.Cog):
     # -----------------------
     # Image composition for rounds/events
     # -----------------------
-    async def compose_event_image(self, game: Dict, participants: List[int], casualties: List[int], narration_lines: List[str]) -> Optional[io.BytesIO]:
+    async def compose_event_image(self, game: Dict, participants: List[int], casualties: List[int]) -> Optional[io.BytesIO]:
         """
         Create a composite image summarizing the round.
-        - game: the game dict (for defaults)
-        - participants: list of participant ids in this round
-        - casualties: list of ids who died this round
-        - narration_lines: flavor text lines to include
+        This version focuses on avatars/visuals only. All narration and text are placed in the embed.
         Returns BytesIO with PNG data or None on failure.
         """
         try:
@@ -962,12 +959,12 @@ class BattleRoyale(commands.Cog):
 
             draw = ImageDraw.Draw(canvas)
 
-            # load a font
+            # load a font for small labels (names are drawn under avatars)
             try:
                 font_path = os.path.join(BASE_DIR, "fonts", "DejaVuSans.ttf")
                 if os.path.exists(font_path):
-                    font = ImageFont.truetype(font_path, 16)
-                    name_font = ImageFont.truetype(font_path, 18)
+                    font = ImageFont.truetype(font_path, 14)
+                    name_font = ImageFont.truetype(font_path, 16)
                 else:
                     font = ImageFont.load_default()
                     name_font = ImageFont.load_default()
@@ -976,14 +973,13 @@ class BattleRoyale(commands.Cog):
                 name_font = ImageFont.load_default()
 
             # layout avatars horizontally
-            margin = 10
             spacing = 8
             max_avatars = min(5, len(participants))
             avatar_total_width = max_avatars * AVATAR_SIZE + (max_avatars - 1) * spacing
             start_x = (COMPOSITE_SIZE[0] - avatar_total_width) // 2
             y = 20
 
-            # draw avatars and names
+            # draw avatars and names (no narration text on the image)
             for idx, pid in enumerate(participants[:max_avatars]):
                 x = start_x + idx * (AVATAR_SIZE + spacing)
                 if isinstance(pid, int) and pid < 0:
@@ -1033,36 +1029,6 @@ class BattleRoyale(commands.Cog):
                     ov_draw.line((10, 10, AVATAR_SIZE - 10, AVATAR_SIZE - 10), fill=(255, 0, 0, 200), width=6)
                     ov_draw.line((AVATAR_SIZE - 10, 10, 10, AVATAR_SIZE - 10), fill=(255, 0, 0, 200), width=6)
                     canvas.paste(overlay, (x, y), overlay)
-
-            # draw narration text on the right side or bottom
-            narration_area_x = 12
-            narration_area_y = COMPOSITE_SIZE[1] - 90
-            narration_area_w = COMPOSITE_SIZE[0] - 24
-            narration_area_h = 80
-
-            # prepare a short block of narration (limit lines)
-            lines = []
-            for line in narration_lines:
-                # naive wrap: split if too long
-                if len(line) > 80:
-                    # split into chunks of ~80 chars
-                    for i in range(0, len(line), 80):
-                        lines.append(line[i : i + 80])
-                else:
-                    lines.append(line)
-                if len(lines) >= 4:
-                    break
-
-            # draw a semi-transparent box
-            box = Image.new("RGBA", (narration_area_w, narration_area_h), (0, 0, 0, 120))
-            canvas.paste(box, (narration_area_x, narration_area_y), box)
-            text_x = narration_area_x + 8
-            text_y = narration_area_y + 8
-            for ln in lines:
-                draw.text((text_x + 1, text_y + 1), ln, font=font, fill=(0, 0, 0, 200))
-                draw.text((text_x, text_y), ln, font=font, fill=(255, 255, 255, 230))
-                tw, th = self._get_text_size(draw, ln, font)
-                text_y += th + 4
 
             # final touches: round corners
             try:
