@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Set
 
 import aiohttp
 import discord
-from redbot.core import commands, bank, checks, Config
+from redbot.core import commands, Config
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 
 # File paths (stored next to this file)
@@ -17,6 +17,20 @@ EVENTS_FILE = os.path.join(BASE_DIR, "events.json")
 ENEMIES_FILE = os.path.join(BASE_DIR, "enemies.json")
 GAMES_FILE = os.path.join(BASE_DIR, "games.json")
 NPCS_FILE = os.path.join(BASE_DIR, "npcs.json")
+
+# Default remote fallback URLs (set to real URLs or leave empty)
+DEFAULT_NPC_URLS = [
+    # "https://files.catbox.moe/zgo9st.png",
+    # "https://files.catbox.moe/tlmusq.png",
+]
+DEFAULT_EVENT_URLS = [
+    # "https://files.catbox.moe/9p8hc6.png",
+    # "https://files.catbox.moe/2vqj0b.png",
+]
+DEFAULT_BG_URLS = [
+    # "https://files.catbox.moe/5vn581.png",
+    # "https://files.catbox.moe/xes0gm.png",
+]
 
 # Image constants
 AVATAR_SIZE = 128
@@ -147,6 +161,9 @@ class BattleRoyale(commands.Cog):
         # aiohttp session for fetching avatars and images
         self.session = aiohttp.ClientSession()
 
+        # simple in-memory cache for fetched image bytes keyed by URL
+        self._image_cache: Dict[str, bytes] = {}
+
         # file locks for safe concurrent writes
         self._games_lock = asyncio.Lock()
         self._npcs_lock = asyncio.Lock()
@@ -155,6 +172,14 @@ class BattleRoyale(commands.Cog):
 
         # restore persistent views after bot ready
         bot.loop.create_task(self._restore_views())
+
+        # Config (optional) - you can store default URL lists here if you want runtime configuration
+        self.config = Config.get_conf(self, identifier=123456789012345678)
+        self.config.register_global(
+            default_npc_urls=[],
+            default_event_urls=[],
+            default_bg_urls=[],
+        )
 
     def cog_unload(self):
         # schedule session close
@@ -228,6 +253,89 @@ class BattleRoyale(commands.Cog):
     def _random_color(self) -> discord.Color:
         r, g, b = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
         return discord.Color.from_rgb(r, g, b)
+
+    # -----------------------
+    # Image helpers (fetching, fallbacks, caching)
+    # -----------------------
+    async def _fetch_image_bytes(self, url: Optional[str], timeout: int = 8) -> Optional[bytes]:
+        """Fetch image bytes from a URL. Return None on failure. Uses simple in-memory cache."""
+        if not url:
+            return None
+        # return cached bytes if present
+        if url in self._image_cache:
+            return self._image_cache[url]
+        try:
+            async with self.session.get(url, timeout=timeout) as resp:
+                if resp.status == 200:
+                    data = await resp.read()
+                    # cache it
+                    self._image_cache[url] = data
+                    return data
+        except Exception:
+            return None
+        return None
+
+    def _open_fallback_image(self, size=(AVATAR_SIZE, AVATAR_SIZE)) -> Image.Image:
+        """Create a simple placeholder image (used when no URL is available or fetch fails)."""
+        img = Image.new("RGBA", size, (90, 90, 90, 255))
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.load_default()
+            text = "No Image"
+            tw, th = draw.textsize(text, font=font)
+            draw.text(((size[0] - tw) // 2, (size[1] - th) // 2), text, fill=(255, 255, 255, 230), font=font)
+        except Exception:
+            pass
+        return img
+
+    async def _load_image_for_entity(
+        self,
+        image_url: Optional[str],
+        default_url_list: Optional[List[str]],
+        size=(AVATAR_SIZE, AVATAR_SIZE),
+    ) -> Image.Image:
+        """
+        Try in order:
+          1. image_url (entity-specific)
+          2. random default URL from default_url_list
+          3. generated placeholder
+        Returns a PIL Image resized to `size`.
+        """
+        img_bytes = None
+
+        # 1) try entity URL
+        if image_url:
+            img_bytes = await self._fetch_image_bytes(image_url)
+
+        # 2) try a random default URL from the list
+        if not img_bytes and default_url_list:
+            candidates = default_url_list[:]
+            random.shuffle(candidates)
+            for candidate in candidates:
+                if not candidate:
+                    continue
+                img_bytes = await self._fetch_image_bytes(candidate)
+                if img_bytes:
+                    break
+
+        img = None
+        if img_bytes:
+            try:
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+            except Exception:
+                img = None
+
+        # 3) fallback placeholder
+        if img is None:
+            img = self._open_fallback_image(size=size)
+
+        # fit to requested size
+        try:
+            img = ImageOps.fit(img, size, Image.LANCZOS)
+        except Exception:
+            img = img.resize(size)
+
+        return img
 
     # -----------------------
     # Commands
@@ -690,7 +798,12 @@ class BattleRoyale(commands.Cog):
             else:
                 embed.description = "\n".join(narration_lines[:4]) if narration_lines else "A clash between players occurred."
 
-            composite = await self.compose_event_image(participants, eliminated, event_image_url=chosen_event.get("image_url") if chosen_event else None)
+            # Compose image: pass event image URL if present, plus default pools
+            composite = await self.compose_event_image(
+                participants,
+                eliminated,
+                event_image_url=(chosen_event.get("image_url") if chosen_event else None),
+            )
             file = discord.File(composite, filename="event.png")
             embed.set_image(url="attachment://event.png")
 
@@ -715,225 +828,184 @@ class BattleRoyale(commands.Cog):
                         member = guild.get_member(pid) if guild else None
                         c_names.append(member.display_name if member else f"User {pid}")
                 embed.add_field(name="Casualties", value=", ".join(c_names)[:1024], inline=False)
-            else:
-                embed.add_field(name="Casualties", value="None", inline=False)
 
-            # Add a short narration field if there are extra lines
-            extra_narration = "\n".join(narration_lines[4:8]) if len(narration_lines) > 4 else None
-            if extra_narration:
-                embed.add_field(name="Narration", value=extra_narration[:1024], inline=False)
+            # survivors count
+            embed.add_field(name="Alive", value=str(len(alive)), inline=True)
+            embed.add_field(name="Eliminated", value=str(len(eliminated)), inline=True)
 
             await channel.send(file=file, embed=embed)
-            await asyncio.sleep(1)
 
-            # persist progress (players list updated to current alive + eliminated)
-            game["players"] = list(alive) + eliminated
-            await self._save_games()
-
-        # announce winner
-        winner_id = next(iter(alive)) if alive else None
-        if winner_id:
-            if isinstance(winner_id, int) and winner_id < 0:
-                winner_name = self.npc_instances.get(winner_id, {}).get("name", f"NPC {winner_id}")
-                await channel.send(f"🏆 **{winner_name}** (NPC) is the winner! {random.choice(round_flavor_victory)}")
+        # final winner
+        winner = next(iter(alive)) if alive else None
+        if winner:
+            if isinstance(winner, int) and winner < 0:
+                winner_name = self.npc_instances.get(winner, {}).get("name", f"NPC {winner}")
             else:
-                winner = guild.get_member(winner_id) if guild else None
-                await channel.send(f"🏆 **{winner.display_name if winner else 'Unknown'}** is the winner! {random.choice(round_flavor_victory)}")
-        else:
-            await channel.send("No winners this time.")
+                member = guild.get_member(winner) if guild else None
+                winner_name = member.display_name if member else f"User {winner}"
+            await channel.send(random.choice(round_flavor_victory) + f" Winner: **{winner_name}**.")
 
     # -----------------------
-    # Status and event management
+    # Image composition
     # -----------------------
-    @battleroyale.command(name="status")
-    async def status(self, ctx: commands.Context, signup_message_id: Optional[int] = None):
-        """Show status of a signup/game."""
-        if signup_message_id:
-            game = self.active_games.get(signup_message_id)
-        else:
-            game = None
-            for g in self.active_games.values():
-                if g["guild_id"] == ctx.guild.id:
-                    game = g
-                    break
-        if not game:
-            await ctx.send("No active signup found.")
-            return
-        players = []
-        for pid in game.get("players", []):
-            if isinstance(pid, int) and pid < 0:
-                inst = self.npc_instances.get(pid)
-                players.append(f"{inst['name']} (NPC)" if inst else f"NPC {pid}")
-            else:
-                member = ctx.guild.get_member(pid)
-                players.append(member.display_name if member else str(pid))
-        embed = discord.Embed(title="Battle Royale Status", color=self._random_color())
-        embed.add_field(name="Signup Message ID", value=str(game["signup_message_id"]), inline=False)
-        embed.add_field(name="Channel", value=f"<#{game['channel_id']}>", inline=False)
-        embed.add_field(name="Players", value=", ".join(players) or "None", inline=False)
-        embed.add_field(name="Running", value=str(game.get("running", False)), inline=False)
-        await ctx.send(embed=embed)
-
-    @battleroyale.command(name="addevent")
-    @commands.is_owner()
-    async def addevent(self, ctx: commands.Context, name: str, severity_pct: float, *, description_and_url: str):
+    async def compose_event_image(self, participants: List[int], eliminated: List[int], event_image_url: Optional[str] = None) -> io.BytesIO:
         """
-        Add an event to events.json.
-        Usage: battleroyale addevent "Name" 25 description | image_url(optional)
-        severity_pct is 0-100 (percent chance for participants to die in the event)
+        Compose a composite image for the round.
+        - participants: list of player ids shown in the image
+        - eliminated: list of player ids that have been eliminated so far (they will be B/W + red X)
+        - event_image_url: optional event image to use as background; falls back to default URL pools
+        Returns an io.BytesIO containing PNG bytes.
         """
-        parts = description_and_url.split("|")
-        description = parts[0].strip()
-        image_url = parts[1].strip() if len(parts) > 1 else None
-        new_event = {
-            "name": name,
-            "description": description,
-            "image_url": image_url,
-            "severity": float(max(0.0, min(100.0, severity_pct))),
-            "chance": 10,
-            "pvp_modifier": 0.0,
-        }
-        self.events.append(new_event)
-        await self._save_events()
-        await ctx.send(f"Event '{name}' added with severity {new_event['severity']}%.")
+        # create base composite
+        width, height = COMPOSITE_SIZE
+        composite = Image.new("RGBA", (width, height), (30, 30, 30, 255))
 
-    # -----------------------
-    # Image helpers
-    # -----------------------
-    async def fetch_image_from_url(self, url: str, size: int) -> Optional[Image.Image]:
+        # Determine default pools (merge module-level defaults with config if present)
         try:
-            async with self.session.get(url) as resp:
-                if resp.status != 200:
-                    return None
-                data = await resp.read()
-                img = Image.open(io.BytesIO(data)).convert("RGBA")
-                img = img.resize((size, size))
-                return img
+            cfg_npc_urls = await self.config.default_npc_urls()
+            cfg_event_urls = await self.config.default_event_urls()
+            cfg_bg_urls = await self.config.default_bg_urls()
         except Exception:
-            return None
+            cfg_npc_urls = []
+            cfg_event_urls = []
+            cfg_bg_urls = []
 
-    async def fetch_avatar_image(self, pid: int, guild: Optional[discord.Guild]) -> Optional[Image.Image]:
-        """
-        pid may be:
-        - positive int: Discord user id -> fetch avatar
-        - negative int: NPC instance id -> fetch image_url from npc_instances
-        """
-        if isinstance(pid, int) and pid < 0:
-            inst = self.npc_instances.get(pid)
-            if not inst:
-                return None
-            url = inst.get("image_url")
-            if not url:
-                return None
-            return await self.fetch_image_from_url(url, AVATAR_SIZE)
+        npc_url_pool = cfg_npc_urls if cfg_npc_urls else DEFAULT_NPC_URLS
+        event_url_pool = cfg_event_urls if cfg_event_urls else DEFAULT_EVENT_URLS
+        bg_url_pool = cfg_bg_urls if cfg_bg_urls else DEFAULT_BG_URLS
 
-        member = None
-        if guild:
-            member = guild.get_member(pid)
-        if not member:
-            for g in self.bot.guilds:
-                member = g.get_member(pid)
-                if member:
-                    break
-        if not member:
-            return None
-        url = member.display_avatar.replace(size=AVATAR_SIZE).url
-        try:
-            async with self.session.get(url) as resp:
-                if resp.status != 200:
-                    return None
-                data = await resp.read()
-                img = Image.open(io.BytesIO(data)).convert("RGBA")
-                img = img.resize((AVATAR_SIZE, AVATAR_SIZE))
-                return img
-        except Exception:
-            return None
-
-    async def compose_event_image(self, participant_ids: List[int], eliminated_ids: List[int], event_image_url: Optional[str] = None) -> io.BytesIO:
-        """Compose a composite image for the event round. Handles NPC images via image_url."""
-        base = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
-
-        # optional background from event
+        # load background (event image or default)
+        bg_img = None
         if event_image_url:
-            try:
-                async with self.session.get(event_image_url) as resp:
-                    if resp.status == 200:
-                        data = await resp.read()
-                        bg = Image.open(io.BytesIO(data)).convert("RGBA")
-                        bg = bg.resize(COMPOSITE_SIZE)
-                        base = Image.alpha_composite(base, bg)
-            except Exception:
-                pass
+            bg_bytes = await self._fetch_image_bytes(event_image_url)
+            if bg_bytes:
+                try:
+                    bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGBA")
+                except Exception:
+                    bg_img = None
 
-        draw = ImageDraw.Draw(base)
+        if not bg_img:
+            # try event URL pool then bg URL pool
+            combined_bg_pool = (event_url_pool or []) + (bg_url_pool or [])
+            bg_img = await self._load_image_for_entity(
+                image_url=None,
+                default_url_list=combined_bg_pool,
+                size=(width, height),
+            )
 
-        # layout avatars in a row
-        padding = 10
-        max_slots = max(1, min(5, len(participant_ids)))
-        slot_w = (COMPOSITE_SIZE[0] - padding * 2) // max_slots
-        slot_h = COMPOSITE_SIZE[1] - padding * 2
+        # fit background to composite and paste
+        bg_img = ImageOps.fit(bg_img, (width, height), Image.LANCZOS)
+        composite.paste(bg_img, (0, 0))
 
-        # load avatars (concurrently-ish)
-        avatars: List[Optional[Image.Image]] = []
-        for pid in participant_ids:
-            try:
-                img = await self.fetch_avatar_image(pid, None)
-            except Exception:
-                img = None
-            avatars.append(img)
+        draw = ImageDraw.Draw(composite)
 
-        # draw each avatar into its slot
-        for idx, avatar in enumerate(avatars):
-            x = padding + idx * slot_w + (slot_w - AVATAR_SIZE) // 2
-            y = padding + (slot_h - AVATAR_SIZE) // 2
-            if avatar:
-                # circular mask
-                mask = Image.new("L", (AVATAR_SIZE, AVATAR_SIZE), 0)
-                mdraw = ImageDraw.Draw(mask)
-                mdraw.ellipse((0, 0, AVATAR_SIZE, AVATAR_SIZE), fill=255)
-                base.paste(avatar, (x, y), mask)
-            else:
-                # placeholder
-                placeholder = Image.new("RGBA", (AVATAR_SIZE, AVATAR_SIZE), (80, 80, 80, 255))
-                pdraw = ImageDraw.Draw(placeholder)
-                pdraw.rectangle((0, 0, AVATAR_SIZE, AVATAR_SIZE), fill=(80, 80, 80, 255))
-                base.paste(placeholder, (x, y), placeholder)
+        # layout avatars horizontally with padding
+        padding = 12
+        max_slots = min(6, max(1, len(participants)))
+        slot_w = (width - padding * (max_slots + 1)) // max_slots
+        slot_h = min(AVATAR_SIZE, height - 60)
+        avatar_size = (slot_w, slot_h)
 
-            # if this participant is eliminated, draw a red X over them
-            pid = participant_ids[idx]
-            if pid in eliminated_ids:
-                ex = x
-                ey = y
-                ex2 = x + AVATAR_SIZE
-                ey2 = y + AVATAR_SIZE
-                # draw thick red X
-                for off in range(-2, 3):
-                    draw.line((ex + off, ey, ex2 + off, ey2), fill=(220, 20, 60, 255), width=6)
-                    draw.line((ex, ey + off, ex2, ey2 + off), fill=(220, 20, 60, 255), width=6)
-
-        # small caption
+        # fonts for names if available
         try:
-            font = ImageFont.truetype("arial.ttf", 16)
+            font_path = os.path.join(BASE_DIR, "DejaVuSans.ttf")
+            font = ImageFont.truetype(font_path, 14)
         except Exception:
             font = ImageFont.load_default()
-        caption = "Battle Royale"
 
-        # Use textbbox for reliable measurement across Pillow versions
+        for idx, pid in enumerate(participants):
+            x = padding + idx * (slot_w + padding)
+            y = height - slot_h - 28
+
+            # determine image_url and fallback based on type
+            if isinstance(pid, int) and pid < 0:
+                inst = self.npc_instances.get(pid, {})
+                image_url = inst.get("image_url")
+                name = inst.get("name", f"NPC {pid}")
+                avatar = await self._load_image_for_entity(
+                    image_url=image_url,
+                    default_url_list=npc_url_pool,
+                    size=avatar_size,
+                )
+            else:
+                # user: try to get avatar URL from member if possible
+                member = None
+                try:
+                    for g in self.bot.guilds:
+                        m = g.get_member(pid)
+                        if m:
+                            member = m
+                            break
+                except Exception:
+                    member = None
+                image_url = None
+                if member:
+                    try:
+                        image_url = str(member.avatar.url) if getattr(member, "avatar", None) else None
+                    except Exception:
+                        image_url = None
+                name = member.display_name if member else f"User {pid}"
+                avatar = await self._load_image_for_entity(
+                    image_url=image_url,
+                    default_url_list=npc_url_pool,
+                    size=avatar_size,
+                )
+
+            # if this participant is eliminated, convert to grayscale and draw red X
+            is_dead = pid in eliminated
+            if is_dead:
+                # convert to grayscale while preserving alpha
+                gray = ImageOps.grayscale(avatar).convert("RGBA")
+                alpha = avatar.split()[-1]
+                gray.putalpha(alpha)
+                avatar = gray
+
+                # draw red X on avatar
+                ax, ay = avatar.size
+                xdraw = ImageDraw.Draw(avatar)
+                line_width = max(4, ax // 12)
+                red = (220, 20, 20, 255)
+                # two diagonal lines across the avatar
+                xdraw.line((0, 0, ax, ay), fill=red, width=line_width)
+                xdraw.line((0, ay, ax, 0), fill=red, width=line_width)
+
+            # paste avatar onto composite with alpha
+            composite.paste(avatar, (x, y), avatar)
+
+            # draw name below avatar (clamped)
+            name_text = name[:20]
+            text_w, text_h = draw.textsize(name_text, font=font)
+            tx = x + max(0, (slot_w - text_w) // 2)
+            ty = y + avatar_size[1] + 6
+            # draw text background for readability
+            rect_x0 = tx - 4
+            rect_y0 = ty - 2
+            rect_x1 = tx + text_w + 4
+            rect_y1 = ty + text_h + 2
+            draw.rectangle([rect_x0, rect_y0, rect_x1, rect_y1], fill=(0, 0, 0, 140))
+            draw.text((tx, ty), name_text, font=font, fill=(255, 255, 255, 230))
+
+        # Optionally overlay a small event image or icon in the top-left if available
         try:
-            bbox = draw.textbbox((0, 0), caption, font=font)
-            tw = bbox[2] - bbox[0]
-            th = bbox[3] - bbox[1]
+            event_icon = None
+            if event_image_url:
+                ev_bytes = await self._fetch_image_bytes(event_image_url)
+                if ev_bytes:
+                    event_icon = Image.open(io.BytesIO(ev_bytes)).convert("RGBA")
+            if not event_icon:
+                # try event pool
+                event_icon = await self._load_image_for_entity(
+                    image_url=None,
+                    default_url_list=event_url_pool,
+                    size=(100, 60),
+                )
+            event_icon = ImageOps.fit(event_icon, (100, 60), Image.LANCZOS)
+            composite.paste(event_icon, (12, 12), event_icon)
         except Exception:
-            # fallback to font.getsize if available
-            try:
-                tw, th = font.getsize(caption)
-            except Exception:
-                tw, th = (len(caption) * 6, 12)
+            pass
 
-        draw.text(((COMPOSITE_SIZE[0] - tw) // 2, COMPOSITE_SIZE[1] - th - 6), caption, fill=(255, 255, 255, 200), font=font)
-
+        # export to bytes
         out = io.BytesIO()
-        base.save(out, format="PNG")
+        composite.save(out, format="PNG")
         out.seek(0)
         return out
-
