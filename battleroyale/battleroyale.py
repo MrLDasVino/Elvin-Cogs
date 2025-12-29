@@ -552,83 +552,25 @@ class BattleRoyale(commands.Cog):
         Survival probabilities:
           - 30% survive
           - 70% die
-        Adds randomized flavor text for more immersive PvP narration.
         """
         survived = random.random() < 0.30  # 30% survive
         attacker_name = "the environment" if attacker_id is None else self._format_participant_name(attacker_id)
         target_name = self._format_participant_name(target_id)
-
-        # Flavor templates for kills and survivals
-        kill_templates = [
-            f"{target_name} didn't stand a chance against {attacker_name}, collapsing in a spray of debris.",
-            f"{attacker_name} found an opening and ended {target_name}'s run in a brutal exchange.",
-            f"A single, precise strike from {attacker_name} put {target_name} down for good.",
-            f"{target_name} was overwhelmed — {attacker_name} left no survivors."
-        ]
-        survive_templates = [
-            f"{target_name} narrowly escaped {attacker_name}'s assault, bloodied but breathing.",
-            f"Against all odds, {target_name} dodged the fatal blow from {attacker_name} and staggered away.",
-            f"{attacker_name} thought it was over, but {target_name} fought through and lived to fight another round.",
-            f"{target_name} survived the onslaught, collapsing to catch their breath as {attacker_name} looks on."
-        ]
-
         if survived:
-            text = random.choice(survive_templates)
-            return True, text
+            return True, f"{target_name} survived an attack by {attacker_name}."
         else:
-            text = random.choice(kill_templates)
-            return False, text
-
-    def _resolve_event_outcome(self, event: Optional[Dict], participants: List[int]) -> Tuple[Set[int], str]:
-        """
-        Resolve an event affecting `participants`.
-        Returns (dead_ids_set, narrative_text).
-        Uses event['description'] when available and appends flavor text.
-        """
-        dead_ids: Set[int] = set()
-        if not event:
-            # Generic minor event
-            lines = [
-                "A strange ripple passes through the area; everyone feels uneasy but survives.",
-                "The ground trembles briefly and nothing more than dust falls — for now."
-            ]
-            return dead_ids, random.choice(lines)
-
-        # Use the event description from the events file if present
-        base_desc = event.get("description") or event.get("name") or "An event unfolds."
-        severity = float(event.get("severity", 30.0)) if event.get("severity") is not None else 30.0
-
-        # Flavor templates that incorporate the base description
-        flavor_templates = [
-            f"{base_desc} Chaos erupts as the scene unfolds.",
-            f"{base_desc} The moment is brutal and unforgiving.",
-            f"{base_desc} Screams and shouts echo as fate is decided.",
-            f"{base_desc} The air tastes of smoke and fear."
-        ]
-        narrative = random.choice(flavor_templates)
-
-        # Determine casualties: higher severity -> more likely deaths
-        for pid in participants:
-            # simple severity-based chance: severity 0..100 maps to death probability
-            death_chance = min(0.95, max(0.01, severity / 100.0))
-            if random.random() < death_chance:
-                dead_ids.add(pid)
-
-        # Add participant-specific flavor
-        if dead_ids:
-            killed_names = ", ".join(self._format_participant_name(p) for p in dead_ids)
-            narrative += f" {killed_names} {'were' if len(dead_ids) > 1 else 'was'} caught in it and did not survive."
-        else:
-            narrative += " Miraculously, everyone survived the ordeal."
-
-        return dead_ids, narrative
+            return False, f"{target_name} was killed by {attacker_name}."
 
     async def _compose_and_attach_image(self, ctx_or_channel, title: str, participants: List[int], dead_ids: Set[int], avatar_size: int = AVATAR_SIZE, center: bool = False, event: Optional[Dict] = None, victory: bool = False) -> Tuple[discord.Embed, File]:
         """
         Create a composite image for the round and return (embed, discord.File).
         - Uses an event-specific background if available, otherwise falls back to configured defaults and module defaults.
-        - The composite PNG is attached and referenced via attachment://result.png so the image is inside the embed.
-        - The embed.description includes event description and flavor text when available.
+        - Does NOT draw any text onto the image; all text is placed in the embed.
+        - avatar_size: pixel size to use for each avatar (overrides AVATAR_SIZE)
+        - center: if True, center the participants horizontally in the canvas
+        - event: optional event dict to prefer its image as background
+        - victory: if True, prefer victory background fallbacks
+        The embed will reference the attachment via attachment://result.png so the image appears inside the embed.
         """
         width, height = COMPOSITE_SIZE
 
@@ -701,36 +643,15 @@ class BattleRoyale(commands.Cog):
 
             x += slot_w + 8
 
-        # Save composite to bytes and create File attachment
+        # Note: no text is drawn onto the image. All textual information is added to the embed.
+
         bio = io.BytesIO()
         canvas.save(bio, "PNG")
         bio.seek(0)
         filename = "result.png"
         file = File(bio, filename=filename)
 
-        # Build embed: include title, image attachment, and description (event/victory flavor)
         embed = discord.Embed(title=title, color=self._random_color())
-
-        # Compose description: include event description if present, plus victory flavor
-        desc_parts = []
-        if event:
-            ev_name = event.get("name", "Event")
-            ev_desc = event.get("description", "")
-            desc_parts.append(f"**{ev_name}** — {ev_desc}" if ev_desc else f"**{ev_name}**")
-        if victory:
-            desc_parts.append("**Victory!** The final scene celebrates the last survivor with a triumphant backdrop.")
-        # If there are dead participants, list them briefly
-        if dead_ids:
-            killed = ", ".join(self._format_participant_name(p) for p in dead_ids)
-            desc_parts.append(f"Casualties: {killed}")
-
-        # Fallback short flavor if nothing else
-        if not desc_parts:
-            desc_parts.append("A tense moment unfolds on the battlefield.")
-
-        embed.description = "\n\n".join(desc_parts)
-
-        # Attach the image and reference it inside the embed so the image is inside the embed
         embed.set_image(url=f"attachment://{filename}")
 
         return embed, file
@@ -836,7 +757,9 @@ class BattleRoyale(commands.Cog):
         Usage:
           battleroyale addnpc <signup_message_id> <template_name|random> [count]
         Examples:
-          battleroyale addnpc 123456789012345678 random 3
+          battleroyale addnpc 123456789012345678 Goblin 3
+          battleroyale addnpc 123456789012345678 random 5
+        Requires moderator permissions.
         """
         if not self.is_mod_or_admin(ctx.author):
             await ctx.send("You need to be a moderator or admin to add NPCs.")
@@ -844,184 +767,298 @@ class BattleRoyale(commands.Cog):
 
         game = self.active_games.get(signup_message_id)
         if not game:
-            await ctx.send("No signup with that message id was found.")
+            await ctx.send("No signup found with that message id.")
             return
 
-        # choose templates
-        templates = []
+        # clamp count to avoid abuse
+        try:
+            count = max(1, min(50, int(count)))
+        except Exception:
+            count = 1
+
+        added_ids = []
+
+        # helper: pick a random template
+        def _pick_random_template():
+            if not self.enemy_templates:
+                return None
+            return random.choice(self.enemy_templates)
+
         if enemy_name.lower() == "random":
             if not self.enemy_templates:
-                await ctx.send("No enemy templates available to choose from.")
+                await ctx.send("No enemy templates available. Add templates with `battleroyale enemy add` first.")
                 return
-            templates = [random.choice(self.enemy_templates) for _ in range(count)]
+            for _ in range(count):
+                template = _pick_random_template()
+                nid = self.next_npc_id
+                self.next_npc_id -= 1
+                self.npc_instances[nid] = {"name": template["name"], "image_url": template.get("image_url")}
+                game["players"].append(nid)
+                added_ids.append((nid, template["name"]))
         else:
-            # find template by name
-            tpl = next((t for t in self.enemy_templates if t.get("name", "").lower() == enemy_name.lower()), None)
-            if not tpl:
-                await ctx.send(f"No enemy template named **{enemy_name}** found.")
+            # find template by name (case-insensitive)
+            template = None
+            for t in self.enemy_templates:
+                if t.get("name", "").lower() == enemy_name.lower():
+                    template = t
+                    break
+            if not template:
+                await ctx.send(f"No enemy template named **{enemy_name}** found. Use `battleroyale enemy list`.")
                 return
-            templates = [tpl for _ in range(count)]
-
-        added = []
-        for tpl in templates:
-            nid = self.next_npc_id
-            self.next_npc_id -= 1
-            inst = {"name": tpl.get("name", "NPC"), "image_url": tpl.get("image_url")}
-            self.npc_instances[nid] = inst
-            game["players"].append(nid)
-            added.append((nid, inst["name"]))
+            for _ in range(count):
+                nid = self.next_npc_id
+                self.next_npc_id -= 1
+                self.npc_instances[nid] = {"name": template["name"], "image_url": template.get("image_url")}
+                game["players"].append(nid)
+                added_ids.append((nid, template["name"]))
 
         await self._save_npcs()
         await self._save_games()
-        names = ", ".join(f"**{n}**(id {i})" for i, n in added)
-        await ctx.send(f"Added NPCs to signup: {names}")
+
+        if not added_ids:
+            await ctx.send("No NPCs were added.")
+            return
+
+        names_summary: Dict[str, int] = {}
+        for _, name in added_ids:
+            names_summary[name] = names_summary.get(name, 0) + 1
+        summary_parts = [f"{v}× {k}" for k, v in names_summary.items()]
+        await ctx.send(f"Added {len(added_ids)} NPC(s) to signup {signup_message_id}: " + ", ".join(summary_parts) + ".")
 
     @battleroyale.command(name="removenpc")
     @commands.guild_only()
-    async def removenpc(self, ctx: commands.Context, signup_message_id: int, npc_id: int):
-        """Remove an NPC instance from a signup (use negative id)."""
+    async def removenpc(self, ctx: commands.Context, signup_message_id: int, npc_name: str, count: int = 1):
+        """
+        Remove NPC instances by name from a signup.
+        Usage: battleroyale removenpc <signup_message_id> <npc_name> [count]
+        """
         if not self.is_mod_or_admin(ctx.author):
             await ctx.send("You need to be a moderator or admin to remove NPCs.")
             return
 
         game = self.active_games.get(signup_message_id)
         if not game:
-            await ctx.send("No signup with that message id was found.")
+            await ctx.send("No signup found with that message id.")
             return
 
-        if npc_id not in game["players"]:
-            await ctx.send("That NPC is not in the signup.")
-            return
+        removed = 0
+        new_players = []
+        for pid in game["players"]:
+            if removed < count and isinstance(pid, int) and pid < 0:
+                inst = self.npc_instances.get(pid)
+                if inst and inst.get("name", "").lower() == npc_name.lower():
+                    self.npc_instances.pop(pid, None)
+                    removed += 1
+                    continue
+            new_players.append(pid)
+        game["players"] = new_players
 
-        try:
-            game["players"].remove(npc_id)
-            await self._save_games()
-            await ctx.send(f"Removed NPC {npc_id} from signup.")
-        except Exception:
-            await ctx.send("Failed to remove NPC.")
+        await self._save_npcs()
+        await self._save_games()
+        await ctx.send(f"Removed {removed} NPC(s) named **{npc_name}** from signup {signup_message_id}.")
 
     # -----------------------
-    # Start / run the game
+    # Start command with dropdown
     # -----------------------
     @battleroyale.command(name="start")
     @commands.guild_only()
-    async def start(self, ctx: commands.Context, signup_message_id: int, *, rounds: int = 100):
-        """
-        Start a Battle Royale for the given signup message id.
-        The game will run until one survivor remains or `rounds` is reached.
-        """
+    async def start(self, ctx: commands.Context, signup_message_id: Optional[int] = None):
+        """Start the Battle Royale. If no id provided, shows a dropdown to pick a signup."""
         if not self.is_mod_or_admin(ctx.author):
             await ctx.send("You need to be a moderator or admin to start a game.")
             return
 
-        game = self.active_games.get(signup_message_id)
-        if not game:
-            await ctx.send("No signup with that message id was found.")
+        if signup_message_id:
+            game = self.active_games.get(signup_message_id)
+            if not game:
+                await ctx.send("No signup found with that message id.")
+                return
+            await self.start_game(ctx, game)
             return
 
+        guild_games = [g for g in self.active_games.values() if g["guild_id"] == ctx.guild.id and not g.get("running", False)]
+        if not guild_games:
+            await ctx.send("No active signup found to start.")
+            return
+
+        if len(guild_games) == 1:
+            await self.start_game(ctx, guild_games[0])
+            return
+
+        options = []
+        for g in guild_games:
+            msg_id = g["signup_message_id"]
+            channel_id = g["channel_id"]
+            players = len(g["players"])
+            label = f"{players} players in #{channel_id}"
+            description = f"Message {msg_id}"
+            options.append(discord.SelectOption(label=label[:100], value=str(msg_id), description=description[:100]))
+
+        view = SelectView(self, guild_id=ctx.guild.id, author_id=ctx.author.id)
+        if view.children and isinstance(view.children[0], discord.ui.Select):
+            view.children[0].options = options
+
+        await ctx.send("Select which signup to start (60s):", view=view, ephemeral=True)
+        await view.wait()
+        if not view.selected_game_id:
+            await ctx.send("No selection made; start cancelled.", ephemeral=True)
+            return
+
+        selected_game = self.active_games.get(view.selected_game_id)
+        if not selected_game:
+            await ctx.send("Selected signup no longer exists.", ephemeral=True)
+            return
+
+        await self.start_game(ctx, selected_game)
+
+    async def start_game(self, ctx: commands.Context, game: Dict):
+        """Start the provided game dict. Runs the game loop and handles cleanup."""
         if game.get("running"):
-            await ctx.send("That signup is already running.")
+            await ctx.send("That game is already running.")
             return
 
-        players = list(game.get("players", []))
-        if not players:
-            await ctx.send("No players are signed up.")
+        if len(game.get("players", [])) < 2:
+            await ctx.send("Need at least 2 players to start.")
             return
 
-        # mark running
+        # mark running and persist
         game["running"] = True
         await self._save_games()
 
-        channel = ctx.guild.get_channel(game["channel_id"]) or ctx.channel
-        await channel.send(f"Battle Royale starting with {len(players)} participants! Let the chaos begin.")
-
-        alive: Set[int] = set(players)
-        round_num = 0
+        # remove the persistent Join view so no more joins are possible
+        try:
+            self.bot.remove_view(view=None, message_id=game["signup_message_id"])
+        except Exception:
+            pass
 
         try:
-            while round_num < rounds and len(alive) > 1:
-                round_num += 1
-                action, participants, event = self._select_combatants({"players": list(alive)})
-                dead_this_round: Set[int] = set()
-                narrative_lines: List[str] = []
-
-                if action == "pvp":
-                    attacker, defender = participants[0], participants[1]
-                    survived, text = self._resolve_attack_single(attacker, defender)
-                    narrative_lines.append(text)
-                    if not survived:
-                        dead_this_round.add(defender)
-                elif action == "event":
-                    edeads, narrative = self._resolve_event_outcome(event, participants)
-                    dead_this_round.update(edeads)
-                    narrative_lines.append(narrative)
-                else:
-                    narrative_lines.append("Nothing happened this round.")
-
-                # remove dead
-                for d in dead_this_round:
-                    if d in alive:
-                        alive.remove(d)
-
-                # Compose and send image + embed
-                title = f"Battle Royale — Round {round_num}"
-                embed, file = await self._compose_and_attach_image(channel, title, list(participants), dead_this_round, event=event, victory=False)
-                # Add round report field
-                embed.add_field(name="Round Report", value="\n".join(narrative_lines), inline=False)
-                embed.set_footer(text=f"{len(alive)} survivors remain.")
-                await channel.send(embed=embed, file=file)
-
-                # small delay to avoid spamming
-                await asyncio.sleep(1.0)
-
-            # Determine winner(s)
-            if len(alive) == 1:
-                winner = next(iter(alive))
-                winner_name = self._format_participant_name(winner, mention=False)
-                # Compose victory image and embed
-                title = "Battle Royale — Victory"
-                embed, file = await self._compose_and_attach_image(channel, title, [winner], set(), event=None, victory=True)
-                embed.add_field(name="Winner", value=f"{winner_name} is the last survivor!", inline=False)
-                await channel.send(embed=embed, file=file)
-            elif len(alive) == 0:
-                # no survivors
-                title = "Battle Royale — No Survivors"
-                embed, file = await self._compose_and_attach_image(channel, title, [], set(), event=None, victory=True)
-                embed.add_field(name="Outcome", value="No one survived the carnage.", inline=False)
-                await channel.send(embed=embed, file=file)
-            else:
-                # rounds exhausted
-                survivors = ", ".join(self._format_participant_name(p) for p in alive)
-                title = "Battle Royale — Time's Up"
-                embed, file = await self._compose_and_attach_image(channel, title, list(alive), set(), event=None, victory=False)
-                embed.add_field(name="Survivors", value=survivors, inline=False)
-                await channel.send(embed=embed, file=file)
+            await self._run_game_loop(ctx, game)
         finally:
-            # mark not running and persist
+            # ensure the game is no longer marked running
             game["running"] = False
-            # update players to current alive list (so dead are removed)
-            game["players"] = list(alive)
+
+            # cleanup NPC instances not referenced by any signup
+            used_ids: Set[int] = set()
+            for g in self.active_games.values():
+                for pid in g.get("players", []):
+                    if isinstance(pid, int) and pid < 0:
+                        used_ids.add(pid)
+            for nid in list(self.npc_instances.keys()):
+                if nid not in used_ids:
+                    self.npc_instances.pop(nid, None)
+            await self._save_npcs()
+
+            # remove this signup so it cannot be reused; require a new signup to start again
+            try:
+                self.active_games.pop(game["signup_message_id"], None)
+            except Exception:
+                pass
+
             await self._save_games()
 
-    # -----------------------
-    # Utility commands for events and games
-    # -----------------------
-    @battleroyale.command(name="eventsreload")
-    @commands.is_owner()
-    async def events_reload(self, ctx: commands.Context):
-        """Reload events.json from disk into memory."""
-        self.events = load_events()
-        await ctx.send(f"Loaded {len(self.events)} events.")
+            # ensure the view is removed (defensive)
+            try:
+                self.bot.remove_view(view=None, message_id=game["signup_message_id"])
+            except Exception:
+                pass
 
-    @battleroyale.command(name="games")
-    async def games_list(self, ctx: commands.Context):
-        """List active signups/games."""
-        if not self.active_games:
-            await ctx.send("No active signups.")
+    # -----------------------
+    # Main game loop (replacement)
+    # -----------------------
+    async def _run_game_loop(self, ctx: commands.Context, game: Dict):
+        """
+        Simplified game loop that runs until one participant remains.
+        Each iteration:
+          - choose action type (pvp/event) with 70/30 split
+          - select participants (two for pvp, one or more for event)
+          - resolve outcome using survival probabilities
+          - send an embed with the result and the image attached inside the embed
+        """
+        channel = ctx.channel
+
+        # quick guard
+        if not game.get("players") or len(game.get("players", [])) < 2:
+            await ctx.send("Not enough participants to run the game.")
             return
-        embed = discord.Embed(title="Active Signups", color=self._random_color())
-        for mid, g in self.active_games.items():
-            ch = ctx.guild.get_channel(g.get("channel_id")) if ctx.guild else None
-            chname = ch.mention if ch else f"Channel({g.get('channel_id')})"
-            embed.add_field(name=str(mid), value=f"{chname} — {len(g.get('players', []))} players", inline=False)
-        await ctx.send(embed=embed)
+
+        # track dead ids to show overlays in images
+        dead_ids: Set[int] = set()
+
+        round_num = 1
+        # run until one remains
+        while True:
+            # refresh players from game state in case of external changes
+            players = [p for p in game.get("players", [])]
+
+            # stop if game cancelled or ended
+            if not players or len(players) <= 1:
+                break
+
+            action, participants, event = self._select_combatants(game)
+            if action == "none":
+                break
+
+            # Build round title and result lines
+            if action == "pvp":
+                round_title = f"Round {round_num} — PvP"
+                attacker, defender = participants[0], participants[1]
+                survived, text = self._resolve_attack_single(attacker, defender)
+                result_lines = [text]
+                if not survived:
+                    try:
+                        game["players"].remove(defender)
+                    except ValueError:
+                        pass
+                    dead_ids.add(defender)
+            else:
+                round_title = f"Round {round_num} — {event.get('name') if event else 'Event'}"
+                result_lines = []
+                for target in participants:
+                    survived, text = self._resolve_attack_single(None, target)
+                    result_lines.append(text)
+                    if not survived:
+                        try:
+                            game["players"].remove(target)
+                        except ValueError:
+                            pass
+                        dead_ids.add(target)
+
+            # persist game state after each round
+            await self._save_games()
+            await self._save_npcs()
+
+            # compose image and embed, attach file and send
+            # pass event so event-specific background can be used
+            embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids, event=event, victory=False)
+            # Put all textual info into the embed, not on the image
+            embed.add_field(name="Round", value=str(round_num), inline=True)
+            embed.add_field(name="Type", value=("PvP" if action == "pvp" else (event.get("name") if event else "Event")), inline=True)
+            embed.add_field(name="Result", value="\n".join(result_lines), inline=False)
+
+            # send as a single message with attachment embedded
+            try:
+                await channel.send(embed=embed, file=file)
+            except Exception:
+                # fallback: send text if image fails
+                await channel.send("\n".join(result_lines))
+
+            # small delay between rounds to avoid rate limits and give players time
+            await asyncio.sleep(1.0)
+            round_num += 1
+
+        # final summary
+        remaining = game.get("players", [])
+        if remaining:
+            winner = remaining[0]
+            winner_name = self._format_participant_name(winner)
+            embed = discord.Embed(title="Battle Royale — Winner!", description=f"{winner_name} is the last one standing!", color=self._random_color())
+            try:
+                # Use a smaller avatar and center it in the victory image; prefer victory background
+                victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))  # e.g., 75% of normal, minimum 48
+                v_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True)
+                # send embed with attached file (embed image references attachment://result.png)
+                await channel.send(embed=embed, file=v_file)
+            except Exception:
+                await channel.send(f"{winner_name} is the last one standing!")
+        else:
+            await channel.send("No survivors.")
