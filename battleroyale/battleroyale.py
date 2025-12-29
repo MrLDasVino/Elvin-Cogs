@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import aiohttp
 import discord
+from discord import File
 from redbot.core import commands, Config
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 
@@ -457,6 +458,191 @@ class BattleRoyale(commands.Cog):
             return img
 
     # -----------------------
+    # New helpers for game logic and image composition
+    # -----------------------
+    def _choose_action_type(self) -> str:
+        """
+        Return 'pvp' or 'event' according to configured probabilities:
+          - PvP: 70%
+          - Event: 30%
+        """
+        return "pvp" if random.random() < 0.7 else "event"
+
+    def _pick_event(self) -> Optional[Dict]:
+        """Pick an event using the 'chance' weight from self.events; fallback to uniform."""
+        if not self.events:
+            return None
+        weights = []
+        for e in self.events:
+            try:
+                w = float(e.get("chance", 1))
+            except Exception:
+                w = 1.0
+            weights.append(max(0.0, w))
+        total = sum(weights)
+        if total <= 0:
+            return random.choice(self.events)
+        r = random.random() * total
+        upto = 0.0
+        for e, w in zip(self.events, weights):
+            upto += w
+            if r <= upto:
+                return e
+        return self.events[-1]
+
+    def _select_combatants(self, game: Dict) -> Tuple[str, List[int], Optional[Dict]]:
+        """
+        Returns (action_type, participants_list, event_dict_or_None)
+        - For 'pvp': returns two distinct participant ids (attacker, defender)
+        - For 'event': returns 1..N participant ids (random subset), and the chosen event dict
+        """
+        players = [p for p in game.get("players", [])]
+        if not players:
+            return ("none", [], None)
+
+        action = self._choose_action_type()
+
+        # If not enough players for PvP, force event
+        if action == "pvp" and len(players) < 2:
+            action = "event"
+
+        if action == "pvp":
+            a, b = random.sample(players, 2)
+            return ("pvp", [a, b], None)
+
+        # event path: pick an event and choose participants
+        event = self._pick_event()
+        max_affect = min(4, len(players))
+        num = 1
+        if event:
+            try:
+                num = int(event.get("participants", num))
+                num = max(1, min(max_affect, num))
+            except Exception:
+                num = min(max_affect, 1)
+        else:
+            num = min(max_affect, 1)
+
+        participants = random.sample(players, num)
+        return ("event", participants, event)
+
+    def _format_participant_name(self, pid: int, mention: bool = False) -> str:
+        """
+        Return a display name for a participant id.
+        Positive ints are Discord user IDs; negative ints are NPC instance ids.
+        """
+        try:
+            if isinstance(pid, int) and pid < 0:
+                inst = self.npc_instances.get(pid)
+                if inst:
+                    return f"**{inst.get('name','NPC')}**"
+                return f"**NPC({pid})**"
+            else:
+                user = self.bot.get_user(pid)
+                if user:
+                    return f"**{user.display_name}**" if not mention else user.mention
+                return f"**User({pid})**"
+        except Exception:
+            return f"**{pid}**"
+
+    def _resolve_attack_single(self, attacker_id: Optional[int], target_id: int) -> Tuple[bool, str]:
+        """
+        Resolve an attack from attacker_id to target_id.
+        Returns (target_survived: bool, result_text: str).
+        Survival probabilities:
+          - 30% survive
+          - 70% die
+        """
+        survived = random.random() < 0.30  # 30% survive
+        attacker_name = "the environment" if attacker_id is None else self._format_participant_name(attacker_id)
+        target_name = self._format_participant_name(target_id)
+        if survived:
+            return True, f"{target_name} survived an attack by {attacker_name}."
+        else:
+            return False, f"{target_name} was killed by {attacker_name}."
+
+    async def _compose_and_attach_image(self, ctx_or_channel, title: str, participants: List[int], dead_ids: Set[int], avatar_size: int = AVATAR_SIZE, center: bool = False) -> Tuple[discord.Embed, File]:
+        """
+        Create a composite image for the round and return (embed, discord.File).
+        - avatar_size: pixel size to use for each avatar (overrides AVATAR_SIZE)
+        - center: if True, center the participants horizontally in the canvas
+        The embed will reference the attachment via attachment://result.png so the image appears inside the embed.
+        """
+        width, height = COMPOSITE_SIZE
+        canvas = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
+        draw = ImageDraw.Draw(canvas)
+
+        n = max(1, len(participants))
+        padding = 12
+        avail_w = width - padding * 2
+
+        # compute slot width and avatar dimensions
+        slot_w = min(avatar_size, max(32, avail_w // n))
+        avatar_w = min(avatar_size, slot_w)
+        total_width_needed = n * slot_w + (n - 1) * 8  # 8 px gap
+
+        # starting x: either left padding or centered
+        if center:
+            x = max(padding, (width - total_width_needed) // 2)
+        else:
+            x = padding
+
+        y = (height - avatar_w) // 2
+
+        for pid in participants:
+            # load image for participant
+            if isinstance(pid, int) and pid < 0:
+                inst = self.npc_instances.get(pid, {})
+                url = inst.get("image_url")
+                img = await self._load_image_for_entity(url, DEFAULT_NPC_URLS, size=(avatar_w, avatar_w), default_type="npc", npc_instance=inst)
+            else:
+                user = self.bot.get_user(pid)
+                url = None
+                if user:
+                    try:
+                        url = str(user.display_avatar.replace(size=avatar_w).url)
+                    except Exception:
+                        url = None
+                img = await self._load_image_for_entity(url, DEFAULT_NPC_URLS, size=(avatar_w, avatar_w), default_type="npc")
+
+            # apply dead overlay if needed
+            if pid in dead_ids:
+                img = self._apply_dead_overlay(img)
+
+            canvas.paste(img, (x, y), img)
+
+            # draw name below (single-line)
+            name = self._format_participant_name(pid)
+            try:
+                font = ImageFont.load_default()
+                tw, th = self._get_text_size(draw, name, font)
+                draw.text((x + (avatar_w - tw) // 2, y + avatar_w + 6), name, fill=(230, 230, 230, 255), font=font)
+            except Exception:
+                pass
+
+            x += slot_w + 8
+
+        # title bar
+        try:
+            font = ImageFont.load_default()
+            tw, th = self._get_text_size(draw, title, font)
+            draw.rectangle(((0, 0), (width, 28)), fill=(20, 20, 20, 220))
+            draw.text(((width - tw) // 2, 6), title, fill=(255, 255, 255, 255), font=font)
+        except Exception:
+            pass
+
+        bio = io.BytesIO()
+        canvas.save(bio, "PNG")
+        bio.seek(0)
+        filename = "result.png"
+        file = File(bio, filename=filename)
+
+        embed = discord.Embed(title=title, color=self._random_color())
+        embed.set_image(url=f"attachment://{filename}")
+
+        return embed, file
+
+    # -----------------------
     # Commands
     # -----------------------
     @commands.group(invoke_without_command=True)
@@ -763,219 +949,98 @@ class BattleRoyale(commands.Cog):
                 pass
 
     # -----------------------
-    # Game loop
+    # Main game loop (replacement)
     # -----------------------
     async def _run_game_loop(self, ctx: commands.Context, game: Dict):
-        players = list(game.get("players", []))
-        random.shuffle(players)
-        alive: Set[int] = set(players)
-        eliminated: List[int] = []
+        """
+        Simplified game loop that runs until one participant remains.
+        Each iteration:
+          - choose action type (pvp/event) with 70/30 split
+          - select participants (two for pvp, one or more for event)
+          - resolve outcome using survival probabilities
+          - send an embed with the result and the image attached inside the embed
+        """
+        channel = ctx.channel
 
-        guild = self.bot.get_guild(game["guild_id"])
-        channel = guild.get_channel(game["channel_id"]) if guild else None
-        if not channel:
-            await ctx.send("Could not find the signup channel.")
+        # quick guard
+        if not game.get("players") or len(game.get("players", [])) < 2:
+            await ctx.send("Not enough participants to run the game.")
             return
 
-        await channel.send(f"Battle Royale starting with {len(players)} players (including NPCs)! Good luck.")
-
-        # Flavor text pools (kept simple and safe)
-        event_narrations = [
-            "The world trembles as fate picks its targets.",
-            "A sudden twist of fortune rattles the arena.",
-            "Nature itself seems to take a breath before the chaos.",
-            "A strange hush falls over the battleground, then all hell breaks loose.",
-            "The skies open and destiny writes its name in thunder.",
-        ]
-        kill_narrations = [
-            "{a} ambushes {b} and emerges victorious.",
-            "{a} outmaneuvers {b} in a fierce clash.",
-            "{b} falls to {a}'s cunning strike.",
-            "{a} surprises {b} and claims the advantage.",
-        ]
+        # track dead ids to show overlays in images
+        dead_ids: Set[int] = set()
 
         round_num = 1
+        # run until one remains
+        while True:
+            # refresh players from game state in case of external changes
+            players = [p for p in game.get("players", [])]
 
-        def _display_name(pid):
-            if isinstance(pid, int) and pid < 0:
-                inst = self.npc_instances.get(pid, {})
-                return inst.get("name", f"NPC{pid}")
-            else:
-                member = guild.get_member(pid) if guild else None
-                return member.display_name if member else f"User{pid}"
+            # stop if game cancelled or ended
+            if not players or len(players) <= 1:
+                break
 
-        # Simple elimination loop: pair random combatants each round until one remains
-        while len(alive) > 1:
-            # pick two distinct combatants
-            combatants = random.sample(list(alive), 2)
-            a, b = combatants[0], combatants[1]
+            action, participants, event = self._select_combatants(game)
+            if action == "none":
+                break
 
-            # decide winner randomly (could be weighted later)
-            winner = random.choice([a, b])
-            loser = b if winner == a else a
-
-            # update sets
-            alive.discard(loser)
-            eliminated.append(loser)
-
-            # narration
-            narration = random.choice(kill_narrations).format(a=_display_name(winner), b=_display_name(loser))
-            flavor = random.choice(event_narrations)
-
-            # Build round header and lines (text-only, will go into embed)
-            round_header = f"Round {round_num}: {_display_name(winner)} defeats {_display_name(loser)}"
-            narration_lines = [flavor, narration]
-
-            # Determine if this round should use an event background (simple random chance)
-            event_triggered = random.random() < 0.12
-            event = random.choice(self.events) if (event_triggered and self.events) else None
-
-            # Choose background image according to event/pvp/bg rules
-            if event_triggered and event:
-                bg_img = await self._load_image_for_entity(event.get("image_url"), None, size=COMPOSITE_SIZE, default_type="event")
-            else:
-                # alternate between pvp and bg for variety
-                is_pvp_round = random.random() < 0.5
-                if is_pvp_round:
-                    bg_img = await self._load_image_for_entity(None, None, size=COMPOSITE_SIZE, default_type="pvp")
-                else:
-                    bg_img = await self._load_image_for_entity(None, None, size=COMPOSITE_SIZE, default_type="bg")
-
-            # Compose base image (background only, no text)
-            composite = Image.new("RGBA", COMPOSITE_SIZE)
-            composite.paste(bg_img, (0, 0))
-
-            # Participants text for embed
-            participants_text = ", ".join([_display_name(pid) for pid in players if pid in alive or pid in eliminated])
-
-            # Paste up to 4 portraits (use original players order so dead players can be shown with red X)
-            avatar_positions = [(10, 60), (150, 60), (290, 60), (430, 60)]
-            avatars_to_show = players[:4]  # show first 4 original players (may include eliminated)
-            for pos, pid in zip(avatar_positions, avatars_to_show):
-                if isinstance(pid, int) and pid < 0:
-                    inst = self.npc_instances.get(pid, {})
-                    img = await self._load_image_for_entity(inst.get("image_url"), None, size=(AVATAR_SIZE, AVATAR_SIZE), default_type="npc", npc_instance=inst)
-                else:
-                    member = guild.get_member(pid) if guild else None
-                    avatar_url = None
-                    if member:
-                        # prefer display avatar
-                        try:
-                            avatar_url = str(member.display_avatar.url)
-                        except Exception:
-                            try:
-                                avatar_url = str(member.avatar.url)
-                            except Exception:
-                                avatar_url = None
-                    img = await self._load_image_for_entity(avatar_url, None, size=(AVATAR_SIZE, AVATAR_SIZE), default_type="npc")
-
-                # If this player has been eliminated at any point, apply dead overlay
-                if pid in eliminated:
+            # Build round title
+            if action == "pvp":
+                round_title = f"Round {round_num} — PvP"
+                attacker, defender = participants[0], participants[1]
+                survived, text = self._resolve_attack_single(attacker, defender)
+                result_lines = [text]
+                if not survived:
                     try:
-                        img = self._apply_dead_overlay(img)
-                    except Exception:
+                        game["players"].remove(defender)
+                    except ValueError:
                         pass
+                    dead_ids.add(defender)
+            else:
+                round_title = f"Round {round_num} — {event.get('name') if event else 'Event'}"
+                result_lines = []
+                for target in participants:
+                    survived, text = self._resolve_attack_single(None, target)
+                    result_lines.append(text)
+                    if not survived:
+                        try:
+                            game["players"].remove(target)
+                        except ValueError:
+                            pass
+                        dead_ids.add(target)
 
-                try:
-                    composite.paste(img, pos, img)
-                except Exception:
-                    composite.paste(img, pos)
+            # persist game state after each round
+            await self._save_games()
+            await self._save_npcs()
 
-            # Save composite to bytes and send as an attachment, with all text inside an embed
-            with io.BytesIO() as buf:
-                try:
-                    composite.save(buf, format="PNG")
-                    buf.seek(0)
-                    file = discord.File(buf, filename=f"battleroyale_round_{round_num}.png")
-
-                    # Build embed: all text goes into the embed (title, description, fields)
-                    embed = discord.Embed(title=round_header, description="\n".join(narration_lines), color=self._random_color())
-                    embed.add_field(name="Participants", value=participants_text or "None", inline=False)
-                    embed.set_footer(text=f"Round {round_num}")
-
-                    await channel.send(embed=embed, file=file)
-                except Exception:
-                    # Fallback: send embed without image
-                    embed = discord.Embed(title=round_header, description="\n".join(narration_lines), color=self._random_color())
-                    embed.add_field(name="Participants", value=participants_text or "None", inline=False)
-                    embed.set_footer(text=f"Round {round_num}")
-                    await channel.send(embed=embed)
-
-            round_num += 1
-            # small delay to avoid spamming too fast
-            await asyncio.sleep(1.0)
-
-        # Game finished, determine winner
-        remaining = list(alive)
-        if not remaining:
-            await channel.send("No winner could be determined.")
-            return
-
-        winner_pid = remaining[0]
-
-        # Build winner embed with portrait and victory background
-        # Load winner avatar
-        if isinstance(winner_pid, int) and winner_pid < 0:
-            inst = self.npc_instances.get(winner_pid, {})
-            winner_name = inst.get("name", f"NPC{winner_pid}")
-            avatar_img = await self._load_image_for_entity(inst.get("image_url"), None, size=(AVATAR_SIZE * 2, AVATAR_SIZE * 2), default_type="npc", npc_instance=inst)
-        else:
-            member = guild.get_member(winner_pid) if guild else None
-            winner_name = member.display_name if member else f"User{winner_pid}"
-            avatar_url = None
-            if member:
-                try:
-                    avatar_url = str(member.display_avatar.url)
-                except Exception:
-                    try:
-                        avatar_url = str(member.avatar.url)
-                    except Exception:
-                        avatar_url = None
-            avatar_img = await self._load_image_for_entity(avatar_url, None, size=(AVATAR_SIZE * 2, AVATAR_SIZE * 2), default_type="npc")
-
-        # Load victory background: choose from DEFAULT_VICTORY_URLS if available, otherwise fall back to bg logic
-        victory_bg_url = None
-        if DEFAULT_VICTORY_URLS:
-            victory_bg_url = random.choice(DEFAULT_VICTORY_URLS)
-        victory_bg = await self._load_image_for_entity(victory_bg_url, None, size=COMPOSITE_SIZE, default_type="bg")
-
-        # Compose winner image: background + centered portrait (no text)
-        winner_composite = Image.new("RGBA", COMPOSITE_SIZE)
-        winner_composite.paste(victory_bg, (0, 0))
-
-        # center avatar
-        aw, ah = avatar_img.size
-        cx = (COMPOSITE_SIZE[0] - aw) // 2
-        cy = (COMPOSITE_SIZE[1] - ah) // 2
-        try:
-            winner_composite.paste(avatar_img, (cx, cy), avatar_img)
-        except Exception:
-            winner_composite.paste(avatar_img, (cx, cy))
-
-        # Save winner composite and send embed
-        with io.BytesIO() as buf:
+            # compose image and embed, attach file and send
+            embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids)
+            embed.add_field(name="Result", value="\n".join(result_lines), inline=False)
+            # send as a single message with attachment embedded
             try:
-                winner_composite.save(buf, format="PNG")
-                buf.seek(0)
-                file = discord.File(buf, filename=f"battleroyale_winner_{winner_pid}.png")
-
-                winner_embed = discord.Embed(
-                    title=f"{winner_name} is the Champion!",
-                    description=f"Congratulations to **{winner_name}** — the last one standing!",
-                    color=self._random_color(),
-                )
-                winner_embed.set_image(url=f"attachment://battleroyale_winner_{winner_pid}.png")
-                winner_embed.set_footer(text="Victory!")
-
-                await channel.send(embed=winner_embed, file=file)
+                await channel.send(embed=embed, file=file)
             except Exception:
-                # fallback: send embed without image
-                winner_embed = discord.Embed(
-                    title=f"{winner_name} is the Champion!",
-                    description=f"Congratulations to **{winner_name}** — the last one standing!",
-                    color=self._random_color(),
-                )
-                winner_embed.set_footer(text="Victory!")
-                await channel.send(embed=winner_embed)
+                # fallback: send text if image fails
+                await channel.send("\n".join(result_lines))
 
-        # final cleanup handled by caller (start_game finally block)
+            # small delay between rounds to avoid rate limits and give players time
+            await asyncio.sleep(1.0)
+            round_num += 1
+
+        # final summary
+        remaining = game.get("players", [])
+        if remaining:
+            winner = remaining[0]
+            winner_name = self._format_participant_name(winner)
+            embed = discord.Embed(title="Battle Royale — Winner!", description=f"{winner_name} is the last one standing!", color=self._random_color())
+            try:
+                # Use a smaller avatar and center it in the victory image
+                victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))  # e.g., 75% of normal, minimum 48
+                v_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True)
+                # send embed with attached file (embed image references attachment://result.png)
+                await channel.send(embed=embed, file=v_file)
+            except Exception:
+                await channel.send(f"{winner_name} is the last one standing!")
+        else:
+            await channel.send("No survivors.")
+
