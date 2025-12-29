@@ -1054,11 +1054,14 @@ class BattleRoyale(commands.Cog):
             embed = discord.Embed(title="Battle Royale — Winner!", description=f"{winner_name} is the last one standing!", color=self._random_color())
             try:
                 # Use a smaller avatar and center it in the victory image; prefer victory background
-                victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))  # e.g., 75% of normal, minimum 48
+                victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))
                 v_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True)
-                # send embed with attached file (embed image references attachment://result.png)
-                await channel.send(embed=embed, file=v_file)
+            
+                # Ensure the embed references the attachment filename used when creating the File
+                v_embed.set_image(url="attachment://result.png")
+            
+                # Send embed and file in the same call so the image is shown inside the embed
+                await channel.send(embed=v_embed, file=v_file)
             except Exception:
                 await channel.send(f"{winner_name} is the last one standing!")
-        else:
-            await channel.send("No survivors.")
+
