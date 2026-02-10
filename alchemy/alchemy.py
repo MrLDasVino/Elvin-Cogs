@@ -37,7 +37,7 @@ def _random_color() -> discord.Color:
 
 
 class Alchemy(commands.Cog):
-    """An alchemy combination game."""
+    """Analchemy combination game."""
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -54,7 +54,6 @@ class Alchemy(commands.Cog):
         """Check config flag and import recipes.json once if present.
 
         This routine will NOT DM the owner. It only logs and sets the flag.
-        Use the owner-only forceimport command to import and post a summary to a channel.
         """
         try:
             cfg = await self.config.all()
@@ -193,13 +192,14 @@ class Alchemy(commands.Cog):
         await ctx.send(embed=embed)
 
     @alchemy.command(name="list")
+    @commands.is_owner()
     async def list_elements(self, ctx: commands.Context):
-        """List all known elements (from recipes)."""
+        """List all known elements (from recipes). Owner only."""
         elements = sorted(list(await self._all_elements_set()))
         if not elements:
             embed = discord.Embed(
                 title="No elements yet",
-                description="No recipes are registered. Ask the bot owner to import recipes.",
+                description="No recipes are registered. Import recipes.json or add recipes.",
                 color=_random_color(),
             )
             await ctx.send(embed=embed)
@@ -257,11 +257,87 @@ class Alchemy(commands.Cog):
         embed = discord.Embed(title="Alchemy Leaderboard", description="\n".join(lines), color=_random_color())
         await ctx.send(embed=embed)
 
-    # ---------- Owner-only management (embeds for feedback) ----------
+    # ---------- Owner-only management (combined addrecipe) ----------
     @alchemy.command(name="addrecipe")
     @commands.is_owner()
-    async def add_recipe(self, ctx: commands.Context, a: str, b: str, *, result: str):
-        """Add a recipe. Owner only. Example: [p]alchemy addrecipe fire water steam"""
+    async def add_recipe(self, ctx: commands.Context, *args):
+        """
+        Add a single recipe or bulk import JSON.
+        Usage:
+          Single: [p]alchemy addrecipe fire water steam
+          Bulk:   [p]alchemy addrecipe {"fire+water":"steam","earth+water":"mud"}
+        """
+        if not args:
+            embed = discord.Embed(
+                title="Usage",
+                description="Single: `[p]alchemy addrecipe a b result`\nBulk: `[p]alchemy addrecipe {\"a+b\":\"result\", ...}`",
+                color=_random_color(),
+            )
+            await ctx.send(embed=embed)
+            return
+
+        # Bulk JSON if single arg that looks like JSON
+        if len(args) == 1 and args[0].strip().startswith("{"):
+            json_text = args[0]
+            try:
+                mapping = json.loads(json_text)
+            except Exception:
+                embed = discord.Embed(
+                    title="Invalid JSON",
+                    description="Provide a valid JSON mapping: {\"a+b\":\"result\", ...}",
+                    color=_random_color(),
+                )
+                await ctx.send(embed=embed)
+                return
+            if not isinstance(mapping, dict):
+                embed = discord.Embed(
+                    title="Invalid format",
+                    description="JSON must be an object mapping keys to results.",
+                    color=_random_color(),
+                )
+                await ctx.send(embed=embed)
+                return
+
+            recipes = await self._get_recipes()
+            added = []
+            skipped = []
+            for k, v in mapping.items():
+                if "+" in k and isinstance(v, str):
+                    parts = [p.strip() for p in k.split("+") if p.strip()]
+                    if not parts:
+                        skipped.append(k)
+                        continue
+                    key = _key_for(*parts)
+                    if key in recipes:
+                        # skip existing to avoid overwriting
+                        continue
+                    recipes[key] = _normalize(v)
+                    added.append(f"{' + '.join(_pretty_name(p) for p in parts)} → {_pretty_name(v)}")
+                else:
+                    skipped.append(str(k))
+            await self.config.recipes.set(recipes)
+            desc = ""
+            if added:
+                desc += "**Added recipes:**\n" + "\n".join(added) + "\n\n"
+            if skipped:
+                desc += "**Skipped invalid keys:**\n" + ", ".join(skipped)
+            embed = discord.Embed(title="Bulk import complete", description=desc or "No valid recipes added.", color=_random_color())
+            await ctx.send(embed=embed)
+            return
+
+        # Otherwise expect at least 3 args: a b result...
+        if len(args) < 3:
+            embed = discord.Embed(
+                title="Invalid usage",
+                description="Single recipe requires: `[p]alchemy addrecipe a b result`",
+                color=_random_color(),
+            )
+            await ctx.send(embed=embed)
+            return
+
+        a = args[0]
+        b = args[1]
+        result = " ".join(args[2:])
         key = _key_for(a, b)
         recipes = await self._get_recipes()
         if key in recipes:
@@ -272,7 +348,8 @@ class Alchemy(commands.Cog):
             )
             await ctx.send(embed=embed)
             return
-        await self._set_recipe(key, result)
+        recipes[key] = _normalize(result)
+        await self.config.recipes.set(recipes)
         embed = discord.Embed(
             title="Recipe added",
             description=f"**{_pretty_name(a)}** + **{_pretty_name(b)}** → **{_pretty_name(result)}**",
@@ -322,46 +399,6 @@ class Alchemy(commands.Cog):
             embed = discord.Embed(title="Registered Recipes", description=page, color=_random_color())
             embed.set_footer(text=f"Page {i}/{len(pages)}")
             await ctx.send(embed=embed)
-
-    @alchemy.command(name="addrecipes")
-    @commands.is_owner()
-    async def add_recipes_bulk(self, ctx: commands.Context, *, json_recipes: str):
-        """Add multiple recipes from a JSON mapping.
-        Example: [p]alchemy addrecipes {"fire+water":"steam","earth+water":"mud"}
-        """
-        try:
-            mapping = json.loads(json_recipes)
-        except Exception:
-            embed = discord.Embed(
-                title="Invalid JSON",
-                description="Provide a valid JSON mapping: {\"a+b\":\"result\", ...}",
-                color=_random_color(),
-            )
-            await ctx.send(embed=embed)
-            return
-        recipes = await self._get_recipes()
-        added = []
-        skipped = []
-        for k, v in mapping.items():
-            if "+" in k:
-                parts = [p.strip() for p in k.split("+") if p.strip()]
-                if not parts:
-                    skipped.append(k)
-                    continue
-                key = _key_for(*parts)
-                recipes[key] = _normalize(v)
-                added.append(f"{' + '.join(_pretty_name(p) for p in parts)} → {_pretty_name(v)}")
-            else:
-                skipped.append(k)
-        await self.config.recipes.set(recipes)
-
-        desc = ""
-        if added:
-            desc += "**Added recipes:**\n" + "\n".join(added) + "\n\n"
-        if skipped:
-            desc += "**Skipped invalid keys:**\n" + ", ".join(skipped)
-        embed = discord.Embed(title="Bulk import complete", description=desc, color=_random_color())
-        await ctx.send(embed=embed)
 
     @alchemy.command(name="importfile")
     @commands.is_owner()
@@ -455,71 +492,4 @@ class Alchemy(commands.Cog):
         hint_text = f"Element starts with **{choice[0].upper()}** and is **{len(choice)}** characters long."
         embed = discord.Embed(title="Hint", description=hint_text, color=_random_color())
         embed.set_footer(text="Use this hint to try new combinations.")
-        await ctx.send(embed=embed)
-
-    @alchemy.command(name="forceimport")
-    @commands.is_owner()
-    async def force_import(self, ctx: commands.Context):
-        """Force import recipes.json from the cog folder and post a summary to this channel."""
-        recipes_path = Path(__file__).parent / "recipes.json"
-        if not recipes_path.exists():
-            embed = discord.Embed(
-                title="recipes.json not found",
-                description="No recipes.json file was found in the cog folder.",
-                color=_random_color(),
-            )
-            await ctx.send(embed=embed)
-            return
-
-        try:
-            with recipes_path.open("r", encoding="utf-8") as f:
-                mapping = json.load(f)
-        except Exception:
-            embed = discord.Embed(
-                title="Failed to read recipes.json",
-                description="The file could not be parsed as valid JSON.",
-                color=_random_color(),
-            )
-            await ctx.send(embed=embed)
-            return
-
-        if not isinstance(mapping, dict):
-            embed = discord.Embed(
-                title="Invalid format",
-                description="recipes.json must contain a JSON object mapping keys to results.",
-                color=_random_color(),
-            )
-            await ctx.send(embed=embed)
-            return
-
-        recipes = await self._get_recipes()
-        added = []
-        skipped = []
-        for k, v in mapping.items():
-            if not isinstance(k, str) or "+" not in k:
-                skipped.append(str(k))
-                continue
-            parts = [p.strip() for p in k.split("+") if p.strip()]
-            if not parts:
-                skipped.append(k)
-                continue
-            key = _key_for(*parts)
-            # Do not overwrite existing recipes unless you want to
-            if key in recipes:
-                continue
-            recipes[key] = _normalize(v)
-            added.append(f"{' + '.join(_pretty_name(p) for p in parts)} → {_pretty_name(v)}")
-
-        await self.config.recipes.set(recipes)
-        await self.config.auto_imported.set(True)
-
-        desc = ""
-        if added:
-            desc += "**Added recipes:**\n" + "\n".join(added[:50]) + ("\n\n" if len(added) > 0 else "")
-        if skipped:
-            desc += "**Skipped invalid keys:**\n" + ", ".join(skipped[:50])
-        if not desc:
-            desc = "No new recipes were added."
-
-        embed = discord.Embed(title="recipes.json import complete", description=desc, color=_random_color())
         await ctx.send(embed=embed)
