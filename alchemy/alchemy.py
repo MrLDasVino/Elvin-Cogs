@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional, Dict, List
 
 import discord
+from discord import ui
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import pagify
@@ -80,6 +81,117 @@ def _pretty_name(name: str) -> str:
 def _random_color() -> discord.Color:
     """Return a random discord.Color."""
     return discord.Color.from_rgb(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+
+
+# -------------------------
+# Paginator view (buttons)
+# -------------------------
+class PaginatorView(ui.View):
+    """
+    Button-based paginator for embeds or text pages.
+    Only the original invoker (or bot owner) may control the paginator.
+    """
+
+    def __init__(self, pages: List[str], author_id: int, title: Optional[str] = None, timeout: int = 120):
+        super().__init__(timeout=timeout)
+        self.pages = pages
+        self.index = 0
+        self.author_id = author_id
+        self.title = title or ""
+        self.message: Optional[discord.Message] = None
+
+        # Disable prev button initially if only one page
+        if len(self.pages) <= 1:
+            for child in self.children:
+                child.disabled = True
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Allow the original invoker or the bot owner to control the paginator
+        if interaction.user.id == self.author_id:
+            return True
+        try:
+            app_info = await interaction.client.application_info()
+            if app_info and app_info.owner and interaction.user.id == app_info.owner.id:
+                return True
+        except Exception:
+            pass
+        await interaction.response.send_message("You cannot control this paginator.", ephemeral=True)
+        return False
+
+    def _embed_for_page(self, idx: int) -> discord.Embed:
+        content = self.pages[idx]
+        embed = discord.Embed(title=self.title, description=content, color=_random_color())
+        embed.set_footer(text=f"Page {idx + 1}/{len(self.pages)}")
+        return embed
+
+    async def start(self, ctx: commands.Context):
+        """Send initial message and attach view."""
+        embed = self._embed_for_page(self.index)
+        self.message = await ctx.send(embed=embed, view=self)
+        return self.message
+
+    async def update_message(self, interaction: discord.Interaction):
+        """Edit the message with the current page embed."""
+        if not self.message:
+            return
+        embed = self._embed_for_page(self.index)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except Exception:
+            # fallback: edit directly if response already used
+            await self.message.edit(embed=embed, view=self)
+
+    @ui.button(label="◀️ Prev", style=discord.ButtonStyle.secondary, custom_id="alchemy_prev")
+    async def prev_button(self, button: ui.Button, interaction: discord.Interaction):
+        if self.index > 0:
+            self.index -= 1
+            # enable/disable buttons
+            self._update_button_states()
+            await self.update_message(interaction)
+        else:
+            await interaction.response.defer()
+
+    @ui.button(label="⏹️ Close", style=discord.ButtonStyle.danger, custom_id="alchemy_close")
+    async def close_button(self, button: ui.Button, interaction: discord.Interaction):
+        # disable all buttons and stop view
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            if self.message:
+                await self.message.edit(view=self)
+        self.stop()
+
+    @ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary, custom_id="alchemy_next")
+    async def next_button(self, button: ui.Button, interaction: discord.Interaction):
+        if self.index < len(self.pages) - 1:
+            self.index += 1
+            self._update_button_states()
+            await self.update_message(interaction)
+        else:
+            await interaction.response.defer()
+
+    def _update_button_states(self):
+        # children order: prev, close, next
+        if len(self.pages) <= 1:
+            for child in self.children:
+                child.disabled = True
+            return
+        prev_btn = self.children[0]
+        next_btn = self.children[2]
+        prev_btn.disabled = self.index == 0
+        next_btn.disabled = self.index >= len(self.pages) - 1
+
+    async def on_timeout(self):
+        # disable buttons on timeout
+        for child in self.children:
+            child.disabled = True
+        try:
+            if self.message:
+                await self.message.edit(view=self)
+        except Exception:
+            pass
 
 
 # -------------------------
@@ -365,6 +477,29 @@ class Alchemy(commands.Cog):
         return bool(cfg.get("require_discovered", False))
 
     # -------------------------
+    # Helper to send paginated content using PaginatorView
+    # -------------------------
+    async def _send_paginated(self, ctx: commands.Context, pages: List[str], title: Optional[str] = None):
+        """
+        Send paginated pages using the PaginatorView.
+        pages: list of page strings (already formatted)
+        title: optional embed title
+        """
+        if not pages:
+            embed = discord.Embed(title=title or "No content", description="Nothing to show.", color=_random_color())
+            await ctx.send(embed=embed)
+            return
+
+        # If only one page, send a single embed without buttons
+        if len(pages) == 1:
+            embed = discord.Embed(title=title or "", description=pages[0], color=_random_color())
+            await ctx.send(embed=embed)
+            return
+
+        view = PaginatorView(pages=pages, author_id=ctx.author.id, title=title or "")
+        await view.start(ctx)
+
+    # -------------------------
     # Commands
     # -------------------------
     @commands.group()
@@ -439,10 +574,7 @@ class Alchemy(commands.Cog):
 
         pretty = [f"• **{_pretty_name(e)}**" for e in avail]
         pages = list(pagify("\n".join(pretty), delims=["\n"], page_length=1500))
-        for i, page in enumerate(pages, start=1):
-            embed = discord.Embed(title="Available Ingredients", description=page, color=_random_color())
-            embed.set_footer(text=f"Page {i}/{len(pages)}")
-            await ctx.send(embed=embed)
+        await self._send_paginated(ctx, pages, title="Available Ingredients")
 
     @alchemy.command(name="list")
     @commands.is_owner()
@@ -460,10 +592,7 @@ class Alchemy(commands.Cog):
 
         pretty = [f"• **{_pretty_name(e)}**" for e in elements]
         pages = list(pagify("\n".join(pretty), delims=["\n"], page_length=1500))
-        for i, page in enumerate(pages, start=1):
-            embed = discord.Embed(title="Known Elements", description=page, color=_random_color())
-            embed.set_footer(text=f"Page {i}/{len(pages)}")
-            await ctx.send(embed=embed)
+        await self._send_paginated(ctx, pages, title="Known Elements")
 
     @alchemy.command(name="my")
     async def my_discoveries(self, ctx: commands.Context):
@@ -480,10 +609,7 @@ class Alchemy(commands.Cog):
 
         pretty = [f"• **{_pretty_name(e)}**" for e in sorted(user_list)]
         pages = list(pagify("\n".join(pretty), delims=["\n"], page_length=1500))
-        for i, page in enumerate(pages, start=1):
-            embed = discord.Embed(title=f"{ctx.author.display_name}'s Discoveries", description=page, color=_random_color())
-            embed.set_footer(text=f"Page {i}/{len(pages)}")
-            await ctx.send(embed=embed)
+        await self._send_paginated(ctx, pages, title=f"{ctx.author.display_name}'s Discoveries")
 
     @alchemy.command(name="leaderboard")
     async def leaderboard(self, ctx: commands.Context):
@@ -510,8 +636,7 @@ class Alchemy(commands.Cog):
             member = ctx.guild.get_member(uid) if ctx.guild else None
             name = member.display_name if member else f"User {uid}"
             lines.append(f"**{i}. {name}** — {count} elements")
-        embed = discord.Embed(title="Alchemy Leaderboard", description="\n".join(lines), color=_random_color())
-        await ctx.send(embed=embed)
+        await self._send_paginated(ctx, list(pagify("\n".join(lines), delims=["\n"], page_length=1500)), title="Alchemy Leaderboard")
 
     # -------------------------
     # Owner-only management (combined addrecipe)
@@ -650,10 +775,7 @@ class Alchemy(commands.Cog):
             lines.append(f"**{pretty_parts}** → **{_pretty_name(v)}**")
 
         pages = list(pagify("\n".join(lines), delims=["\n"], page_length=1500))
-        for i, page in enumerate(pages, start=1):
-            embed = discord.Embed(title="Registered Recipes", description=page, color=_random_color())
-            embed.set_footer(text=f"Page {i}/{len(pages)}")
-            await ctx.send(embed=embed)
+        await self._send_paginated(ctx, pages, title="Registered Recipes")
 
     @alchemy.command(name="importfile")
     @commands.is_owner()
@@ -716,14 +838,7 @@ class Alchemy(commands.Cog):
         recipes = await self._get_recipes()
         pretty = json.dumps(recipes, indent=2)
         pages = list(pagify(pretty, delims=["\n"], page_length=1500))
-        for i, page in enumerate(pages, start=1):
-            embed = discord.Embed(
-                title="Exported Recipes" if i == 1 else f"Exported Recipes (cont. {i})",
-                description=f"```json\n{page}\n```",
-                color=_random_color(),
-            )
-            embed.set_footer(text=f"Page {i}/{len(pages)}")
-            await ctx.send(embed=embed)
+        await self._send_paginated(ctx, pages, title="Exported Recipes")
 
     @alchemy.command(name="hint")
     async def hint(self, ctx: commands.Context):
@@ -768,8 +883,7 @@ class Alchemy(commands.Cog):
             await ctx.send(embed=embed)
             return
         pretty = [f"• **{_pretty_name(e)}**" for e in starters]
-        embed = discord.Embed(title="Starter Elements", description="\n".join(pretty), color=_random_color())
-        await ctx.send(embed=embed)
+        await self._send_paginated(ctx, list(pagify("\n".join(pretty), delims=["\n"], page_length=1500)), title="Starter Elements")
 
     @alchemy.command(name="addstarter")
     @commands.is_owner()
@@ -821,8 +935,7 @@ class Alchemy(commands.Cog):
         normalized = [_normalize(p) for p in parts if p]
         await self.config.starter_elements.set(sorted(list(set(normalized))))
         pretty = [f"• **{_pretty_name(e)}**" for e in sorted(normalized)]
-        embed = discord.Embed(title="Starter elements updated", description="\n".join(pretty) if pretty else "Starter list cleared.", color=_random_color())
-        await ctx.send(embed=embed)
+        await self._send_paginated(ctx, list(pagify("\n".join(pretty) if pretty else "Starter list cleared.", delims=["\n"], page_length=1500)), title="Starter elements updated")
 
     # -------------------------
     # Auto-reimport controls and status
@@ -867,10 +980,7 @@ class Alchemy(commands.Cog):
             await ctx.send(embed=embed)
             return
         pages = list(pagify(summary, delims=["\n"], page_length=1500))
-        for i, page in enumerate(pages, start=1):
-            embed = discord.Embed(title="Last import summary" if i == 1 else f"Last import summary (cont. {i})", description=page, color=_random_color())
-            embed.set_footer(text=f"Page {i}/{len(pages)}")
-            await ctx.send(embed=embed)
+        await self._send_paginated(ctx, pages, title="Last import summary")
 
     # -------------------------
     # Cleanup
