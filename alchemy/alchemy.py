@@ -202,7 +202,7 @@ class ReactionPaginator:
 # Cog
 # -------------------------
 class Alchemy(commands.Cog):
-    """Alchemy combination game with reaction-based pagination, auto-import, and discovery locking."""
+    """Alchemy combination game."""
 
     def __init__(self, bot: Red):
         self.bot = bot
