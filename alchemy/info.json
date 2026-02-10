@@ -1,0 +1,9 @@
+{
+  "name": "Alchemy",
+  "author": ["Elvin"],
+  "version": "1.0.0",
+  "short": "Alchemy combination game",
+  "description": "A simple alchemy game where users combine elements to discover new elements. Recipes are stored in Config and can be bulk imported via JSON.",
+  "install_msg": "Alchemy cog loaded. Use the owner-only commands to add recipes or import a recipes.json file.",
+  "requirements": []
+}
