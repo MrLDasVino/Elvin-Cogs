@@ -4,26 +4,23 @@ import logging
 import random
 import asyncio
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Sequence
 
 import discord
 from discord import ui
 from redbot.core import commands, Config
 from redbot.core.bot import Red
-from redbot.core.utils.chat_formatting import pagify
 
 log = logging.getLogger("red.alchemy")
 
 DEFAULTS = {
-    "recipes": {},  # key: "element1+element2" (sorted) -> result
-    "users": {},  # user_id (str) -> list of discovered elements
-    "auto_imported": False,  # one-time flag to avoid re-importing recipes.json
-    "require_discovered": False,  # if True, users may only use unlocked ingredients
-    "auto_reimport_on_change": False,  # if True, watch recipes.json and re-import on change
-    "auto_reimport_overwrite": False,  # if True, reimport will overwrite existing recipes
-    "last_import_summary": "",  # store last import summary for owner review
-    # Starter elements are the only ingredients available to new users by default.
-    # Use owner commands to change this list.
+    "recipes": {},
+    "users": {},
+    "auto_imported": False,
+    "require_discovered": False,
+    "auto_reimport_on_change": False,
+    "auto_reimport_overwrite": False,
+    "last_import_summary": "",
     "starter_elements": ["fire", "water", "earth", "air"],
 }
 
@@ -32,13 +29,6 @@ DEFAULTS = {
 # Normalization / utilities
 # -------------------------
 def _normalize(name: str) -> str:
-    """
-    Normalize an element name for storage and matching.
-    - strip leading/trailing whitespace
-    - collapse internal whitespace to single spaces
-    - replace spaces with underscores for internal storage
-    - lowercase everything
-    """
     if not isinstance(name, str):
         return ""
     s = name.strip()
@@ -48,39 +38,34 @@ def _normalize(name: str) -> str:
 
 
 def _split_key_string(k: str) -> List[str]:
-    """
-    Accept plus, comma, or whitespace as separators when parsing keys from JSON or user input.
-    Returns a list of cleaned parts (not normalized).
-    """
     if not isinstance(k, str):
         return []
-    # split on plus, comma, or any whitespace
     parts = re.split(r"[,+]|\s+", k)
     return [p for p in (p.strip() for p in parts) if p]
 
 
 def _key_for(*parts: str) -> str:
-    """
-    Build a normalized key from one or more element parts.
-    Sort parts so order doesn't matter.
-    """
     cleaned = [_normalize(p) for p in parts if p is not None and str(p).strip() != ""]
     return "+".join(sorted(cleaned))
 
 
 def _pretty_name(name: str) -> str:
-    """
-    Convert internal name (underscored, lowercase) into a user-friendly display name.
-    Example: 'molten_metal' -> 'Molten Metal'
-    """
     if not isinstance(name, str) or name == "":
         return ""
     return name.replace("_", " ").title()
 
 
 def _random_color() -> discord.Color:
-    """Return a random discord.Color."""
     return discord.Color.from_rgb(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+
+
+def chunk_items(items: Sequence[str], chunk_size: int = 30) -> List[str]:
+    """Chunk a sequence of lines into pages with up to chunk_size items each."""
+    pages = []
+    for i in range(0, len(items), chunk_size):
+        page = "\n".join(items[i : i + chunk_size])
+        pages.append(page)
+    return pages
 
 
 # -------------------------
@@ -99,14 +84,10 @@ class PaginatorView(ui.View):
         self.author_id = author_id
         self.title = title or ""
         self.message: Optional[discord.Message] = None
-
-        # Disable prev button initially if only one page
-        if len(self.pages) <= 1:
-            for child in self.children:
-                child.disabled = True
+        # initialize button states
+        self._update_button_states()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # Allow the original invoker or the bot owner to control the paginator
         if interaction.user.id == self.author_id:
             return True
         try:
@@ -130,47 +111,45 @@ class PaginatorView(ui.View):
         self.message = await ctx.send(embed=embed, view=self)
         return self.message
 
-    async def update_message(self, interaction: discord.Interaction):
-        """Edit the message with the current page embed."""
+    async def _edit_message(self):
+        """Edit the stored message with the current page embed."""
         if not self.message:
             return
         embed = self._embed_for_page(self.index)
         try:
-            await interaction.response.edit_message(embed=embed, view=self)
-        except Exception:
-            # fallback: edit directly if response already used
             await self.message.edit(embed=embed, view=self)
+        except Exception:
+            # best-effort fallback
+            try:
+                await self.message.edit(embed=embed)
+            except Exception:
+                pass
 
     @ui.button(label="◀️ Prev", style=discord.ButtonStyle.secondary, custom_id="alchemy_prev")
     async def prev_button(self, button: ui.Button, interaction: discord.Interaction):
+        # respond quickly to avoid "This interaction failed"
+        await interaction.response.defer()
         if self.index > 0:
             self.index -= 1
-            # enable/disable buttons
             self._update_button_states()
-            await self.update_message(interaction)
-        else:
-            await interaction.response.defer()
+            await self._edit_message()
 
     @ui.button(label="⏹️ Close", style=discord.ButtonStyle.danger, custom_id="alchemy_close")
     async def close_button(self, button: ui.Button, interaction: discord.Interaction):
-        # disable all buttons and stop view
+        await interaction.response.defer()
+        # disable all buttons and update message
         for child in self.children:
             child.disabled = True
-        try:
-            await interaction.response.edit_message(view=self)
-        except Exception:
-            if self.message:
-                await self.message.edit(view=self)
+        await self._edit_message()
         self.stop()
 
     @ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary, custom_id="alchemy_next")
     async def next_button(self, button: ui.Button, interaction: discord.Interaction):
+        await interaction.response.defer()
         if self.index < len(self.pages) - 1:
             self.index += 1
             self._update_button_states()
-            await self.update_message(interaction)
-        else:
-            await interaction.response.defer()
+            await self._edit_message()
 
     def _update_button_states(self):
         # children order: prev, close, next
@@ -184,7 +163,6 @@ class PaginatorView(ui.View):
         next_btn.disabled = self.index >= len(self.pages) - 1
 
     async def on_timeout(self):
-        # disable buttons on timeout
         for child in self.children:
             child.disabled = True
         try:
@@ -207,7 +185,6 @@ class Alchemy(commands.Cog):
         self._watch_task: Optional[asyncio.Task] = None
         self._recipes_mtime: Optional[float] = None
         try:
-            # schedule startup tasks without blocking init
             self.bot.loop.create_task(self._startup_tasks())
         except Exception:
             log.exception("Failed to schedule startup tasks for Alchemy cog.")
@@ -216,9 +193,7 @@ class Alchemy(commands.Cog):
     # Startup tasks
     # -------------------------
     async def _startup_tasks(self):
-        """Run initial import and start watcher if configured."""
         await self._maybe_auto_import()
-        # start watcher if enabled
         if await self.config.auto_reimport_on_change():
             self._start_watcher()
 
@@ -226,43 +201,37 @@ class Alchemy(commands.Cog):
     # Auto-import (one-time)
     # -------------------------
     async def _maybe_auto_import(self):
-        """One-time import of recipes.json from the cog folder if present."""
         try:
             cfg = await self.config.all()
             if cfg.get("auto_imported", False):
-                log.debug("Alchemy: recipes.json already auto-imported; skipping.")
-                # still record mtime for watcher
                 await self._record_recipes_mtime()
                 return
 
             recipes_path = Path(__file__).parent / "recipes.json"
             if not recipes_path.exists():
-                log.info("Alchemy: no recipes.json found for auto-import.")
                 return
 
             try:
                 with recipes_path.open("r", encoding="utf-8") as f:
                     mapping = json.load(f)
             except Exception as e:
-                log.exception("Alchemy: failed to parse recipes.json during auto-import: %s", e)
+                log.exception("Failed to parse recipes.json: %s", e)
                 return
 
             if not isinstance(mapping, dict):
-                log.error("Alchemy: recipes.json must contain a JSON object mapping keys to results.")
+                log.error("recipes.json must be an object mapping keys to results.")
                 return
 
             recipes = await self.config.recipes()
             added = []
             skipped = []
             for k, v in mapping.items():
-                # Accept keys written with spaces, commas, pluses, etc.
                 parts = _split_key_string(k)
                 if not parts or not isinstance(v, str):
                     skipped.append(str(k))
                     continue
                 key = _key_for(*parts)
                 if key in recipes:
-                    log.debug("Alchemy: skipping existing recipe %s", key)
                     continue
                 recipes[key] = _normalize(v)
                 added.append(f"{'+'.join(parts)} -> {v}")
@@ -278,25 +247,22 @@ class Alchemy(commands.Cog):
             await self.config.last_import_summary.set(summary)
             log.info("Alchemy: %s", summary)
         except Exception:
-            log.exception("Alchemy: unexpected error during auto-import routine.")
+            log.exception("Unexpected error during auto-import.")
 
     # -------------------------
     # File watcher for recipes.json
     # -------------------------
     def _start_watcher(self):
-        """Start background task to watch recipes.json for changes."""
         if self._watch_task and not self._watch_task.done():
             return
         self._watch_task = self.bot.loop.create_task(self._watch_recipes_file())
 
     def _stop_watcher(self):
-        """Stop the watcher task if running."""
         if self._watch_task:
             self._watch_task.cancel()
             self._watch_task = None
 
     async def _record_recipes_mtime(self):
-        """Record current mtime of recipes.json for change detection."""
         try:
             recipes_path = Path(__file__).parent / "recipes.json"
             if recipes_path.exists():
@@ -307,13 +273,8 @@ class Alchemy(commands.Cog):
             self._recipes_mtime = None
 
     async def _watch_recipes_file(self):
-        """
-        Poll recipes.json mtime periodically and re-import when it changes.
-        This is a safe, simple watcher that avoids external dependencies.
-        """
         recipes_path = Path(__file__).parent / "recipes.json"
-        poll_interval = 8  # seconds
-        log.debug("Alchemy: starting recipes.json watcher (poll every %s seconds).", poll_interval)
+        poll_interval = 8
         try:
             while True:
                 try:
@@ -322,38 +283,28 @@ class Alchemy(commands.Cog):
                         if self._recipes_mtime is None:
                             self._recipes_mtime = mtime
                         elif mtime != self._recipes_mtime:
-                            log.info("Alchemy: detected change in recipes.json (mtime changed). Running re-import.")
                             await self._reimport_recipes_on_change(recipes_path)
                             self._recipes_mtime = mtime
                     else:
-                        # file removed; reset mtime
-                        if self._recipes_mtime is not None:
-                            log.info("Alchemy: recipes.json removed; clearing recorded mtime.")
                         self._recipes_mtime = None
                 except Exception:
-                    log.exception("Alchemy: error while watching recipes.json.")
+                    log.exception("Error while watching recipes.json.")
                 await asyncio.sleep(poll_interval)
         except asyncio.CancelledError:
-            log.debug("Alchemy: recipes.json watcher task cancelled.")
+            log.debug("Watcher cancelled.")
         except Exception:
-            log.exception("Alchemy: unexpected error in recipes.json watcher.")
+            log.exception("Unexpected error in watcher.")
 
     async def _reimport_recipes_on_change(self, recipes_path: Path):
-        """
-        Re-import recipes.json after a change. Behavior respects auto_reimport_overwrite config.
-        Stores a summary in config.last_import_summary for owner review.
-        """
         try:
             with recipes_path.open("r", encoding="utf-8") as f:
                 mapping = json.load(f)
         except Exception as e:
-            log.exception("Alchemy: failed to parse recipes.json during re-import: %s", e)
             await self.config.last_import_summary.set(f"Re-import failed: invalid JSON ({e}).")
             return
 
         if not isinstance(mapping, dict):
             msg = "Re-import failed: recipes.json must contain a JSON object mapping keys to results."
-            log.error("Alchemy: %s", msg)
             await self.config.last_import_summary.set(msg)
             return
 
@@ -373,15 +324,13 @@ class Alchemy(commands.Cog):
                     recipes[key] = _normalize(v)
                     overwritten.append(f"{'+'.join(parts)} -> {v}")
                 else:
-                    # skip existing
                     continue
             else:
                 recipes[key] = _normalize(v)
                 added.append(f"{'+'.join(parts)} -> {v}")
 
         await self.config.recipes.set(recipes)
-        summary_lines = []
-        summary_lines.append(f"Auto re-import completed. Added: {len(added)}. Overwritten: {len(overwritten)}. Skipped invalid: {len(skipped)}.")
+        summary_lines = [f"Auto re-import completed. Added: {len(added)}. Overwritten: {len(overwritten)}. Skipped invalid: {len(skipped)}."]
         if added:
             summary_lines.append("Added (sample):")
             summary_lines.extend(added[:20])
@@ -446,7 +395,6 @@ class Alchemy(commands.Cog):
         return elements
 
     async def _base_ingredients_set(self) -> set:
-        """Return elements that appear as recipe inputs (useful for admin info)."""
         recipes = await self._get_recipes()
         bases = set()
         for k in recipes.keys():
@@ -456,18 +404,12 @@ class Alchemy(commands.Cog):
         return bases
 
     async def _get_starter_elements(self) -> set:
-        """Return normalized starter elements from config."""
         raw = await self.config.starter_elements()
         if not isinstance(raw, list):
             return set()
-        return { _normalize(x) for x in raw if isinstance(x, str) and x.strip() }
+        return {_normalize(x) for x in raw if isinstance(x, str) and x.strip()}
 
     async def _user_available_set(self, user_id: int) -> set:
-        """
-        Elements the user may use as ingredients:
-        - their discoveries
-        - plus the configured starter elements only (NOT all recipe inputs)
-        """
         user_discoveries = set(await self._get_user_discoveries(user_id))
         starters = await self._get_starter_elements()
         return user_discoveries.union(starters)
@@ -480,22 +422,14 @@ class Alchemy(commands.Cog):
     # Helper to send paginated content using PaginatorView
     # -------------------------
     async def _send_paginated(self, ctx: commands.Context, pages: List[str], title: Optional[str] = None):
-        """
-        Send paginated pages using the PaginatorView.
-        pages: list of page strings (already formatted)
-        title: optional embed title
-        """
         if not pages:
             embed = discord.Embed(title=title or "No content", description="Nothing to show.", color=_random_color())
             await ctx.send(embed=embed)
             return
-
-        # If only one page, send a single embed without buttons
         if len(pages) == 1:
             embed = discord.Embed(title=title or "", description=pages[0], color=_random_color())
             await ctx.send(embed=embed)
             return
-
         view = PaginatorView(pages=pages, author_id=ctx.author.id, title=title or "")
         await view.start(ctx)
 
@@ -509,11 +443,9 @@ class Alchemy(commands.Cog):
 
     @alchemy.command(name="combine")
     async def combine(self, ctx: commands.Context, left: str, right: str):
-        """Combine two elements. Example: [p]alchemy combine fire water"""
         left_n = _normalize(left)
         right_n = _normalize(right)
 
-        # If require_discovered is enabled, ensure user may use these ingredients
         if await self._require_discovered():
             available = await self._user_available_set(ctx.author.id)
             missing = [x for x in (left_n, right_n) if x not in available]
@@ -561,7 +493,6 @@ class Alchemy(commands.Cog):
 
     @alchemy.command(name="available")
     async def available(self, ctx: commands.Context):
-        """Show elements you may use as ingredients (discoveries + starter elements)."""
         avail = sorted(list(await self._user_available_set(ctx.author.id)))
         if not avail:
             embed = discord.Embed(
@@ -571,15 +502,13 @@ class Alchemy(commands.Cog):
             )
             await ctx.send(embed=embed)
             return
-
         pretty = [f"• **{_pretty_name(e)}**" for e in avail]
-        pages = list(pagify("\n".join(pretty), delims=["\n"], page_length=1500))
+        pages = chunk_items(pretty, 30)
         await self._send_paginated(ctx, pages, title="Available Ingredients")
 
     @alchemy.command(name="list")
     @commands.is_owner()
     async def list_elements(self, ctx: commands.Context):
-        """List all known elements (from recipes). Owner only."""
         elements = sorted(list(await self._all_elements_set()))
         if not elements:
             embed = discord.Embed(
@@ -589,14 +518,12 @@ class Alchemy(commands.Cog):
             )
             await ctx.send(embed=embed)
             return
-
         pretty = [f"• **{_pretty_name(e)}**" for e in elements]
-        pages = list(pagify("\n".join(pretty), delims=["\n"], page_length=1500))
+        pages = chunk_items(pretty, 30)
         await self._send_paginated(ctx, pages, title="Known Elements")
 
     @alchemy.command(name="my")
     async def my_discoveries(self, ctx: commands.Context):
-        """Show your discovered elements."""
         user_list = await self._get_user_discoveries(ctx.author.id)
         if not user_list:
             embed = discord.Embed(
@@ -606,24 +533,17 @@ class Alchemy(commands.Cog):
             )
             await ctx.send(embed=embed)
             return
-
         pretty = [f"• **{_pretty_name(e)}**" for e in sorted(user_list)]
-        pages = list(pagify("\n".join(pretty), delims=["\n"], page_length=1500))
+        pages = chunk_items(pretty, 30)
         await self._send_paginated(ctx, pages, title=f"{ctx.author.display_name}'s Discoveries")
 
     @alchemy.command(name="leaderboard")
     async def leaderboard(self, ctx: commands.Context):
-        """Show top discoverers."""
         users = await self.config.users()
         if not users:
-            embed = discord.Embed(
-                title="No discoveries yet",
-                description="No one has discovered elements yet.",
-                color=_random_color(),
-            )
+            embed = discord.Embed(title="No discoveries yet", description="No one has discovered elements yet.", color=_random_color())
             await ctx.send(embed=embed)
             return
-
         scores = []
         for uid, lst in users.items():
             try:
@@ -632,11 +552,12 @@ class Alchemy(commands.Cog):
                 continue
         scores.sort(key=lambda x: x[1], reverse=True)
         lines = []
-        for i, (uid, count) in enumerate(scores[:10], start=1):
+        for i, (uid, count) in enumerate(scores, start=1):
             member = ctx.guild.get_member(uid) if ctx.guild else None
             name = member.display_name if member else f"User {uid}"
             lines.append(f"**{i}. {name}** — {count} elements")
-        await self._send_paginated(ctx, list(pagify("\n".join(lines), delims=["\n"], page_length=1500)), title="Alchemy Leaderboard")
+        pages = chunk_items(lines, 30)
+        await self._send_paginated(ctx, pages, title="Alchemy Leaderboard")
 
     # -------------------------
     # Owner-only management (combined addrecipe)
@@ -644,12 +565,6 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="addrecipe")
     @commands.is_owner()
     async def add_recipe(self, ctx: commands.Context, *args):
-        """
-        Add a single recipe or bulk import JSON.
-        Usage:
-          Single: [p]alchemy addrecipe fire water steam
-          Bulk:   [p]alchemy addrecipe {"fire+water":"steam","earth+water":"mud"}
-        """
         if not args:
             embed = discord.Embed(
                 title="Usage",
@@ -659,25 +574,16 @@ class Alchemy(commands.Cog):
             await ctx.send(embed=embed)
             return
 
-        # Bulk JSON if single arg that looks like JSON
         if len(args) == 1 and args[0].strip().startswith("{"):
             json_text = args[0]
             try:
                 mapping = json.loads(json_text)
             except Exception:
-                embed = discord.Embed(
-                    title="Invalid JSON",
-                    description="Provide a valid JSON mapping: {\"a+b\":\"result\", ...}",
-                    color=_random_color(),
-                )
+                embed = discord.Embed(title="Invalid JSON", description="Provide a valid JSON mapping.", color=_random_color())
                 await ctx.send(embed=embed)
                 return
             if not isinstance(mapping, dict):
-                embed = discord.Embed(
-                    title="Invalid format",
-                    description="JSON must be an object mapping keys to results.",
-                    color=_random_color(),
-                )
+                embed = discord.Embed(title="Invalid format", description="JSON must be an object mapping keys to results.", color=_random_color())
                 await ctx.send(embed=embed)
                 return
 
@@ -691,7 +597,6 @@ class Alchemy(commands.Cog):
                     continue
                 key = _key_for(*parts)
                 if key in recipes:
-                    # skip existing to avoid overwriting
                     continue
                 recipes[key] = _normalize(v)
                 added.append(f"{' + '.join(_pretty_name(p) for p in parts)} → {_pretty_name(v)}")
@@ -705,13 +610,8 @@ class Alchemy(commands.Cog):
             await ctx.send(embed=embed)
             return
 
-        # Otherwise expect at least 3 args: a b result...
         if len(args) < 3:
-            embed = discord.Embed(
-                title="Invalid usage",
-                description="Single recipe requires: `[p]alchemy addrecipe a b result`",
-                color=_random_color(),
-            )
+            embed = discord.Embed(title="Invalid usage", description="Single recipe requires: `[p]alchemy addrecipe a b result`", color=_random_color())
             await ctx.send(embed=embed)
             return
 
@@ -721,72 +621,47 @@ class Alchemy(commands.Cog):
         key = _key_for(a, b)
         recipes = await self._get_recipes()
         if key in recipes:
-            embed = discord.Embed(
-                title="Recipe exists",
-                description=f"A recipe for **{_pretty_name(a)} + {_pretty_name(b)}** already exists.",
-                color=_random_color(),
-            )
+            embed = discord.Embed(title="Recipe exists", description=f"A recipe for **{_pretty_name(a)} + {_pretty_name(b)}** already exists.", color=_random_color())
             await ctx.send(embed=embed)
             return
         recipes[key] = _normalize(result)
         await self.config.recipes.set(recipes)
-        embed = discord.Embed(
-            title="Recipe added",
-            description=f"**{_pretty_name(a)}** + **{_pretty_name(b)}** → **{_pretty_name(result)}**",
-            color=_random_color(),
-        )
+        embed = discord.Embed(title="Recipe added", description=f"**{_pretty_name(a)}** + **{_pretty_name(b)}** → **{_pretty_name(result)}**", color=_random_color())
         await ctx.send(embed=embed)
 
     @alchemy.command(name="removerecipe")
     @commands.is_owner()
     async def remove_recipe(self, ctx: commands.Context, a: str, b: str):
-        """Remove a recipe. Owner only."""
         key = _key_for(a, b)
         removed = await self._remove_recipe_key(key)
         if not removed:
-            embed = discord.Embed(
-                title="Not found",
-                description=f"No recipe for **{_pretty_name(a)} + {_pretty_name(b)}** was found.",
-                color=_random_color(),
-            )
+            embed = discord.Embed(title="Not found", description=f"No recipe for **{_pretty_name(a)} + {_pretty_name(b)}** was found.", color=_random_color())
             await ctx.send(embed=embed)
             return
-        embed = discord.Embed(
-            title="Recipe removed",
-            description=f"Removed recipe for **{_pretty_name(a)} + {_pretty_name(b)}**.",
-            color=_random_color(),
-        )
+        embed = discord.Embed(title="Recipe removed", description=f"Removed recipe for **{_pretty_name(a)} + {_pretty_name(b)}**.", color=_random_color())
         await ctx.send(embed=embed)
 
     @alchemy.command(name="recipes")
     @commands.is_owner()
     async def list_recipes(self, ctx: commands.Context):
-        """List all recipes (owner only)."""
         recipes = await self._get_recipes()
         if not recipes:
             embed = discord.Embed(title="No recipes", description="No recipes registered.", color=_random_color())
             await ctx.send(embed=embed)
             return
-
         lines = []
         for k, v in recipes.items():
             parts = k.split("+")
             pretty_parts = " + ".join(_pretty_name(p) for p in parts)
             lines.append(f"**{pretty_parts}** → **{_pretty_name(v)}**")
-
-        pages = list(pagify("\n".join(lines), delims=["\n"], page_length=1500))
+        pages = chunk_items(lines, 30)
         await self._send_paginated(ctx, pages, title="Registered Recipes")
 
     @alchemy.command(name="importfile")
     @commands.is_owner()
     async def import_file(self, ctx: commands.Context):
-        """Import recipes from an attached JSON file. Owner only."""
         if not ctx.message.attachments:
-            embed = discord.Embed(
-                title="No file attached",
-                description="Attach a JSON file with recipes and run this command again.",
-                color=_random_color(),
-            )
+            embed = discord.Embed(title="No file attached", description="Attach a JSON file with recipes and run this command again.", color=_random_color())
             await ctx.send(embed=embed)
             return
         att = ctx.message.attachments[0]
@@ -794,22 +669,13 @@ class Alchemy(commands.Cog):
         try:
             mapping = json.loads(data.decode())
         except Exception:
-            embed = discord.Embed(
-                title="Invalid JSON file",
-                description="The attached file could not be parsed as JSON.",
-                color=_random_color(),
-            )
+            embed = discord.Embed(title="Invalid JSON file", description="The attached file could not be parsed as JSON.", color=_random_color())
             await ctx.send(embed=embed)
             return
         if not isinstance(mapping, dict):
-            embed = discord.Embed(
-                title="Invalid format",
-                description="recipes.json must contain a JSON object mapping keys to results.",
-                color=_random_color(),
-            )
+            embed = discord.Embed(title="Invalid format", description="recipes.json must contain a JSON object mapping keys to results.", color=_random_color())
             await ctx.send(embed=embed)
             return
-
         recipes = await self._get_recipes()
         added = []
         skipped = []
@@ -822,7 +688,6 @@ class Alchemy(commands.Cog):
             recipes[key] = _normalize(v)
             added.append(f"{' + '.join(_pretty_name(p) for p in parts)} → {_pretty_name(v)}")
         await self.config.recipes.set(recipes)
-
         desc = ""
         if added:
             desc += "**Imported recipes:**\n" + "\n".join(added) + "\n\n"
@@ -834,36 +699,26 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="exportrecipes")
     @commands.is_owner()
     async def export_recipes(self, ctx: commands.Context):
-        """Export current recipes as JSON (printed to chat). Owner only."""
         recipes = await self._get_recipes()
         pretty = json.dumps(recipes, indent=2)
-        pages = list(pagify(pretty, delims=["\n"], page_length=1500))
+        # split by lines and chunk into pages of ~30 lines
+        lines = pretty.splitlines()
+        pages = chunk_items(lines, 30)
         await self._send_paginated(ctx, pages, title="Exported Recipes")
 
     @alchemy.command(name="hint")
     async def hint(self, ctx: commands.Context):
-        """Get a hint: an undiscovered element you could discover from existing recipes."""
         recipes = await self._get_recipes()
         if not recipes:
-            embed = discord.Embed(
-                title="No recipes available",
-                description="There are no recipes to hint from. Ask the owner to import recipes.",
-                color=_random_color(),
-            )
+            embed = discord.Embed(title="No recipes available", description="There are no recipes to hint from. Ask the owner to import recipes.", color=_random_color())
             await ctx.send(embed=embed)
             return
-
         user_list = set(await self._get_user_discoveries(ctx.author.id))
         possible_results = set(recipes.values()) - user_list
         if not possible_results:
-            embed = discord.Embed(
-                title="You're done!",
-                description="You've discovered every element available in the current recipe set. Great job! 🎉",
-                color=_random_color(),
-            )
+            embed = discord.Embed(title="You're done!", description="You've discovered every element available in the current recipe set. Great job! 🎉", color=_random_color())
             await ctx.send(embed=embed)
             return
-
         choice = random.choice(list(possible_results))
         hint_text = f"Element starts with **{choice[0].upper()}** and is **{len(choice)}** characters long."
         embed = discord.Embed(title="Hint", description=hint_text, color=_random_color())
@@ -876,19 +731,18 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="starters")
     @commands.is_owner()
     async def show_starters(self, ctx: commands.Context):
-        """Show the configured starter elements (owner only)."""
         starters = sorted(list(await self._get_starter_elements()))
         if not starters:
             embed = discord.Embed(title="No starter elements", description="Starter list is empty.", color=_random_color())
             await ctx.send(embed=embed)
             return
         pretty = [f"• **{_pretty_name(e)}**" for e in starters]
-        await self._send_paginated(ctx, list(pagify("\n".join(pretty), delims=["\n"], page_length=1500)), title="Starter Elements")
+        pages = chunk_items(pretty, 30)
+        await self._send_paginated(ctx, pages, title="Starter Elements")
 
     @alchemy.command(name="addstarter")
     @commands.is_owner()
     async def add_starter(self, ctx: commands.Context, *, element: str):
-        """Add a single starter element (owner only)."""
         if not element or not element.strip():
             await ctx.send("Provide an element name to add.")
             return
@@ -906,7 +760,6 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="removestarter")
     @commands.is_owner()
     async def remove_starter(self, ctx: commands.Context, *, element: str):
-        """Remove a single starter element (owner only)."""
         if not element or not element.strip():
             await ctx.send("Provide an element name to remove.")
             return
@@ -924,18 +777,12 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="setstarters")
     @commands.is_owner()
     async def set_starters(self, ctx: commands.Context, *, elements: str):
-        """
-        Replace the starter elements list (owner only).
-        Provide a space/comma/plus-separated list, e.g.:
-        [p]alchemy setstarters fire water earth air
-        or
-        [p]alchemy setstarters "fire, water, earth, air"
-        """
         parts = _split_key_string(elements)
         normalized = [_normalize(p) for p in parts if p]
         await self.config.starter_elements.set(sorted(list(set(normalized))))
         pretty = [f"• **{_pretty_name(e)}**" for e in sorted(normalized)]
-        await self._send_paginated(ctx, list(pagify("\n".join(pretty) if pretty else "Starter list cleared.", delims=["\n"], page_length=1500)), title="Starter elements updated")
+        pages = chunk_items(pretty or ["Starter list cleared."], 30)
+        await self._send_paginated(ctx, pages, title="Starter elements updated")
 
     # -------------------------
     # Auto-reimport controls and status
@@ -943,11 +790,6 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="setautoreimport")
     @commands.is_owner()
     async def set_autoreimport(self, ctx: commands.Context, mode: str, overwrite: Optional[str] = None):
-        """
-        Enable or disable automatic re-import on recipes.json change.
-        Usage: [p]alchemy setautoreimport on|off [overwrite]
-        - overwrite (optional): 'true' to overwrite existing recipes on re-import, otherwise existing recipes are preserved.
-        """
         mode = mode.lower().strip()
         if mode not in ("on", "off"):
             embed = discord.Embed(title="Invalid mode", description="Use `on` or `off`.", color=_random_color())
@@ -958,33 +800,27 @@ class Alchemy(commands.Cog):
         if overwrite is not None:
             ow = overwrite.lower().strip() in ("true", "yes", "1", "y")
             await self.config.auto_reimport_overwrite.set(ow)
-        # start/stop watcher accordingly
         if enabled:
             self._start_watcher()
         else:
             self._stop_watcher()
-        embed = discord.Embed(
-            title="Auto re-import updated",
-            description=f"Auto re-import set to **{mode}**. Overwrite on re-import is **{await self.config.auto_reimport_overwrite()}**.",
-            color=_random_color(),
-        )
+        embed = discord.Embed(title="Auto re-import updated", description=f"Auto re-import set to **{mode}**. Overwrite on re-import is **{await self.config.auto_reimport_overwrite()}**.", color=_random_color())
         await ctx.send(embed=embed)
 
     @alchemy.command(name="lastimport")
     @commands.is_owner()
     async def last_import(self, ctx: commands.Context):
-        """Show the last import/re-import summary (if any). Owner only."""
         summary = await self.config.last_import_summary()
         if not summary:
             embed = discord.Embed(title="No import summary", description="No imports have been recorded yet.", color=_random_color())
             await ctx.send(embed=embed)
             return
-        pages = list(pagify(summary, delims=["\n"], page_length=1500))
+        lines = summary.splitlines()
+        pages = chunk_items(lines, 30)
         await self._send_paginated(ctx, pages, title="Last import summary")
 
     # -------------------------
     # Cleanup
     # -------------------------
     def cog_unload(self):
-        """Ensure watcher task is cancelled when cog is unloaded."""
         self._stop_watcher()
