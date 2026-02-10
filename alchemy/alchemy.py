@@ -60,7 +60,6 @@ def _random_color() -> discord.Color:
 
 
 def chunk_items(items: Sequence[str], chunk_size: int = 30) -> List[str]:
-    """Chunk a sequence of lines into pages with up to chunk_size items each."""
     pages = []
     for i in range(0, len(items), chunk_size):
         page = "\n".join(items[i : i + chunk_size])
@@ -69,12 +68,17 @@ def chunk_items(items: Sequence[str], chunk_size: int = 30) -> List[str]:
 
 
 # -------------------------
-# Paginator view (buttons)
+# Paginator view (buttons) - FIXED interaction handling
 # -------------------------
 class PaginatorView(ui.View):
     """
     Button-based paginator for embeds or text pages.
     Only the original invoker (or bot owner) may control the paginator.
+
+    Fixes:
+    - Always acknowledge interactions by using interaction.response.edit_message(...)
+      so Discord doesn't show "This interaction failed".
+    - Button states are updated before editing so the view sent back is consistent.
     """
 
     def __init__(self, pages: List[str], author_id: int, title: Optional[str] = None, timeout: int = 120):
@@ -84,10 +88,12 @@ class PaginatorView(ui.View):
         self.author_id = author_id
         self.title = title or ""
         self.message: Optional[discord.Message] = None
-        # initialize button states
+        # Ensure buttons exist (discord.py creates them from decorators)
+        # Set initial states now
         self._update_button_states()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Allow the original invoker or the bot owner to control the paginator
         if interaction.user.id == self.author_id:
             return True
         try:
@@ -107,52 +113,17 @@ class PaginatorView(ui.View):
 
     async def start(self, ctx: commands.Context):
         """Send initial message and attach view."""
+        # Ensure button states reflect current index before sending
+        self._update_button_states()
         embed = self._embed_for_page(self.index)
         self.message = await ctx.send(embed=embed, view=self)
         return self.message
 
-    async def _edit_message(self):
-        """Edit the stored message with the current page embed."""
-        if not self.message:
-            return
-        embed = self._embed_for_page(self.index)
-        try:
-            await self.message.edit(embed=embed, view=self)
-        except Exception:
-            # best-effort fallback
-            try:
-                await self.message.edit(embed=embed)
-            except Exception:
-                pass
-
-    @ui.button(label="◀️ Prev", style=discord.ButtonStyle.secondary, custom_id="alchemy_prev")
-    async def prev_button(self, button: ui.Button, interaction: discord.Interaction):
-        # respond quickly to avoid "This interaction failed"
-        await interaction.response.defer()
-        if self.index > 0:
-            self.index -= 1
-            self._update_button_states()
-            await self._edit_message()
-
-    @ui.button(label="⏹️ Close", style=discord.ButtonStyle.danger, custom_id="alchemy_close")
-    async def close_button(self, button: ui.Button, interaction: discord.Interaction):
-        await interaction.response.defer()
-        # disable all buttons and update message
-        for child in self.children:
-            child.disabled = True
-        await self._edit_message()
-        self.stop()
-
-    @ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary, custom_id="alchemy_next")
-    async def next_button(self, button: ui.Button, interaction: discord.Interaction):
-        await interaction.response.defer()
-        if self.index < len(self.pages) - 1:
-            self.index += 1
-            self._update_button_states()
-            await self._edit_message()
-
     def _update_button_states(self):
-        # children order: prev, close, next
+        # children order: prev, close, next (as defined below)
+        # If there are no children yet (e.g., before decorators run), skip
+        if not self.children:
+            return
         if len(self.pages) <= 1:
             for child in self.children:
                 child.disabled = True
@@ -161,6 +132,49 @@ class PaginatorView(ui.View):
         next_btn = self.children[2]
         prev_btn.disabled = self.index == 0
         next_btn.disabled = self.index >= len(self.pages) - 1
+
+    async def _edit_via_interaction(self, interaction: discord.Interaction):
+        """
+        Edit the message using interaction.response.edit_message so the interaction is acknowledged.
+        If that fails (rare), fall back to editing the stored message directly.
+        """
+        self._update_button_states()
+        embed = self._embed_for_page(self.index)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except Exception:
+            # If interaction response already used or fails, try to edit the stored message
+            try:
+                if self.message:
+                    await self.message.edit(embed=embed, view=self)
+                    # Acknowledge if possible (best-effort)
+                    try:
+                        await interaction.response.defer()
+                    except Exception:
+                        pass
+            except Exception:
+                # Last resort: ignore; nothing more we can do
+                pass
+
+    @ui.button(label="◀️ Prev", style=discord.ButtonStyle.secondary, custom_id="alchemy_prev")
+    async def prev_button(self, button: ui.Button, interaction: discord.Interaction):
+        if self.index > 0:
+            self.index -= 1
+        await self._edit_via_interaction(interaction)
+
+    @ui.button(label="⏹️ Close", style=discord.ButtonStyle.danger, custom_id="alchemy_close")
+    async def close_button(self, button: ui.Button, interaction: discord.Interaction):
+        # disable all buttons and update view; acknowledge via edit_message
+        for child in self.children:
+            child.disabled = True
+        await self._edit_via_interaction(interaction)
+        self.stop()
+
+    @ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary, custom_id="alchemy_next")
+    async def next_button(self, button: ui.Button, interaction: discord.Interaction):
+        if self.index < len(self.pages) - 1:
+            self.index += 1
+        await self._edit_via_interaction(interaction)
 
     async def on_timeout(self):
         for child in self.children:
@@ -701,7 +715,6 @@ class Alchemy(commands.Cog):
     async def export_recipes(self, ctx: commands.Context):
         recipes = await self._get_recipes()
         pretty = json.dumps(recipes, indent=2)
-        # split by lines and chunk into pages of ~30 lines
         lines = pretty.splitlines()
         pages = chunk_items(lines, 30)
         await self._send_paginated(ctx, pages, title="Exported Recipes")
