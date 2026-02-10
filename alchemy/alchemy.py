@@ -20,7 +20,10 @@ DEFAULTS = {
     "require_discovered": False,  # if True, users may only use unlocked ingredients
     "auto_reimport_on_change": False,  # if True, watch recipes.json and re-import on change
     "auto_reimport_overwrite": False,  # if True, reimport will overwrite existing recipes
-    "last_import_summary": ""  # store last import summary for owner review
+    "last_import_summary": "",  # store last import summary for owner review
+    # Starter elements are the only ingredients available to new users by default.
+    # Use owner commands to change this list.
+    "starter_elements": ["fire", "water", "earth", "air"],
 }
 
 
@@ -92,7 +95,7 @@ class Alchemy(commands.Cog):
         self._watch_task: Optional[asyncio.Task] = None
         self._recipes_mtime: Optional[float] = None
         try:
-            # schedule one-time auto-import without blocking init
+            # schedule startup tasks without blocking init
             self.bot.loop.create_task(self._startup_tasks())
         except Exception:
             log.exception("Failed to schedule startup tasks for Alchemy cog.")
@@ -331,7 +334,7 @@ class Alchemy(commands.Cog):
         return elements
 
     async def _base_ingredients_set(self) -> set:
-        """Return elements that appear as recipe inputs (useful as base ingredients)."""
+        """Return elements that appear as recipe inputs (useful for admin info)."""
         recipes = await self._get_recipes()
         bases = set()
         for k in recipes.keys():
@@ -340,11 +343,22 @@ class Alchemy(commands.Cog):
                 bases.add(_normalize(p))
         return bases
 
+    async def _get_starter_elements(self) -> set:
+        """Return normalized starter elements from config."""
+        raw = await self.config.starter_elements()
+        if not isinstance(raw, list):
+            return set()
+        return { _normalize(x) for x in raw if isinstance(x, str) and x.strip() }
+
     async def _user_available_set(self, user_id: int) -> set:
-        """Elements the user may use as ingredients: their discoveries + base ingredients."""
+        """
+        Elements the user may use as ingredients:
+        - their discoveries
+        - plus the configured starter elements only (NOT all recipe inputs)
+        """
         user_discoveries = set(await self._get_user_discoveries(user_id))
-        bases = await self._base_ingredients_set()
-        return user_discoveries.union(bases)
+        starters = await self._get_starter_elements()
+        return user_discoveries.union(starters)
 
     async def _require_discovered(self) -> bool:
         cfg = await self.config.all()
@@ -412,7 +426,7 @@ class Alchemy(commands.Cog):
 
     @alchemy.command(name="available")
     async def available(self, ctx: commands.Context):
-        """Show elements you may use as ingredients (discoveries + base ingredients)."""
+        """Show elements you may use as ingredients (discoveries + starter elements)."""
         avail = sorted(list(await self._user_available_set(ctx.author.id)))
         if not avail:
             embed = discord.Embed(
@@ -742,6 +756,75 @@ class Alchemy(commands.Cog):
         await ctx.send(embed=embed)
 
     # -------------------------
+    # Starter elements management (owner)
+    # -------------------------
+    @alchemy.command(name="starters")
+    @commands.is_owner()
+    async def show_starters(self, ctx: commands.Context):
+        """Show the configured starter elements (owner only)."""
+        starters = sorted(list(await self._get_starter_elements()))
+        if not starters:
+            embed = discord.Embed(title="No starter elements", description="Starter list is empty.", color=_random_color())
+            await ctx.send(embed=embed)
+            return
+        pretty = [f"• **{_pretty_name(e)}**" for e in starters]
+        embed = discord.Embed(title="Starter Elements", description="\n".join(pretty), color=_random_color())
+        await ctx.send(embed=embed)
+
+    @alchemy.command(name="addstarter")
+    @commands.is_owner()
+    async def add_starter(self, ctx: commands.Context, *, element: str):
+        """Add a single starter element (owner only)."""
+        if not element or not element.strip():
+            await ctx.send("Provide an element name to add.")
+            return
+        normalized = _normalize(element)
+        starters = await self._get_starter_elements()
+        if normalized in starters:
+            embed = discord.Embed(title="Already a starter", description=f"**{_pretty_name(normalized)}** is already a starter.", color=_random_color())
+            await ctx.send(embed=embed)
+            return
+        starters.add(normalized)
+        await self.config.starter_elements.set(sorted(list(starters)))
+        embed = discord.Embed(title="Starter added", description=f"Added **{_pretty_name(normalized)}** to starter elements.", color=_random_color())
+        await ctx.send(embed=embed)
+
+    @alchemy.command(name="removestarter")
+    @commands.is_owner()
+    async def remove_starter(self, ctx: commands.Context, *, element: str):
+        """Remove a single starter element (owner only)."""
+        if not element or not element.strip():
+            await ctx.send("Provide an element name to remove.")
+            return
+        normalized = _normalize(element)
+        starters = await self._get_starter_elements()
+        if normalized not in starters:
+            embed = discord.Embed(title="Not a starter", description=f"**{_pretty_name(normalized)}** is not in the starter list.", color=_random_color())
+            await ctx.send(embed=embed)
+            return
+        starters.remove(normalized)
+        await self.config.starter_elements.set(sorted(list(starters)))
+        embed = discord.Embed(title="Starter removed", description=f"Removed **{_pretty_name(normalized)}** from starter elements.", color=_random_color())
+        await ctx.send(embed=embed)
+
+    @alchemy.command(name="setstarters")
+    @commands.is_owner()
+    async def set_starters(self, ctx: commands.Context, *, elements: str):
+        """
+        Replace the starter elements list (owner only).
+        Provide a space/comma/plus-separated list, e.g.:
+        [p]alchemy setstarters fire water earth air
+        or
+        [p]alchemy setstarters "fire, water, earth, air"
+        """
+        parts = _split_key_string(elements)
+        normalized = [_normalize(p) for p in parts if p]
+        await self.config.starter_elements.set(sorted(list(set(normalized))))
+        pretty = [f"• **{_pretty_name(e)}**" for e in sorted(normalized)]
+        embed = discord.Embed(title="Starter elements updated", description="\n".join(pretty) if pretty else "Starter list cleared.", color=_random_color())
+        await ctx.send(embed=embed)
+
+    # -------------------------
     # Auto-reimport controls and status
     # -------------------------
     @alchemy.command(name="setautoreimport")
@@ -788,31 +871,6 @@ class Alchemy(commands.Cog):
             embed = discord.Embed(title="Last import summary" if i == 1 else f"Last import summary (cont. {i})", description=page, color=_random_color())
             embed.set_footer(text=f"Page {i}/{len(pages)}")
             await ctx.send(embed=embed)
-
-    @alchemy.command(name="setmode")
-    @commands.is_owner()
-    async def set_mode(self, ctx: commands.Context, mode: str):
-        """
-        Set ingredient mode. Usage: [p]alchemy setmode open|locked
-        - open: anyone can type any element (default)
-        - locked: users may only use elements shown in [p]alchemy available
-        """
-        mode = mode.lower().strip()
-        if mode not in ("open", "locked"):
-            embed = discord.Embed(
-                title="Invalid mode",
-                description="Use `open` or `locked`.",
-                color=_random_color(),
-            )
-            await ctx.send(embed=embed)
-            return
-        await self.config.require_discovered.set(mode == "locked")
-        embed = discord.Embed(
-            title="Mode updated",
-            description=f"Ingredient mode set to **{mode}**.",
-            color=_random_color(),
-        )
-        await ctx.send(embed=embed)
 
     # -------------------------
     # Cleanup
