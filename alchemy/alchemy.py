@@ -530,7 +530,7 @@ class Alchemy(commands.Cog):
         discovered = len(user_list)
         pct = 0 if total == 0 else int((discovered / total) * 100)
         embed.add_field(name="Your progress", value=f"{discovered}/{total} elements discovered ({pct}%)", inline=False)
-        embed.set_footer(text="Use [p]alchemy my to view your discoveries.")
+        embed.set_footer(text=f"Use {ctx.clean_prefix}alchemy my to view your discoveries.")
         await ctx.send(embed=embed)
 
     @alchemy.command(name="available")
