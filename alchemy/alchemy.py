@@ -20,7 +20,22 @@ DEFAULTS = {
     "auto_reimport_on_change": False,
     "auto_reimport_overwrite": False,
     "last_import_summary": "",
-    "starter_elements": ["fire", "water", "earth", "air"],
+    "starter_elements": [
+        "fire",
+        "water",
+        "earth",
+        "air",
+        "stone",
+        "sand",
+        "wood",
+        "plant",
+        "sun",
+        "seed",
+        "clay",
+        "metal",
+        "glass",
+        "herb",
+    ],
 }
 
 
@@ -469,6 +484,7 @@ class Alchemy(commands.Cog):
 
     @alchemy.command(name="combine")
     async def combine(self, ctx: commands.Context, left: str, right: str):
+        """Combine two elements. Example: [p]alchemy combine fire water"""
         left_n = _normalize(left)
         right_n = _normalize(right)
 
@@ -519,6 +535,7 @@ class Alchemy(commands.Cog):
 
     @alchemy.command(name="available")
     async def available(self, ctx: commands.Context):
+        """Show elements you may use as ingredients (discoveries + starter elements)."""
         avail = sorted(list(await self._user_available_set(ctx.author.id)))
         if not avail:
             embed = discord.Embed(
@@ -535,6 +552,7 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="list")
     @commands.is_owner()
     async def list_elements(self, ctx: commands.Context):
+        """List all known elements (from recipes). Owner only."""
         elements = sorted(list(await self._all_elements_set()))
         if not elements:
             embed = discord.Embed(
@@ -550,6 +568,7 @@ class Alchemy(commands.Cog):
 
     @alchemy.command(name="my")
     async def my_discoveries(self, ctx: commands.Context):
+        """Show your discovered elements."""
         user_list = await self._get_user_discoveries(ctx.author.id)
         if not user_list:
             embed = discord.Embed(
@@ -565,6 +584,7 @@ class Alchemy(commands.Cog):
 
     @alchemy.command(name="leaderboard")
     async def leaderboard(self, ctx: commands.Context):
+        """Show top discoverers."""
         users = await self.config.users()
         if not users:
             embed = discord.Embed(title="No discoveries yet", description="No one has discovered elements yet.", color=_random_color())
@@ -591,6 +611,11 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="addrecipe")
     @commands.is_owner()
     async def add_recipe(self, ctx: commands.Context, *args):
+        """
+        Add a single recipe or bulk import JSON.
+        Single usage: [p]alchemy addrecipe fire water steam
+        Bulk usage:   [p]alchemy addrecipe {"fire+water":"steam", ...}
+        """
         if not args:
             embed = discord.Embed(
                 title="Usage",
@@ -658,6 +683,7 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="removerecipe")
     @commands.is_owner()
     async def remove_recipe(self, ctx: commands.Context, a: str, b: str):
+        """Remove a recipe. Owner only."""
         key = _key_for(a, b)
         removed = await self._remove_recipe_key(key)
         if not removed:
@@ -670,6 +696,7 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="recipes")
     @commands.is_owner()
     async def list_recipes(self, ctx: commands.Context):
+        """List all recipes (owner only)."""
         recipes = await self._get_recipes()
         if not recipes:
             embed = discord.Embed(title="No recipes", description="No recipes registered.", color=_random_color())
@@ -686,6 +713,7 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="importfile")
     @commands.is_owner()
     async def import_file(self, ctx: commands.Context):
+        """Import recipes from an attached JSON file. Owner only."""
         if not ctx.message.attachments:
             embed = discord.Embed(title="No file attached", description="Attach a JSON file with recipes and run this command again.", color=_random_color())
             await ctx.send(embed=embed)
@@ -725,6 +753,7 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="exportrecipes")
     @commands.is_owner()
     async def export_recipes(self, ctx: commands.Context):
+        """Export current recipes as JSON (printed to chat). Owner only."""
         recipes = await self._get_recipes()
         pretty = json.dumps(recipes, indent=2)
         lines = pretty.splitlines()
@@ -733,6 +762,7 @@ class Alchemy(commands.Cog):
 
     @alchemy.command(name="hint")
     async def hint(self, ctx: commands.Context):
+        """Get a hint: an undiscovered element you could discover from existing recipes."""
         recipes = await self._get_recipes()
         if not recipes:
             embed = discord.Embed(title="No recipes available", description="There are no recipes to hint from. Ask the owner to import recipes.", color=_random_color())
@@ -756,6 +786,7 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="starters")
     @commands.is_owner()
     async def show_starters(self, ctx: commands.Context):
+        """Show the configured starter elements (owner only)."""
         starters = sorted(list(await self._get_starter_elements()))
         if not starters:
             embed = discord.Embed(title="No starter elements", description="Starter list is empty.", color=_random_color())
@@ -768,6 +799,7 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="addstarter")
     @commands.is_owner()
     async def add_starter(self, ctx: commands.Context, *, element: str):
+        """Add a single starter element (owner only)."""
         if not element or not element.strip():
             await ctx.send("Provide an element name to add.")
             return
@@ -785,6 +817,7 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="removestarter")
     @commands.is_owner()
     async def remove_starter(self, ctx: commands.Context, *, element: str):
+        """Remove a single starter element (owner only)."""
         if not element or not element.strip():
             await ctx.send("Provide an element name to remove.")
             return
@@ -802,6 +835,11 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="setstarters")
     @commands.is_owner()
     async def set_starters(self, ctx: commands.Context, *, elements: str):
+        """
+        Replace the starter elements list (owner only).
+        Provide a space/comma/plus-separated list, e.g.:
+        [p]alchemy setstarters fire water earth air
+        """
         parts = _split_key_string(elements)
         normalized = [_normalize(p) for p in parts if p]
         await self.config.starter_elements.set(sorted(list(set(normalized))))
@@ -815,6 +853,10 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="setautoreimport")
     @commands.is_owner()
     async def set_autoreimport(self, ctx: commands.Context, mode: str, overwrite: Optional[str] = None):
+        """
+        Enable or disable automatic re-import on recipes.json change.
+        Usage: [p]alchemy setautoreimport on|off [overwrite]
+        """
         mode = mode.lower().strip()
         if mode not in ("on", "off"):
             embed = discord.Embed(title="Invalid mode", description="Use `on` or `off`.", color=_random_color())
@@ -835,6 +877,7 @@ class Alchemy(commands.Cog):
     @alchemy.command(name="lastimport")
     @commands.is_owner()
     async def last_import(self, ctx: commands.Context):
+        """Show the last import/re-import summary (if any). Owner only."""
         summary = await self.config.last_import_summary()
         if not summary:
             embed = discord.Embed(title="No import summary", description="No imports have been recorded yet.", color=_random_color())
