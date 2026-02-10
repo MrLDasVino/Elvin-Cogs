@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Optional, Dict, List, Sequence
 
 import discord
-from discord import ui
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 
@@ -68,129 +67,142 @@ def chunk_items(items: Sequence[str], chunk_size: int = 30) -> List[str]:
 
 
 # -------------------------
-# Paginator view (buttons) - FIXED interaction handling
+# Reaction paginator (emoji-based)
 # -------------------------
-class PaginatorView(ui.View):
+class ReactionPaginator:
     """
-    Button-based paginator for embeds or text pages.
-    Only the original invoker (or bot owner) may control the paginator.
-
-    Fixes:
-    - Always acknowledge interactions by using interaction.response.edit_message(...)
-      so Discord doesn't show "This interaction failed".
-    - Button states are updated before editing so the view sent back is consistent.
+    Simple reaction-based paginator.
+    - Uses three emojis: ◀️ (prev), ⏹️ (close), ▶️ (next)
+    - Only the command invoker and the bot owner may control the paginator.
+    - Times out after `timeout` seconds and disables further reactions by removing them.
     """
 
-    def __init__(self, pages: List[str], author_id: int, title: Optional[str] = None, timeout: int = 120):
-        super().__init__(timeout=timeout)
+    PREV = "◀️"
+    NEXT = "▶️"
+    CLOSE = "⏹️"
+    EMOJIS = (PREV, CLOSE, NEXT)
+
+    def __init__(self, bot: Red, ctx: commands.Context, pages: List[str], title: Optional[str] = None, timeout: int = 120):
+        self.bot = bot
+        self.ctx = ctx
         self.pages = pages
-        self.index = 0
-        self.author_id = author_id
         self.title = title or ""
+        self.timeout = timeout
+        self.index = 0
         self.message: Optional[discord.Message] = None
-        # Ensure buttons exist (discord.py creates them from decorators)
-        # Set initial states now
-        self._update_button_states()
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # Allow the original invoker or the bot owner to control the paginator
-        if interaction.user.id == self.author_id:
-            return True
-        try:
-            app_info = await interaction.client.application_info()
-            if app_info and app_info.owner and interaction.user.id == app_info.owner.id:
-                return True
-        except Exception:
-            pass
-        await interaction.response.send_message("You cannot control this paginator.", ephemeral=True)
-        return False
+        self._stopped = False
 
     def _embed_for_page(self, idx: int) -> discord.Embed:
         content = self.pages[idx]
         embed = discord.Embed(title=self.title, description=content, color=_random_color())
-        embed.set_footer(text=f"Page {idx + 1}/{len(self.pages)}")
+        embed.set_footer(text=f"Page {idx + 1}/{len(self.pages)} • Controlled by {self.ctx.author.display_name}")
         return embed
 
-    async def start(self, ctx: commands.Context):
-        """Send initial message and attach view."""
-        # Ensure button states reflect current index before sending
-        self._update_button_states()
+    async def start(self):
         embed = self._embed_for_page(self.index)
-        self.message = await ctx.send(embed=embed, view=self)
-        return self.message
-
-    def _update_button_states(self):
-        # children order: prev, close, next (as defined below)
-        # If there are no children yet (e.g., before decorators run), skip
-        if not self.children:
-            return
-        if len(self.pages) <= 1:
-            for child in self.children:
-                child.disabled = True
-            return
-        prev_btn = self.children[0]
-        next_btn = self.children[2]
-        prev_btn.disabled = self.index == 0
-        next_btn.disabled = self.index >= len(self.pages) - 1
-
-    async def _edit_via_interaction(self, interaction: discord.Interaction):
-        """
-        Edit the message using interaction.response.edit_message so the interaction is acknowledged.
-        If that fails (rare), fall back to editing the stored message directly.
-        """
-        self._update_button_states()
-        embed = self._embed_for_page(self.index)
+        self.message = await self.ctx.send(embed=embed)
+        # add reactions in order
         try:
-            await interaction.response.edit_message(embed=embed, view=self)
+            for e in self.EMOJIS:
+                await self.message.add_reaction(e)
         except Exception:
-            # If interaction response already used or fails, try to edit the stored message
-            try:
-                if self.message:
-                    await self.message.edit(embed=embed, view=self)
-                    # Acknowledge if possible (best-effort)
-                    try:
-                        await interaction.response.defer()
-                    except Exception:
-                        pass
-            except Exception:
-                # Last resort: ignore; nothing more we can do
-                pass
+            # if adding reactions fails, just return (no paginator)
+            return
 
-    @ui.button(label="◀️ Prev", style=discord.ButtonStyle.secondary, custom_id="alchemy_prev")
-    async def prev_button(self, button: ui.Button, interaction: discord.Interaction):
-        if self.index > 0:
-            self.index -= 1
-        await self._edit_via_interaction(interaction)
+        await self._loop()
 
-    @ui.button(label="⏹️ Close", style=discord.ButtonStyle.danger, custom_id="alchemy_close")
-    async def close_button(self, button: ui.Button, interaction: discord.Interaction):
-        # disable all buttons and update view; acknowledge via edit_message
-        for child in self.children:
-            child.disabled = True
-        await self._edit_via_interaction(interaction)
-        self.stop()
-
-    @ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary, custom_id="alchemy_next")
-    async def next_button(self, button: ui.Button, interaction: discord.Interaction):
-        if self.index < len(self.pages) - 1:
-            self.index += 1
-        await self._edit_via_interaction(interaction)
-
-    async def on_timeout(self):
-        for child in self.children:
-            child.disabled = True
+    async def _is_allowed(self, user: discord.User) -> bool:
+        if user.id == self.ctx.author.id:
+            return True
         try:
-            if self.message:
-                await self.message.edit(view=self)
+            app_info = await self.bot.application_info()
+            if app_info and app_info.owner and user.id == app_info.owner.id:
+                return True
         except Exception:
             pass
+        return False
+
+    async def _loop(self):
+        if not self.message:
+            return
+        while not self._stopped:
+            try:
+                reaction, user = await self.bot.wait_for(
+                    "reaction_add",
+                    timeout=self.timeout,
+                    check=lambda r, u: (
+                        r.message.id == self.message.id
+                        and str(r.emoji) in self.EMOJIS
+                        and not u.bot
+                    ),
+                )
+            except asyncio.TimeoutError:
+                # timeout: remove reactions to disable controls
+                await self._cleanup_reactions()
+                return
+
+            # remove the user's reaction for cleanliness (best-effort)
+            try:
+                await self.message.remove_reaction(reaction.emoji, user)
+            except Exception:
+                pass
+
+            # permission check
+            if not await self._is_allowed(user):
+                try:
+                    await self.ctx.send(f"{user.mention}, you cannot control this paginator.", delete_after=6)
+                except Exception:
+                    pass
+                continue
+
+            # handle emoji
+            if str(reaction.emoji) == self.PREV:
+                if self.index > 0:
+                    self.index -= 1
+                    await self._edit_message()
+            elif str(reaction.emoji) == self.NEXT:
+                if self.index < len(self.pages) - 1:
+                    self.index += 1
+                    await self._edit_message()
+            elif str(reaction.emoji) == self.CLOSE:
+                # disable further control
+                self._stopped = True
+                await self._disable_and_stop()
+                return
+
+    async def _edit_message(self):
+        if not self.message:
+            return
+        embed = self._embed_for_page(self.index)
+        try:
+            await self.message.edit(embed=embed)
+        except Exception:
+            pass
+
+    async def _cleanup_reactions(self):
+        """Remove all reactions to indicate timeout (best-effort)."""
+        if not self.message:
+            return
+        try:
+            await self.message.clear_reactions()
+        except Exception:
+            # fallback: try to remove bot's own reactions
+            try:
+                for e in self.EMOJIS:
+                    await self.message.remove_reaction(e, self.bot.user)
+            except Exception:
+                pass
+
+    async def _disable_and_stop(self):
+        """Disable controls by clearing reactions and stopping loop."""
+        await self._cleanup_reactions()
 
 
 # -------------------------
 # Cog
 # -------------------------
 class Alchemy(commands.Cog):
-    """Alchemy combination game."""
+    """Alchemy combination game with reaction-based pagination, auto-import, and discovery locking."""
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -433,7 +445,7 @@ class Alchemy(commands.Cog):
         return bool(cfg.get("require_discovered", False))
 
     # -------------------------
-    # Helper to send paginated content using PaginatorView
+    # Helper to send paginated content using ReactionPaginator
     # -------------------------
     async def _send_paginated(self, ctx: commands.Context, pages: List[str], title: Optional[str] = None):
         if not pages:
@@ -444,8 +456,8 @@ class Alchemy(commands.Cog):
             embed = discord.Embed(title=title or "", description=pages[0], color=_random_color())
             await ctx.send(embed=embed)
             return
-        view = PaginatorView(pages=pages, author_id=ctx.author.id, title=title or "")
-        await view.start(ctx)
+        paginator = ReactionPaginator(self.bot, ctx, pages, title=title or "", timeout=120)
+        await paginator.start()
 
     # -------------------------
     # Commands
