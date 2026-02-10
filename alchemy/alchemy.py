@@ -1,8 +1,10 @@
-from typing import Optional, Dict, List
+import re
 import json
 import logging
 import random
+import asyncio
 from pathlib import Path
+from typing import Optional, Dict, List
 
 import discord
 from redbot.core import commands, Config
@@ -16,19 +18,59 @@ DEFAULTS = {
     "users": {},  # user_id (str) -> list of discovered elements
     "auto_imported": False,  # one-time flag to avoid re-importing recipes.json
     "require_discovered": False,  # if True, users may only use unlocked ingredients
+    "auto_reimport_on_change": False,  # if True, watch recipes.json and re-import on change
+    "auto_reimport_overwrite": False,  # if True, reimport will overwrite existing recipes
+    "last_import_summary": ""  # store last import summary for owner review
 }
 
 
+# -------------------------
+# Normalization / utilities
+# -------------------------
 def _normalize(name: str) -> str:
-    return name.strip().lower()
+    """
+    Normalize an element name for storage and matching.
+    - strip leading/trailing whitespace
+    - collapse internal whitespace to single spaces
+    - replace spaces with underscores for internal storage
+    - lowercase everything
+    """
+    if not isinstance(name, str):
+        return ""
+    s = name.strip()
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace(" ", "_")
+    return s.lower()
+
+
+def _split_key_string(k: str) -> List[str]:
+    """
+    Accept plus, comma, or whitespace as separators when parsing keys from JSON or user input.
+    Returns a list of cleaned parts (not normalized).
+    """
+    if not isinstance(k, str):
+        return []
+    # split on plus, comma, or any whitespace
+    parts = re.split(r"[,+]|\s+", k)
+    return [p for p in (p.strip() for p in parts) if p]
 
 
 def _key_for(*parts: str) -> str:
-    cleaned = [_normalize(p) for p in parts if p is not None and p != ""]
+    """
+    Build a normalized key from one or more element parts.
+    Sort parts so order doesn't matter.
+    """
+    cleaned = [_normalize(p) for p in parts if p is not None and str(p).strip() != ""]
     return "+".join(sorted(cleaned))
 
 
 def _pretty_name(name: str) -> str:
+    """
+    Convert internal name (underscored, lowercase) into a user-friendly display name.
+    Example: 'molten_metal' -> 'Molten Metal'
+    """
+    if not isinstance(name, str) or name == "":
+        return ""
     return name.replace("_", " ").title()
 
 
@@ -37,29 +79,45 @@ def _random_color() -> discord.Color:
     return discord.Color.from_rgb(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 
 
+# -------------------------
+# Cog
+# -------------------------
 class Alchemy(commands.Cog):
-    """An alchemy combination game."""
+    """Alchemy combination game."""
 
     def __init__(self, bot: Red):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=0xA1C3B4D5E6F70809)
         self.config.register_global(**DEFAULTS)
-        # Start background task to perform one-time import without blocking init
+        self._watch_task: Optional[asyncio.Task] = None
+        self._recipes_mtime: Optional[float] = None
         try:
-            self.bot.loop.create_task(self._maybe_auto_import())
+            # schedule one-time auto-import without blocking init
+            self.bot.loop.create_task(self._startup_tasks())
         except Exception:
-            log.exception("Failed to schedule auto-import task for Alchemy cog.")
+            log.exception("Failed to schedule startup tasks for Alchemy cog.")
 
-    # ---------- Auto-import ----------
+    # -------------------------
+    # Startup tasks
+    # -------------------------
+    async def _startup_tasks(self):
+        """Run initial import and start watcher if configured."""
+        await self._maybe_auto_import()
+        # start watcher if enabled
+        if await self.config.auto_reimport_on_change():
+            self._start_watcher()
+
+    # -------------------------
+    # Auto-import (one-time)
+    # -------------------------
     async def _maybe_auto_import(self):
-        """Check config flag and import recipes.json once if present.
-
-        This routine will NOT DM the owner. It only logs and sets the flag.
-        """
+        """One-time import of recipes.json from the cog folder if present."""
         try:
             cfg = await self.config.all()
             if cfg.get("auto_imported", False):
                 log.debug("Alchemy: recipes.json already auto-imported; skipping.")
+                # still record mtime for watcher
+                await self._record_recipes_mtime()
                 return
 
             recipes_path = Path(__file__).parent / "recipes.json"
@@ -82,12 +140,10 @@ class Alchemy(commands.Cog):
             added = []
             skipped = []
             for k, v in mapping.items():
-                if not isinstance(k, str) or "+" not in k:
+                # Accept keys written with spaces, commas, pluses, etc.
+                parts = _split_key_string(k)
+                if not parts or not isinstance(v, str):
                     skipped.append(str(k))
-                    continue
-                parts = [p.strip() for p in k.split("+") if p.strip()]
-                if not parts:
-                    skipped.append(k)
                     continue
                 key = _key_for(*parts)
                 if key in recipes:
@@ -98,16 +154,135 @@ class Alchemy(commands.Cog):
 
             await self.config.recipes.set(recipes)
             await self.config.auto_imported.set(True)
+            await self._record_recipes_mtime()
 
-            log.info(
-                "Alchemy: auto-imported recipes.json; added %d recipes, skipped %d invalid entries.",
-                len(added),
-                len(skipped),
-            )
+            summary = f"Auto-imported recipes.json: added {len(added)} recipes, skipped {len(skipped)} invalid entries."
+            if added:
+                sample = "\n".join(added[:20])
+                summary += f"\nSample added:\n{sample}"
+            await self.config.last_import_summary.set(summary)
+            log.info("Alchemy: %s", summary)
         except Exception:
             log.exception("Alchemy: unexpected error during auto-import routine.")
 
-    # ---------- Internal helpers ----------
+    # -------------------------
+    # File watcher for recipes.json
+    # -------------------------
+    def _start_watcher(self):
+        """Start background task to watch recipes.json for changes."""
+        if self._watch_task and not self._watch_task.done():
+            return
+        self._watch_task = self.bot.loop.create_task(self._watch_recipes_file())
+
+    def _stop_watcher(self):
+        """Stop the watcher task if running."""
+        if self._watch_task:
+            self._watch_task.cancel()
+            self._watch_task = None
+
+    async def _record_recipes_mtime(self):
+        """Record current mtime of recipes.json for change detection."""
+        try:
+            recipes_path = Path(__file__).parent / "recipes.json"
+            if recipes_path.exists():
+                self._recipes_mtime = recipes_path.stat().st_mtime
+            else:
+                self._recipes_mtime = None
+        except Exception:
+            self._recipes_mtime = None
+
+    async def _watch_recipes_file(self):
+        """
+        Poll recipes.json mtime periodically and re-import when it changes.
+        This is a safe, simple watcher that avoids external dependencies.
+        """
+        recipes_path = Path(__file__).parent / "recipes.json"
+        poll_interval = 8  # seconds
+        log.debug("Alchemy: starting recipes.json watcher (poll every %s seconds).", poll_interval)
+        try:
+            while True:
+                try:
+                    if recipes_path.exists():
+                        mtime = recipes_path.stat().st_mtime
+                        if self._recipes_mtime is None:
+                            self._recipes_mtime = mtime
+                        elif mtime != self._recipes_mtime:
+                            log.info("Alchemy: detected change in recipes.json (mtime changed). Running re-import.")
+                            await self._reimport_recipes_on_change(recipes_path)
+                            self._recipes_mtime = mtime
+                    else:
+                        # file removed; reset mtime
+                        if self._recipes_mtime is not None:
+                            log.info("Alchemy: recipes.json removed; clearing recorded mtime.")
+                        self._recipes_mtime = None
+                except Exception:
+                    log.exception("Alchemy: error while watching recipes.json.")
+                await asyncio.sleep(poll_interval)
+        except asyncio.CancelledError:
+            log.debug("Alchemy: recipes.json watcher task cancelled.")
+        except Exception:
+            log.exception("Alchemy: unexpected error in recipes.json watcher.")
+
+    async def _reimport_recipes_on_change(self, recipes_path: Path):
+        """
+        Re-import recipes.json after a change. Behavior respects auto_reimport_overwrite config.
+        Stores a summary in config.last_import_summary for owner review.
+        """
+        try:
+            with recipes_path.open("r", encoding="utf-8") as f:
+                mapping = json.load(f)
+        except Exception as e:
+            log.exception("Alchemy: failed to parse recipes.json during re-import: %s", e)
+            await self.config.last_import_summary.set(f"Re-import failed: invalid JSON ({e}).")
+            return
+
+        if not isinstance(mapping, dict):
+            msg = "Re-import failed: recipes.json must contain a JSON object mapping keys to results."
+            log.error("Alchemy: %s", msg)
+            await self.config.last_import_summary.set(msg)
+            return
+
+        overwrite = await self.config.auto_reimport_overwrite()
+        recipes = await self._get_recipes()
+        added = []
+        overwritten = []
+        skipped = []
+        for k, v in mapping.items():
+            parts = _split_key_string(k)
+            if not parts or not isinstance(v, str):
+                skipped.append(str(k))
+                continue
+            key = _key_for(*parts)
+            if key in recipes:
+                if overwrite:
+                    recipes[key] = _normalize(v)
+                    overwritten.append(f"{'+'.join(parts)} -> {v}")
+                else:
+                    # skip existing
+                    continue
+            else:
+                recipes[key] = _normalize(v)
+                added.append(f"{'+'.join(parts)} -> {v}")
+
+        await self.config.recipes.set(recipes)
+        summary_lines = []
+        summary_lines.append(f"Auto re-import completed. Added: {len(added)}. Overwritten: {len(overwritten)}. Skipped invalid: {len(skipped)}.")
+        if added:
+            summary_lines.append("Added (sample):")
+            summary_lines.extend(added[:20])
+        if overwritten:
+            summary_lines.append("Overwritten (sample):")
+            summary_lines.extend(overwritten[:20])
+        if skipped:
+            summary_lines.append("Skipped invalid keys (sample):")
+            summary_lines.extend(skipped[:20])
+        summary = "\n".join(summary_lines)
+        await self.config.last_import_summary.set(summary)
+        log.info("Alchemy: %s", summary)
+
+    # -------------------------
+    # Internal helpers
+    # -------------------------
     async def _get_recipes(self) -> Dict[str, str]:
         return await self.config.recipes()
 
@@ -175,7 +350,9 @@ class Alchemy(commands.Cog):
         cfg = await self.config.all()
         return bool(cfg.get("require_discovered", False))
 
-    # ---------- Commands ----------
+    # -------------------------
+    # Commands
+    # -------------------------
     @commands.group()
     async def alchemy(self, ctx: commands.Context):
         """Alchemy commands group."""
@@ -309,7 +486,10 @@ class Alchemy(commands.Cog):
 
         scores = []
         for uid, lst in users.items():
-            scores.append((int(uid), len(lst)))
+            try:
+                scores.append((int(uid), len(lst)))
+            except Exception:
+                continue
         scores.sort(key=lambda x: x[1], reverse=True)
         lines = []
         for i, (uid, count) in enumerate(scores[:10], start=1):
@@ -319,7 +499,9 @@ class Alchemy(commands.Cog):
         embed = discord.Embed(title="Alchemy Leaderboard", description="\n".join(lines), color=_random_color())
         await ctx.send(embed=embed)
 
-    # ---------- Owner-only management (combined addrecipe) ----------
+    # -------------------------
+    # Owner-only management (combined addrecipe)
+    # -------------------------
     @alchemy.command(name="addrecipe")
     @commands.is_owner()
     async def add_recipe(self, ctx: commands.Context, *args):
@@ -364,19 +546,16 @@ class Alchemy(commands.Cog):
             added = []
             skipped = []
             for k, v in mapping.items():
-                if "+" in k and isinstance(v, str):
-                    parts = [p.strip() for p in k.split("+") if p.strip()]
-                    if not parts:
-                        skipped.append(k)
-                        continue
-                    key = _key_for(*parts)
-                    if key in recipes:
-                        # skip existing to avoid overwriting
-                        continue
-                    recipes[key] = _normalize(v)
-                    added.append(f"{' + '.join(_pretty_name(p) for p in parts)} → {_pretty_name(v)}")
-                else:
+                parts = _split_key_string(k)
+                if not parts or not isinstance(v, str):
                     skipped.append(str(k))
+                    continue
+                key = _key_for(*parts)
+                if key in recipes:
+                    # skip existing to avoid overwriting
+                    continue
+                recipes[key] = _normalize(v)
+                added.append(f"{' + '.join(_pretty_name(p) for p in parts)} → {_pretty_name(v)}")
             await self.config.recipes.set(recipes)
             desc = ""
             if added:
@@ -486,20 +665,26 @@ class Alchemy(commands.Cog):
             )
             await ctx.send(embed=embed)
             return
+        if not isinstance(mapping, dict):
+            embed = discord.Embed(
+                title="Invalid format",
+                description="recipes.json must contain a JSON object mapping keys to results.",
+                color=_random_color(),
+            )
+            await ctx.send(embed=embed)
+            return
+
         recipes = await self._get_recipes()
         added = []
         skipped = []
         for k, v in mapping.items():
-            if "+" in k:
-                parts = [p.strip() for p in k.split("+") if p.strip()]
-                if not parts:
-                    skipped.append(k)
-                    continue
-                key = _key_for(*parts)
-                recipes[key] = _normalize(v)
-                added.append(f"{' + '.join(_pretty_name(p) for p in parts)} → {_pretty_name(v)}")
-            else:
-                skipped.append(k)
+            parts = _split_key_string(k)
+            if not parts or not isinstance(v, str):
+                skipped.append(str(k))
+                continue
+            key = _key_for(*parts)
+            recipes[key] = _normalize(v)
+            added.append(f"{' + '.join(_pretty_name(p) for p in parts)} → {_pretty_name(v)}")
         await self.config.recipes.set(recipes)
 
         desc = ""
@@ -556,6 +741,54 @@ class Alchemy(commands.Cog):
         embed.set_footer(text="Use this hint to try new combinations.")
         await ctx.send(embed=embed)
 
+    # -------------------------
+    # Auto-reimport controls and status
+    # -------------------------
+    @alchemy.command(name="setautoreimport")
+    @commands.is_owner()
+    async def set_autoreimport(self, ctx: commands.Context, mode: str, overwrite: Optional[str] = None):
+        """
+        Enable or disable automatic re-import on recipes.json change.
+        Usage: [p]alchemy setautoreimport on|off [overwrite]
+        - overwrite (optional): 'true' to overwrite existing recipes on re-import, otherwise existing recipes are preserved.
+        """
+        mode = mode.lower().strip()
+        if mode not in ("on", "off"):
+            embed = discord.Embed(title="Invalid mode", description="Use `on` or `off`.", color=_random_color())
+            await ctx.send(embed=embed)
+            return
+        enabled = mode == "on"
+        await self.config.auto_reimport_on_change.set(enabled)
+        if overwrite is not None:
+            ow = overwrite.lower().strip() in ("true", "yes", "1", "y")
+            await self.config.auto_reimport_overwrite.set(ow)
+        # start/stop watcher accordingly
+        if enabled:
+            self._start_watcher()
+        else:
+            self._stop_watcher()
+        embed = discord.Embed(
+            title="Auto re-import updated",
+            description=f"Auto re-import set to **{mode}**. Overwrite on re-import is **{await self.config.auto_reimport_overwrite()}**.",
+            color=_random_color(),
+        )
+        await ctx.send(embed=embed)
+
+    @alchemy.command(name="lastimport")
+    @commands.is_owner()
+    async def last_import(self, ctx: commands.Context):
+        """Show the last import/re-import summary (if any). Owner only."""
+        summary = await self.config.last_import_summary()
+        if not summary:
+            embed = discord.Embed(title="No import summary", description="No imports have been recorded yet.", color=_random_color())
+            await ctx.send(embed=embed)
+            return
+        pages = list(pagify(summary, delims=["\n"], page_length=1500))
+        for i, page in enumerate(pages, start=1):
+            embed = discord.Embed(title="Last import summary" if i == 1 else f"Last import summary (cont. {i})", description=page, color=_random_color())
+            embed.set_footer(text=f"Page {i}/{len(pages)}")
+            await ctx.send(embed=embed)
+
     @alchemy.command(name="setmode")
     @commands.is_owner()
     async def set_mode(self, ctx: commands.Context, mode: str):
@@ -580,3 +813,10 @@ class Alchemy(commands.Cog):
             color=_random_color(),
         )
         await ctx.send(embed=embed)
+
+    # -------------------------
+    # Cleanup
+    # -------------------------
+    def cog_unload(self):
+        """Ensure watcher task is cancelled when cog is unloaded."""
+        self._stop_watcher()
