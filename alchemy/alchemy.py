@@ -15,6 +15,7 @@ DEFAULTS = {
     "recipes": {},  # key: "element1+element2" (sorted) -> result
     "users": {},  # user_id (str) -> list of discovered elements
     "auto_imported": False,  # one-time flag to avoid re-importing recipes.json
+    "require_discovered": False,  # if True, users may only use unlocked ingredients
 }
 
 
@@ -37,7 +38,7 @@ def _random_color() -> discord.Color:
 
 
 class Alchemy(commands.Cog):
-    """Analchemy combination game."""
+    """An alchemy combination game."""
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -154,6 +155,26 @@ class Alchemy(commands.Cog):
             elements.add(_normalize(v))
         return elements
 
+    async def _base_ingredients_set(self) -> set:
+        """Return elements that appear as recipe inputs (useful as base ingredients)."""
+        recipes = await self._get_recipes()
+        bases = set()
+        for k in recipes.keys():
+            parts = k.split("+")
+            for p in parts:
+                bases.add(_normalize(p))
+        return bases
+
+    async def _user_available_set(self, user_id: int) -> set:
+        """Elements the user may use as ingredients: their discoveries + base ingredients."""
+        user_discoveries = set(await self._get_user_discoveries(user_id))
+        bases = await self._base_ingredients_set()
+        return user_discoveries.union(bases)
+
+    async def _require_discovered(self) -> bool:
+        cfg = await self.config.all()
+        return bool(cfg.get("require_discovered", False))
+
     # ---------- Commands ----------
     @commands.group()
     async def alchemy(self, ctx: commands.Context):
@@ -165,6 +186,27 @@ class Alchemy(commands.Cog):
         """Combine two elements. Example: [p]alchemy combine fire water"""
         left_n = _normalize(left)
         right_n = _normalize(right)
+
+        # If require_discovered is enabled, ensure user may use these ingredients
+        if await self._require_discovered():
+            available = await self._user_available_set(ctx.author.id)
+            missing = [x for x in (left_n, right_n) if x not in available]
+            if missing:
+                pretty_missing = ", ".join(_pretty_name(m) for m in missing)
+                embed = discord.Embed(
+                    title="Cannot combine",
+                    description=f"You cannot use **{pretty_missing}** as an ingredient yet.",
+                    color=_random_color(),
+                )
+                embed.add_field(
+                    name="How to unlock",
+                    value="Discover elements by combining other items or ask an owner to add recipes. Use `[p]alchemy available` to see what you can use.",
+                    inline=False,
+                )
+                embed.set_footer(text="Use [p]alchemy hint for a gentle nudge.")
+                await ctx.send(embed=embed)
+                return
+
         result = await self._get_recipe(left_n, right_n)
         if not result:
             embed = discord.Embed(
@@ -190,6 +232,26 @@ class Alchemy(commands.Cog):
         embed.add_field(name="Your progress", value=f"{discovered}/{total} elements discovered ({pct}%)", inline=False)
         embed.set_footer(text="Use [p]alchemy my to view your discoveries.")
         await ctx.send(embed=embed)
+
+    @alchemy.command(name="available")
+    async def available(self, ctx: commands.Context):
+        """Show elements you may use as ingredients (discoveries + base ingredients)."""
+        avail = sorted(list(await self._user_available_set(ctx.author.id)))
+        if not avail:
+            embed = discord.Embed(
+                title="No available elements",
+                description="You have no unlocked elements yet. Combine things with `[p]alchemy combine` or use `[p]alchemy hint` for ideas.",
+                color=_random_color(),
+            )
+            await ctx.send(embed=embed)
+            return
+
+        pretty = [f"• **{_pretty_name(e)}**" for e in avail]
+        pages = list(pagify("\n".join(pretty), delims=["\n"], page_length=1500))
+        for i, page in enumerate(pages, start=1):
+            embed = discord.Embed(title="Available Ingredients", description=page, color=_random_color())
+            embed.set_footer(text=f"Page {i}/{len(pages)}")
+            await ctx.send(embed=embed)
 
     @alchemy.command(name="list")
     @commands.is_owner()
@@ -492,4 +554,29 @@ class Alchemy(commands.Cog):
         hint_text = f"Element starts with **{choice[0].upper()}** and is **{len(choice)}** characters long."
         embed = discord.Embed(title="Hint", description=hint_text, color=_random_color())
         embed.set_footer(text="Use this hint to try new combinations.")
+        await ctx.send(embed=embed)
+
+    @alchemy.command(name="setmode")
+    @commands.is_owner()
+    async def set_mode(self, ctx: commands.Context, mode: str):
+        """
+        Set ingredient mode. Usage: [p]alchemy setmode open|locked
+        - open: anyone can type any element (default)
+        - locked: users may only use elements shown in [p]alchemy available
+        """
+        mode = mode.lower().strip()
+        if mode not in ("open", "locked"):
+            embed = discord.Embed(
+                title="Invalid mode",
+                description="Use `open` or `locked`.",
+                color=_random_color(),
+            )
+            await ctx.send(embed=embed)
+            return
+        await self.config.require_discovered.set(mode == "locked")
+        embed = discord.Embed(
+            title="Mode updated",
+            description=f"Ingredient mode set to **{mode}**.",
+            color=_random_color(),
+        )
         await ctx.send(embed=embed)
