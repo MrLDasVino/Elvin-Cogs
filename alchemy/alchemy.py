@@ -484,18 +484,18 @@ class Alchemy(commands.Cog):
 
     @alchemy.command(name="combine")
     async def combine(self, ctx: commands.Context, *elements: str):
-        """Combine two or more elements. Example: [p]alchemy combine fire water earth"""
+        """Combine two or more elements. Example: use your bot prefix: alchemy combine fire water earth"""
         if not elements or len(elements) < 2:
             embed = discord.Embed(
                 title="Invalid usage",
-                description="Provide at least two elements. Example: `[p]alchemy combine fire water`",
+                description=f"Provide at least two elements. Example: `{ctx.clean_prefix}alchemy combine fire water`",
                 color=_random_color(),
             )
             await ctx.send(embed=embed)
             return
-
+    
         parts_n = [_normalize(e) for e in elements]
-
+    
         if await self._require_discovered():
             available = await self._user_available_set(ctx.author.id)
             missing = [x for x in parts_n if x not in available]
@@ -508,26 +508,26 @@ class Alchemy(commands.Cog):
                 )
                 embed.add_field(
                     name="How to unlock",
-                    value="Discover elements by combining other items or use `[p]alchemy hint` for ideas. Use `[p]alchemy available` to see what you can use.",
+                    value=f"Discover elements by combining other items or use `{ctx.clean_prefix}alchemy hint` for ideas. Use `{ctx.clean_prefix}alchemy available` to see what you can use.",
                     inline=False,
                 )
-                embed.set_footer(text="Use [p]alchemy hint for a gentle nudge.")
+                embed.set_footer(text=f"Use {ctx.clean_prefix}alchemy hint for a gentle nudge.")
                 await ctx.send(embed=embed)
                 return
-
+    
         result = await self._get_recipe(*parts_n)
         pretty_parts = " + ".join(_pretty_name(p) for p in parts_n)
-
+    
         if not result:
             embed = discord.Embed(
                 title="Nothing happened",
                 description=f"Combining **{pretty_parts}** produced nothing.",
                 color=_random_color(),
             )
-            embed.set_footer(text="Try different combinations or use `[p]alchemy hint` for ideas.")
+            embed.set_footer(text=f"Try different combinations or use `{ctx.clean_prefix}alchemy hint` for ideas.")
             await ctx.send(embed=embed)
             return
-
+    
         discovered_new = await self._add_discovery(ctx.author.id, result)
         title = "New Discovery!" if discovered_new else "Already Discovered"
         embed = discord.Embed(
@@ -550,7 +550,7 @@ class Alchemy(commands.Cog):
         if not avail:
             embed = discord.Embed(
                 title="No available elements",
-                description="You have no unlocked elements yet. Combine things with `[p]alchemy combine` or use `[p]alchemy hint` for ideas.",
+                description=f"You have no unlocked elements yet. Combine things with `{ctx.clean_prefix}alchemy combine` or use `{ctx.clean_prefix}alchemy hint` for ideas."
                 color=_random_color(),
             )
             await ctx.send(embed=embed)
@@ -583,7 +583,7 @@ class Alchemy(commands.Cog):
         if not user_list:
             embed = discord.Embed(
                 title="No discoveries yet",
-                description="You haven't discovered any elements. Combine things with [p]alchemy combine!",
+                description=f"You haven't discovered any elements. Combine things with `{ctx.clean_prefix}alchemy combine`!"
                 color=_random_color(),
             )
             await ctx.send(embed=embed)
@@ -629,7 +629,7 @@ class Alchemy(commands.Cog):
         if not args:
             embed = discord.Embed(
                 title="Usage",
-                description="Single: `[p]alchemy addrecipe a b result`\nBulk: `[p]alchemy addrecipe {\"a+b\":\"result\", ...}`",
+                description=f"Single: `{ctx.clean_prefix}alchemy addrecipe a b result`\nBulk: `{ctx.clean_prefix}alchemy addrecipe {{\"a+b\":\"result\", ...}}`"
                 color=_random_color(),
             )
             await ctx.send(embed=embed)
