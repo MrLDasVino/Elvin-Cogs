@@ -932,6 +932,38 @@ class Alchemy(commands.Cog):
         lines = summary.splitlines()
         pages = chunk_items(lines, 30)
         await self._send_paginated(ctx, pages, title="Last import summary")
+        
+    @alchemy.command(name="reset")
+    @commands.is_owner()
+    async def reset_progress(self, ctx: commands.Context, confirm: Optional[str] = None):
+        """Reset all user progress and the leaderboard. Owner only. Use: [p]alchemy reset confirm"""
+        if confirm != "confirm":
+            embed = discord.Embed(
+                title="Confirm reset",
+                description=f"This will permanently clear all user discoveries and leaderboard data.\n\nTo proceed, run:\n`{ctx.clean_prefix}alchemy reset confirm`",
+                color=_random_color(),
+            )
+            await ctx.send(embed=embed)
+            return
+
+        try:
+            await self.config.users.set({})
+            embed = discord.Embed(
+                title="Progress reset",
+                description="All user discoveries and leaderboard data have been cleared.",
+                color=_random_color(),
+            )
+            embed.set_footer(text="This action cannot be undone.")
+            await ctx.send(embed=embed)
+        except Exception:
+            log.exception("Failed to reset alchemy progress.")
+            embed = discord.Embed(
+                title="Error",
+                description="An error occurred while attempting to reset progress. Check the bot logs.",
+                color=discord.Color.red(),
+            )
+            await ctx.send(embed=embed)
+        
 
     # -------------------------
     # Cleanup
