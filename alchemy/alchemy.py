@@ -38,6 +38,15 @@ DEFAULTS = {
     ],
 }
 
+THUMBNAILS = { 
+ "new_discovery": "https://example.com/new_discovery.png", 
+ "already_discovered": "https://example.com/already_discovered.png", 
+ "my_discoveries": "https://example.com/my_discoveries.png", 
+ "available": "https://example.com/available.png", 
+ "hint": "https://example.com/hint.png", 
+ "leaderboard": "https://example.com/leaderboard.png", 
+ "all_discovered": "https://example.com/all_discovered.png", 
+}
 
 # -------------------------
 # Normalization / utilities
@@ -524,6 +533,7 @@ class Alchemy(commands.Cog):
                 description=f"Combining **{pretty_parts}** produced nothing.",
                 color=_random_color(),
             )
+            embed.set_thumbnail(url=THUMBNAILS.get("hint"))
             embed.set_footer(text=f"Try different combinations or use `{ctx.clean_prefix}alchemy hint` for ideas.")
             await ctx.send(embed=embed)
             return
@@ -535,11 +545,18 @@ class Alchemy(commands.Cog):
             description=f"**{pretty_parts}** → **{_pretty_name(result)}**",
             color=_random_color(),
         )
+        if discovered_new: 
+            embed.set_thumbnail(url=THUMBNAILS.get("new_discovery")) 
+        else: 
+            embed.set_thumbnail(url=THUMBNAILS.get("already_discovered"))
         total = len(await self._all_elements_set())
         user_list = await self._get_user_discoveries(ctx.author.id)
         discovered = len(user_list)
         pct = 0 if total == 0 else int((discovered / total) * 100)
         embed.add_field(name="Your progress", value=f"{discovered}/{total} elements discovered ({pct}%)", inline=False)
+        if total > 0 and discovered >= total: 
+            embed.title = "You discovered every element!" 
+            embed.set_thumbnail(url=THUMBNAILS.get("all_discovered"))
         embed.set_footer(text=f"Use {ctx.clean_prefix}alchemy my to view your discoveries.")
         await ctx.send(embed=embed)
 
@@ -553,10 +570,16 @@ class Alchemy(commands.Cog):
                 description=f"You have no unlocked elements yet. Combine things with `{ctx.clean_prefix}alchemy combine` or use `{ctx.clean_prefix}alchemy hint` for ideas.",
                 color=_random_color(),
             )
+            embed.set_thumbnail(url=THUMBNAILS.get("available"))
             await ctx.send(embed=embed)
             return
         pretty = [f"• **{_pretty_name(e)}**" for e in avail]
         pages = chunk_items(pretty, 30)
+        if len(pages) == 1: 
+            embed = discord.Embed(title="Available Ingredients", description=pages[0], color=_random_color()) 
+            embed.set_thumbnail(url=THUMBNAILS.get("available")) 
+            await ctx.send(embed=embed) 
+            return        
         await self._send_paginated(ctx, pages, title="Available Ingredients")
 
     @alchemy.command(name="list")
@@ -586,10 +609,16 @@ class Alchemy(commands.Cog):
                 description=f"You haven't discovered any elements. Combine things with `{ctx.clean_prefix}alchemy combine`!",
                 color=_random_color(),
             )
+            embed.set_thumbnail(url=THUMBNAILS.get("my_discoveries"))
             await ctx.send(embed=embed)
             return
         pretty = [f"• **{_pretty_name(e)}**" for e in sorted(user_list)]
         pages = chunk_items(pretty, 30)
+        if len(pages) == 1: 
+            embed = discord.Embed(title=f"{ctx.author.display_name}'s Discoveries", description=pages[0], color=_random_color()) 
+            embed.set_thumbnail(url=THUMBNAILS.get("my_discoveries")) 
+            await ctx.send(embed=embed) 
+            return
         await self._send_paginated(ctx, pages, title=f"{ctx.author.display_name}'s Discoveries")
 
     @alchemy.command(name="leaderboard")
@@ -598,6 +627,7 @@ class Alchemy(commands.Cog):
         users = await self.config.users()
         if not users:
             embed = discord.Embed(title="No discoveries yet", description="No one has discovered elements yet.", color=_random_color())
+            embed.set_thumbnail(url=THUMBNAILS.get("leaderboard"))
             await ctx.send(embed=embed)
             return
         scores = []
@@ -613,6 +643,11 @@ class Alchemy(commands.Cog):
             name = member.display_name if member else f"User {uid}"
             lines.append(f"**{i}. {name}** — {count} elements")
         pages = chunk_items(lines, 30)
+        if len(pages) == 1: 
+            embed = discord.Embed(title="Alchemy Leaderboard", description=pages[0], color=_random_color()) 
+            embed.set_thumbnail(url=THUMBNAILS.get("leaderboard")) 
+            await ctx.send(embed=embed) 
+            return
         await self._send_paginated(ctx, pages, title="Alchemy Leaderboard")
 
     # -------------------------
@@ -787,6 +822,7 @@ class Alchemy(commands.Cog):
         choice = random.choice(list(possible_results))
         hint_text = f"Element starts with **{choice[0].upper()}** and is **{len(choice)}** characters long."
         embed = discord.Embed(title="Hint", description=hint_text, color=_random_color())
+        embed.set_thumbnail(url=THUMBNAILS.get("hint"))
         embed.set_footer(text="Use this hint to try new combinations.")
         await ctx.send(embed=embed)
 
