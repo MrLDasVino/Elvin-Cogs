@@ -583,7 +583,7 @@ class Alchemy(commands.Cog):
         if not user_list:
             embed = discord.Embed(
                 title="No discoveries yet",
-                description=f"You haven't discovered any elements. Combine things with `{ctx.clean_prefix}alchemy combine`!"
+                description=f"You haven't discovered any elements. Combine things with `{ctx.clean_prefix}alchemy combine`!",
                 color=_random_color(),
             )
             await ctx.send(embed=embed)
@@ -629,7 +629,7 @@ class Alchemy(commands.Cog):
         if not args:
             embed = discord.Embed(
                 title="Usage",
-                description=f"Single: `{ctx.clean_prefix}alchemy addrecipe a b result`\nBulk: `{ctx.clean_prefix}alchemy addrecipe {{\"a+b\":\"result\", ...}}`"
+                description=f"Single: `{ctx.clean_prefix}alchemy addrecipe a b result`\nBulk: `{ctx.clean_prefix}alchemy addrecipe {{\"a+b\":\"result\", ...}}`",
                 color=_random_color(),
             )
             await ctx.send(embed=embed)
