@@ -550,7 +550,7 @@ class Alchemy(commands.Cog):
         if not avail:
             embed = discord.Embed(
                 title="No available elements",
-                description=f"You have no unlocked elements yet. Combine things with `{ctx.clean_prefix}alchemy combine` or use `{ctx.clean_prefix}alchemy hint` for ideas."
+                description=f"You have no unlocked elements yet. Combine things with `{ctx.clean_prefix}alchemy combine` or use `{ctx.clean_prefix}alchemy hint` for ideas.",
                 color=_random_color(),
             )
             await ctx.send(embed=embed)
