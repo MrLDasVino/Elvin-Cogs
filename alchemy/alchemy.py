@@ -483,14 +483,22 @@ class Alchemy(commands.Cog):
         pass
 
     @alchemy.command(name="combine")
-    async def combine(self, ctx: commands.Context, left: str, right: str):
-        """Combine two elements. Example: [p]alchemy combine fire water"""
-        left_n = _normalize(left)
-        right_n = _normalize(right)
+    async def combine(self, ctx: commands.Context, *elements: str):
+        """Combine two or more elements. Example: [p]alchemy combine fire water earth"""
+        if not elements or len(elements) < 2:
+            embed = discord.Embed(
+                title="Invalid usage",
+                description="Provide at least two elements. Example: `[p]alchemy combine fire water`",
+                color=_random_color(),
+            )
+            await ctx.send(embed=embed)
+            return
+
+        parts_n = [_normalize(e) for e in elements]
 
         if await self._require_discovered():
             available = await self._user_available_set(ctx.author.id)
-            missing = [x for x in (left_n, right_n) if x not in available]
+            missing = [x for x in parts_n if x not in available]
             if missing:
                 pretty_missing = ", ".join(_pretty_name(m) for m in missing)
                 embed = discord.Embed(
@@ -500,21 +508,23 @@ class Alchemy(commands.Cog):
                 )
                 embed.add_field(
                     name="How to unlock",
-                    value="Discover elements by combining other items or ask an owner to add recipes. Use `[p]alchemy available` to see what you can use.",
+                    value="Discover elements by combining other items or use `[p]alchemy hint` for ideas. Use `[p]alchemy available` to see what you can use.",
                     inline=False,
                 )
                 embed.set_footer(text="Use [p]alchemy hint for a gentle nudge.")
                 await ctx.send(embed=embed)
                 return
 
-        result = await self._get_recipe(left_n, right_n)
+        result = await self._get_recipe(*parts_n)
+        pretty_parts = " + ".join(_pretty_name(p) for p in parts_n)
+
         if not result:
             embed = discord.Embed(
                 title="Nothing happened",
-                description=f"Combining **{_pretty_name(left_n)}** and **{_pretty_name(right_n)}** produced nothing.",
+                description=f"Combining **{pretty_parts}** produced nothing.",
                 color=_random_color(),
             )
-            embed.set_footer(text="Try different combinations or ask an owner to add more recipes.")
+            embed.set_footer(text="Try different combinations or use `[p]alchemy hint` for ideas.")
             await ctx.send(embed=embed)
             return
 
@@ -522,7 +532,7 @@ class Alchemy(commands.Cog):
         title = "New Discovery!" if discovered_new else "Already Discovered"
         embed = discord.Embed(
             title=title,
-            description=f"**{_pretty_name(left_n)}** + **{_pretty_name(right_n)}** → **{_pretty_name(result)}**",
+            description=f"**{pretty_parts}** → **{_pretty_name(result)}**",
             color=_random_color(),
         )
         total = len(await self._all_elements_set())
