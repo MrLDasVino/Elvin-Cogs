@@ -462,7 +462,33 @@ class Alchemy(commands.Cog):
     async def _require_discovered(self) -> bool:
         cfg = await self.config.all()
         return bool(cfg.get("require_discovered", False))
+        
+    # Safe send helper to avoid oversized embeds        
+    async def _safe_send_long_text(self, ctx: commands.Context, title: str, text: str, thumbnail: Optional[str] = None):
+        import io
+        # Keep embed description well under Discord limits
+        if len(text) <= 3500:
+            embed = discord.Embed(title=title, description=text, color=_random_color())
+            if thumbnail:
+                embed.set_thumbnail(url=thumbnail)
+            try:
+                await ctx.send(embed=embed)
+                return
+            except discord.HTTPException:
+                pass
 
+        # If text is newline-separated list, try paginating
+        lines = text.splitlines()
+        if len(lines) > 1:
+            pages = chunk_items(lines, chunk_size=30)
+            await self._send_paginated(ctx, pages, title=title)
+            return
+
+        # Fallback: send as a text file
+        bio = io.BytesIO(text.encode("utf-8"))
+        bio.seek(0)
+        await ctx.send(file=discord.File(bio, filename="output.txt"))
+    
     # -------------------------
     # Helper to send paginated content using ReactionPaginator
     # -------------------------
@@ -697,8 +723,7 @@ class Alchemy(commands.Cog):
                 desc += "**Added recipes:**\n" + "\n".join(added) + "\n\n"
             if skipped:
                 desc += "**Skipped invalid keys:**\n" + ", ".join(skipped)
-            embed = discord.Embed(title="Bulk import complete", description=desc or "No valid recipes added.", color=_random_color())
-            await ctx.send(embed=embed)
+            await self._safe_send_long_text(ctx, "Bulk import complete", desc or "No valid recipes added.")
             return
 
         if len(args) < 3:
@@ -739,16 +764,31 @@ class Alchemy(commands.Cog):
         """List all recipes (owner only)."""
         recipes = await self._get_recipes()
         if not recipes:
-            embed = discord.Embed(title="No recipes", description="No recipes registered.", color=_random_color())
+            embed = discord.Embed(
+                title="No recipes",
+                description="No recipes registered.",
+                color=_random_color(),
+            )
             await ctx.send(embed=embed)
             return
+    
+        # Build a readable list of recipes
         lines = []
-        for k, v in recipes.items():
-            parts = k.split("+")
-            pretty_parts = " + ".join(_pretty_name(p) for p in parts)
-            lines.append(f"**{pretty_parts}** → **{_pretty_name(v)}**")
+        for k, v in sorted(recipes.items()):
+            pretty_key = " + ".join(_pretty_name(p) for p in k.split("+"))
+            lines.append(f"• **{pretty_key}** → **{_pretty_name(v)}**")
+    
+        # Split into pages of up to 30 lines each
         pages = chunk_items(lines, 30)
-        await self._send_paginated(ctx, pages, title="Registered Recipes")
+    
+        # If only one page, use the safe sender which will embed, paginate, or fallback to a file
+        if len(pages) == 1:
+            await self._safe_send_long_text(ctx, "All Recipes", pages[0], thumbnail=THUMBNAILS.get("available"))
+            return
+    
+        # Multiple pages: use the reaction paginator
+        await self._send_paginated(ctx, pages, title="All Recipes")
+
 
     @alchemy.command(name="importfile")
     @commands.is_owner()
