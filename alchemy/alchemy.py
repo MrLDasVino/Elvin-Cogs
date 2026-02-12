@@ -39,7 +39,7 @@ THUMBNAILS = {
  "already_discovered": "https://files.catbox.moe/mnog7o.jpg", 
  "my_discoveries": "https://files.catbox.moe/94derv.jpg", 
  "available": "https://files.catbox.moe/0nhexa.jpg", 
- "hint": "https://files.catbox.moe/txwq0p.jpg", 
+ "hint": "https://files.catbox.moe/a9dfv7.jpg", 
  "leaderboard": "https://files.catbox.moe/ct8dh8.jpg", 
  "all_discovered": "https://files.catbox.moe/fsf6s6.jpg", 
 }
