@@ -829,12 +829,20 @@ class Alchemy(commands.Cog):
 
     @alchemy.command(name="importfile")
     @commands.is_owner()
-    async def import_file(self, ctx: commands.Context):
-        """Import recipes from an attached JSON file. Owner only."""
+    async def import_file(self, ctx: commands.Context, replace: Optional[str] = None):
+        """Import recipes from an attached JSON file. Owner only.
+        Optional `replace` argument (true/yes/1) will replace the current recipe set,
+        removing any recipes not present in the uploaded file.
+        Usage: [p]alchemy importfile
+               [p]alchemy importfile replace
+        """
+        # validate attachment
         if not ctx.message.attachments:
             embed = discord.Embed(title="No file attached", description="Attach a JSON file with recipes and run this command again.", color=_random_color())
             await ctx.send(embed=embed)
             return
+
+        # read and parse JSON
         att = ctx.message.attachments[0]
         data = await att.read()
         try:
@@ -847,37 +855,61 @@ class Alchemy(commands.Cog):
             embed = discord.Embed(title="Invalid format", description="recipes.json must contain a JSON object mapping keys to results.", color=_random_color())
             await ctx.send(embed=embed)
             return
-        recipes = await self._get_recipes()
+
+        # determine replace mode
+        do_replace = False
+        if isinstance(replace, str) and replace.lower().strip() in ("true", "yes", "1", "y", "replace"):
+            do_replace = True
+
+        # build normalized mapping
+        new_recipes = {}
         added = []
         skipped = []
+        mapping_keys = set()
         for k, v in mapping.items():
             parts = _split_key_string(k)
             if not parts or not isinstance(v, str):
                 skipped.append(str(k))
                 continue
             key = _key_for(*parts)
-            recipes[key] = _normalize(v)
+            mapping_keys.add(key)
+            new_recipes[key] = _normalize(v)
             added.append(f"{' + '.join(_pretty_name(p) for p in parts)} → {_pretty_name(v)}")
+
+        # load existing recipes and either merge or replace
+        recipes = await self._get_recipes()
+        if do_replace:
+            # replace: remove any existing keys not in mapping_keys, then set to new_recipes
+            recipes = new_recipes
+            removed = []  # for summary
+        else:
+            # merge: update existing dict with new entries (overwrite existing keys)
+            removed = []
+            for k, v in new_recipes.items():
+                recipes[k] = v
+
+        # if replace mode and you want to report removed items, compute them
+        if do_replace:
+            # (already replaced above) but if you want to show removed sample:
+            # removed = [f"{k} -> {recipes.get(k)}" for k in list(old_recipes.keys()) if k not in mapping_keys]
+            pass
+
         await self.config.recipes.set(recipes)
+
+        # build response
         desc = ""
         if added:
             desc += "**Imported recipes:**\n" + "\n".join(added) + "\n\n"
         if skipped:
-            desc += "**Skipped invalid keys:**\n" + ", ".join(skipped)
-        embed = discord.Embed(
-            title="Import complete",
-            description=desc or "No valid recipes found.",
-            color=_random_color(),
-        )
+            desc += "**Skipped invalid keys:**\n" + ", ".join(skipped) + "\n\n"
+        if do_replace:
+            desc += "**Mode:** Replace (recipes not present in the file were removed).\n"
+        else:
+            desc += "**Mode:** Merge (new recipes added; existing recipes preserved).\n"
 
-        # Use safe sender to avoid oversized embed errors
-        try:
-            # Try the normal send first (keeps behavior if embed is small)
-            await ctx.send(embed=embed)
-        except discord.HTTPException:
-            # Fallback: convert embed to text and use safe sender which will send a file if needed
-            text = self._embed_to_text(embed)
-            await self._safe_send_long_text(ctx, embed.title or "Import Result", text)
+        # send result using safe sender
+        await self._safe_send_long_text(ctx, "Import complete", desc or "No valid recipes found.")
+
 
 
 
