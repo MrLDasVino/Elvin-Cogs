@@ -18,7 +18,7 @@ DEFAULTS = {
     "auto_imported": False,
     "require_discovered": False,
     "auto_reimport_on_change": True,
-    "auto_reimport_overwrite": False,
+    "auto_reimport_overwrite": True,
     "auto_reimport_remove_missing": True,    
     "last_import_summary": "",
     "starter_elements": [
