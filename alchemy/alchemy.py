@@ -17,7 +17,7 @@ DEFAULTS = {
     "users": {},
     "auto_imported": False,
     "require_discovered": False,
-    "auto_reimport_on_change": False,
+    "auto_reimport_on_change": True,
     "auto_reimport_overwrite": False,
     "auto_reimport_remove_missing": True,    
     "last_import_summary": "",
