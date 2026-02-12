@@ -19,6 +19,7 @@ DEFAULTS = {
     "require_discovered": False,
     "auto_reimport_on_change": False,
     "auto_reimport_overwrite": False,
+    "auto_reimport_remove_missing": False,    
     "last_import_summary": "",
     "starter_elements": [
         "fire",
@@ -355,15 +356,19 @@ class Alchemy(commands.Cog):
 
         overwrite = await self.config.auto_reimport_overwrite()
         recipes = await self._get_recipes()
+        remove_missing = await self.config.auto_reimport_remove_missing()
         added = []
         overwritten = []
+        removed = []
         skipped = []
+        mapping_keys = set()
         for k, v in mapping.items():
             parts = _split_key_string(k)
             if not parts or not isinstance(v, str):
                 skipped.append(str(k))
                 continue
             key = _key_for(*parts)
+            mapping_keys.add(key)
             if key in recipes:
                 if overwrite:
                     recipes[key] = _normalize(v)
@@ -373,15 +378,27 @@ class Alchemy(commands.Cog):
             else:
                 recipes[key] = _normalize(v)
                 added.append(f"{'+'.join(parts)} -> {v}")
-
+    
+        if remove_missing:
+            to_remove = [k for k in list(recipes.keys()) if k not in mapping_keys]
+            for k in to_remove:
+                removed.append(f"{k} -> {recipes.get(k)}")
+                recipes.pop(k, None)
+    
         await self.config.recipes.set(recipes)
-        summary_lines = [f"Auto re-import completed. Added: {len(added)}. Overwritten: {len(overwritten)}. Skipped invalid: {len(skipped)}."]
+        if removed:
+            summary_lines = [f"Auto re-import completed. Added: {len(added)}. Overwritten: {len(overwritten)}. Removed: {len(removed)}. Skipped invalid: {len(skipped)}."]
+        else:
+            summary_lines = [f"Auto re-import completed. Added: {len(added)}. Overwritten: {len(overwritten)}. Skipped invalid: {len(skipped)}."]    
         if added:
             summary_lines.append("Added (sample):")
             summary_lines.extend(added[:20])
         if overwritten:
             summary_lines.append("Overwritten (sample):")
             summary_lines.extend(overwritten[:20])
+        if removed:
+            summary_lines.append("Removed (sample):")
+            summary_lines.extend(removed[:20])    
         if skipped:
             summary_lines.append("Skipped invalid keys (sample):")
             summary_lines.extend(skipped[:20])
