@@ -435,7 +435,7 @@
   "blade+ninja": "katana",
   "sword+ninja": "katana",
   "blade+shuriken": "katana",
-  "sword+shuriken": "katana"
+  "sword+shuriken": "katana",
   "planet+rust": "mars",
   "planet+desert": "mars",  
   "space+stone": "meteoroid",
@@ -475,7 +475,7 @@
   "desert+mountain": "pyramid",
   "desert+hill": "pyramid",
   "mummy+container": "pyramid",
-  "container+book of the dead": "pyramid",
+  "container+book_of_the_dead": "pyramid",
   "rain+sun": "rainbow",
   "water+light": "rainbow",
   "cloud+light": "rainbow",
@@ -489,7 +489,7 @@
   "atmosphere+machine": "rocket",
   "atmosphere+boat": "rocket",
   "atmosphere+steamboat": "rocket",
-  "atmosphere+pirate ship": "rocket",
+  "atmosphere+pirate_ship": "rocket",
   "atmosphere+train": "rocket",
   "atmosphere+car": "rocket",
   "metal+money": "safe",
@@ -906,12 +906,12 @@
   "windmill+electricity": "wind_turbine",
   "windmill+machine": "wind_turbine",
   "windmill+electrician": "wind_turbine",
-  "wind+electricity": "wind_turbine"
+  "wind+electricity": "wind_turbine",
   "metal+electricity": "wire",
   "metal+rope": "wire",
   "steel+electricity": "wire",
   "steel+rope": "wire",
-  "electricity+rope": "wire"
+  "electricity+rope": "wire",
   "clock+sound": "alarm_clock",
   "clock+dawn": "alarm_clock",
   "clock+bell": "alarm_clock",
@@ -1164,7 +1164,7 @@
   "skier+skier": "idea",
   "diver+diver": "idea",
   "librarian+librarian": "idea",
-  "alchemist+alchemist": "idea"
+  "alchemist+alchemist": "idea",
   "house+ice": "igloo",
   "house+cold": "igloo",
   "house+snow": "igloo",
@@ -1490,7 +1490,7 @@
   "vegetable+snowman": "carrot",
   "vegetable+grass": "carrot",
   "vegetable+garden": "carrot",
-  "snowman+sun": "carrot"
+  "snowman+sun": "carrot",
   "knight+stone": "castle",
   "knight+wall": "castle",
   "knight+house": "castle",
@@ -1506,11 +1506,11 @@
   "paladin+stone": "castle",
   "paladin+wall": "castle",
   "paladin+house": "castle",
-  "paladin+container": "castle"
+  "paladin+container": "castle",
   "cat+plant": "catnip",
   "cat+grass": "catnip",
   "cat+flower": "catnip",
-  "baast+plant": "catnip"
+  "baast+plant": "catnip",
   "house+wolf": "cave",
   "house+lion": "cave",
   "house+fox": "cave",
@@ -1559,11 +1559,11 @@
   "plant+fabric": "cotton",
   "plant+thread": "cotton",
   "plant+wool": "cotton",
-  "plant+sheep": "cotton"
+  "plant+sheep": "cotton",
   "livestock+barn": "cow",
   "livestock+field": "cow",
   "livestock+farmer": "cow",
-  "livestock+grass": "cow"
+  "livestock+grass": "cow",
   "bird+scarecrow": "crow",
   "bird+field": "crow",
   "pigeon+scarecrow": "crow",
@@ -1579,7 +1579,7 @@
   "hummingbird+clock": "cuckoo",
   "hummingbird+alarm_clock": "cuckoo",
   "lizard+time": "dinosaur",
-  "lizard+big": "dinosaur"
+  "lizard+big": "dinosaur",
   "wolf+domestication": "dog",
   "wolf+farmer": "dog",
   "wolf+farm": "dog",
@@ -2140,7 +2140,7 @@
   "container+electricity": "battery",
   "container+energy": "battery",
   "electricity+mineral": "battery",
-  "electricity+ore": "battery"
+  "electricity+ore": "battery",
   "animal+flower": "bee",
   "animal+garden": "bee",
   "wheel+wheel": "bicycle",
@@ -2159,7 +2159,7 @@
   "gunpowder+pirate_ship": "cannon",
   "gunpowder+castle": "cannon",
   "gun+pirate_ship": "cannon",
-  "gun+castle": "cannon"
+  "gun+castle": "cannon",
   "wheel+metal": "car",
   "wheel+steel": "car",
   "wheel+bicycle": "car",
@@ -3863,5 +3863,5 @@
   "maui+tool": "mauis_fishhook",
   "house+thor": "valhalla",
   "house+valkyrie": "valhalla",
-  "valkyrie+heaven": "valhalla",  
+  "valkyrie+heaven": "valhalla"  
 }
