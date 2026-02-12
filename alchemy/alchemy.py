@@ -847,15 +847,21 @@ class Alchemy(commands.Cog):
             desc += "**Imported recipes:**\n" + "\n".join(added) + "\n\n"
         if skipped:
             desc += "**Skipped invalid keys:**\n" + ", ".join(skipped)
-        embed = discord.Embed(title="Import complete", description=desc or "No valid recipes found.", color=_random_color())
-            # Use safe sender to avoid oversized embed errors
-            try:
-                # Try the normal send first (keeps behavior if embed is small)
-                await ctx.send(embed=embed)
-            except discord.HTTPException:
-                # Fallback: convert embed to text and use safe sender which will send a file if needed
-                text = self._embed_to_text(embed)
-                await self._safe_send_long_text(ctx, embed.title or "Import Result", text)
+        embed = discord.Embed(
+            title="Import complete",
+            description=desc or "No valid recipes found.",
+            color=_random_color(),
+        )
+
+        # Use safe sender to avoid oversized embed errors
+        try:
+            # Try the normal send first (keeps behavior if embed is small)
+            await ctx.send(embed=embed)
+        except discord.HTTPException:
+            # Fallback: convert embed to text and use safe sender which will send a file if needed
+            text = self._embed_to_text(embed)
+            await self._safe_send_long_text(ctx, embed.title or "Import Result", text)
+
 
 
     @alchemy.command(name="exportrecipes")
