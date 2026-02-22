@@ -513,16 +513,27 @@ class BattleRoyale(commands.Cog):
         # event path: pick an event and choose participants
         event = self._pick_event()
         max_affect = min(4, len(players))
-        num = 1
+
+        # Determine number of participants:
+        # - If event specifies a positive 'participants' value, use it (clamped).
+        # - Otherwise choose a random number between 1 and max_affect so events can affect multiple players.
         if event:
             try:
-                num = int(event.get("participants", num))
-                num = max(1, min(max_affect, num))
+                specified = int(event.get("participants", 0))
             except Exception:
-                num = min(max_affect, 1)
-        else:
-            num = min(max_affect, 1)
+                specified = 0
 
+            if specified > 0:
+                num = max(1, min(max_affect, specified))
+            else:
+                # no explicit participants field or non-positive: pick random 1..max_affect
+                num = random.randint(1, max_affect)
+        else:
+            # no event available: default to affecting a single participant
+            num = 1
+
+        # ensure we don't request more participants than exist
+        num = max(1, min(num, len(players)))
         participants = random.sample(players, num)
         return ("event", participants, event)
 
@@ -1010,6 +1021,12 @@ class BattleRoyale(commands.Cog):
                     except ValueError:
                         pass
                     dead_ids.add(defender)
+                # compose image and embed, attach file and send (PvP: don't center by default)
+                embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids, event=None, victory=False, center=False)
+                # Put all textual info into the embed, not on the image
+                embed.add_field(name="Round", value=str(round_num), inline=True)
+                embed.add_field(name="Type", value="PvP", inline=True)
+                embed.add_field(name="Result", value="\n".join(result_lines), inline=False)
             else:
                 round_title = f"Round {round_num} — {event.get('name') if event else 'Event'}"
                 result_lines = []
@@ -1023,17 +1040,28 @@ class BattleRoyale(commands.Cog):
                             pass
                         dead_ids.add(target)
 
-            # persist game state after each round
+                # persist game state after each round
+                await self._save_games()
+                await self._save_npcs()
+
+                # compose image and embed, attach file and send
+                # pass event so event-specific background can be used; center avatars for events
+                embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids, event=event, victory=False, center=True)
+
+                # Put all textual info into the embed, not on the image
+                embed.add_field(name="Round", value=str(round_num), inline=True)
+                embed.add_field(name="Type", value=(event.get("name") if event else "Event"), inline=True)
+
+                # Add event description (flavor text) when available
+                if event:
+                    desc = event.get("description") or "No description."
+                    embed.add_field(name="Event", value=desc, inline=False)
+
+                embed.add_field(name="Result", value="\n".join(result_lines), inline=False)
+
+            # persist game state after each round (ensure saved even for PvP path)
             await self._save_games()
             await self._save_npcs()
-
-            # compose image and embed, attach file and send
-            # pass event so event-specific background can be used
-            embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids, event=event, victory=False)
-            # Put all textual info into the embed, not on the image
-            embed.add_field(name="Round", value=str(round_num), inline=True)
-            embed.add_field(name="Type", value=("PvP" if action == "pvp" else (event.get("name") if event else "Event")), inline=True)
-            embed.add_field(name="Result", value="\n".join(result_lines), inline=False)
 
             # send as a single message with attachment embedded
             try:
@@ -1056,12 +1084,11 @@ class BattleRoyale(commands.Cog):
                 # Use a smaller avatar and center it in the victory image; prefer victory background
                 victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))
                 v_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True)
-            
+
                 # Ensure the embed references the attachment filename used when creating the File
                 v_embed.set_image(url="attachment://result.png")
-            
+
                 # Send embed and file in the same call so the image is shown inside the embed
                 await channel.send(embed=v_embed, file=v_file)
             except Exception:
                 await channel.send(f"{winner_name} is the last one standing!")
-
