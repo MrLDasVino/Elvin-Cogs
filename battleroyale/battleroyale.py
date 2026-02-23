@@ -1057,12 +1057,25 @@ class BattleRoyale(commands.Cog):
         if not self.enemy_templates:
             await ctx.send("No enemy templates saved.")
             return
-        embed = discord.Embed(title="Enemy Templates", color=self._random_color())
-        for t in self.enemy_templates:
-            name = t.get("name", "Unnamed")
-            url = t.get("image_url") or "None"
-            embed.add_field(name=name, value=url, inline=False)
-        await ctx.send(embed=embed)
+    
+        # Discord allows up to 25 fields per embed
+        MAX_FIELDS = 25
+    
+        # Build a list of (name, url) pairs
+        items = [(t.get("name", "Unnamed"), t.get("image_url") or "None") for t in self.enemy_templates]
+    
+        # Chunk and send embeds
+        for i in range(0, len(items), MAX_FIELDS):
+            chunk = items[i : i + MAX_FIELDS]
+            embed = discord.Embed(title="Enemy Templates", color=self._random_color())
+            for name, url in chunk:
+                embed.add_field(name=name, value=url, inline=False)
+            # Optionally add page footer
+            page = (i // MAX_FIELDS) + 1
+            total_pages = (len(items) + MAX_FIELDS - 1) // MAX_FIELDS
+            embed.set_footer(text=f"Page {page}/{total_pages}")
+            await ctx.send(embed=embed)
+
 
     # -----------------------
     # Add / remove NPC instances (persisted)
