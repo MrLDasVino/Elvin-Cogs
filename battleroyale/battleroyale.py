@@ -1188,39 +1188,53 @@ class BattleRoyale(commands.Cog):
             top = 10
         top = max(1, min(top, 25))
     
-        # Load persisted games
-        raw = load_json_file(GAMES_FILE, {})
-        persisted_games = []
-        if isinstance(raw, dict):
-            persisted_games = list(raw.values())
-        elif isinstance(raw, list):
-            persisted_games = raw
+        # Build normalized mapping from self.leaderboard (accept "user:<id>", "npc:<id>", or legacy numeric keys)
+        normalized: Dict[str, int] = {}
+        for k, v in (self.leaderboard or {}).items():
+            if isinstance(k, str) and (k.startswith("user:") or k.startswith("npc:")):
+                nk = k
+            else:
+                try:
+                    nk = f"user:{int(k)}"
+                except Exception:
+                    nk = str(k)
+            normalized[nk] = normalized.get(nk, 0) + int(v)
     
-        # Include any finished games in active_games if present
-        all_games = persisted_games + [g for g in self.active_games.values()]
+        # If no recorded wins, fall back to scanning persisted/active games for backward compatibility
+        if not normalized:
+            raw = load_json_file(GAMES_FILE, {})
+            persisted_games = []
+            if isinstance(raw, dict):
+                persisted_games = list(raw.values())
+            elif isinstance(raw, list):
+                persisted_games = raw
+            all_games = persisted_games + [g for g in self.active_games.values()]
     
-        # Count wins for positive (user) IDs only
-        wins: Dict[int, int] = {}
-        for g in all_games:
-            winner = g.get("winner")
-            if winner is None:
-                wlist = g.get("winners") or g.get("victors")
-                if isinstance(wlist, list) and len(wlist) > 0:
-                    winner = wlist[0]
-            if isinstance(winner, int) and winner > 0:
-                wins[winner] = wins.get(winner, 0) + 1
+            # Count wins for positive (user) IDs only (legacy behavior)
+            wins_legacy: Dict[int, int] = {}
+            for g in all_games:
+                winner = g.get("winner")
+                if winner is None:
+                    wlist = g.get("winners") or g.get("victors")
+                    if isinstance(wlist, list) and len(wlist) > 0:
+                        winner = wlist[0]
+                if isinstance(winner, int) and winner > 0:
+                    wins_legacy[winner] = wins_legacy.get(winner, 0) + 1
     
-        if not wins:
-            await ctx.send("No recorded user victories found.")
-            return
+            if not wins_legacy:
+                await ctx.send("No recorded user victories found.")
+                return
     
-        # Sort by wins desc
-        sorted_wins = sorted(wins.items(), key=lambda kv: (-kv[1], kv[0]))
-        top_list = sorted_wins[:top]
+            # convert legacy numeric wins into normalized form
+            for uid, cnt in wins_legacy.items():
+                normalized[f"user:{uid}"] = normalized.get(f"user:{uid}", 0) + cnt
+    
+        # Sort and take top entries
+        items = sorted(normalized.items(), key=lambda kv: (-kv[1], kv[0]))[:top]
     
         # Build embed
         embed = discord.Embed(title="Battle Royale Leaderboard", color=self._random_color())
-        embed.set_footer(text=f"Top {len(top_list)} players by victories")
+        embed.set_footer(text=f"Top {len(items)} players by victories")
     
         # Thumbnail selection order:
         # 1) explicit thumbnail arg passed to command
@@ -1242,24 +1256,33 @@ class BattleRoyale(commands.Cog):
                 thumbnail_url = None
     
         # 3) top player's avatar (only if still None)
-        if not thumbnail_url and top_list:
-            top_uid = top_list[0][0]
-            top_user = self.bot.get_user(top_uid)
-            if top_user:
-                try:
-                    avatar = getattr(top_user, "display_avatar", None) or getattr(top_user, "avatar", None)
-                    if avatar:
-                        thumbnail_url = str(avatar.url)
-                except Exception:
-                    thumbnail_url = None
-            else:
-                try:
-                    fetched = await self.bot.fetch_user(top_uid)
-                    avatar = getattr(fetched, "display_avatar", None) or getattr(fetched, "avatar", None)
-                    if avatar:
-                        thumbnail_url = str(avatar.url)
-                except Exception:
-                    thumbnail_url = None
+        if not thumbnail_url and items:
+            # find first user entry (skip NPCs) to use avatar if possible
+            top_uid = None
+            for key, _ in items:
+                if key.startswith("user:"):
+                    try:
+                        top_uid = int(key.split(":", 1)[1])
+                        break
+                    except Exception:
+                        top_uid = None
+            if top_uid:
+                top_user = self.bot.get_user(top_uid)
+                if top_user:
+                    try:
+                        avatar = getattr(top_user, "display_avatar", None) or getattr(top_user, "avatar", None)
+                        if avatar:
+                            thumbnail_url = str(avatar.url)
+                    except Exception:
+                        thumbnail_url = None
+                else:
+                    try:
+                        fetched = await self.bot.fetch_user(top_uid)
+                        avatar = getattr(fetched, "display_avatar", None) or getattr(fetched, "avatar", None)
+                        if avatar:
+                            thumbnail_url = str(avatar.url)
+                    except Exception:
+                        thumbnail_url = None
     
         # Apply thumbnail if available
         if thumbnail_url:
@@ -1269,17 +1292,27 @@ class BattleRoyale(commands.Cog):
                 pass
     
         # Add fields for each top entry
-        for rank, (uid, count) in enumerate(top_list, start=1):
-            user = self.bot.get_user(uid)
+        for rank, (key, count) in enumerate(items, start=1):
             display = None
-            if user:
-                display = f"**{user.display_name}**"
+            try:
+                kind, id_str = key.split(":", 1)
+                pid = int(id_str)
+            except Exception:
+                display = f"**{key}**"
             else:
-                try:
-                    fetched = await self.bot.fetch_user(uid)
-                    display = f"**{fetched.display_name}**"
-                except Exception:
-                    display = f"**User({uid})**"
+                if kind == "user":
+                    user = self.bot.get_user(pid)
+                    if user:
+                        display = f"**{user.display_name}**"
+                    else:
+                        try:
+                            fetched = await self.bot.fetch_user(pid)
+                            display = f"**{fetched.display_name}**"
+                        except Exception:
+                            display = f"**User({pid})**"
+                else:  # npc
+                    inst = self.npc_instances.get(pid)
+                    display = f"**{inst.get('name', f'NPC({pid})')}**" if inst else f"**NPC({pid})**"
     
             name = f"#{rank} — {display}"
             value = f"**{count}** wins"
