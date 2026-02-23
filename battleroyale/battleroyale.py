@@ -22,30 +22,50 @@ NPCS_FILE = os.path.join(BASE_DIR, "npcs.json")
 DEFAULT_NPC_URLS = [
     "https://files.catbox.moe/zgo9st.png",
     "https://files.catbox.moe/tlmusq.png",
+    "https://files.catbox.moe/xx1qb7.png",
+    "https://files.catbox.moe/28ydov.png",
+    "https://files.catbox.moe/gjknbf.png",
+    "https://files.catbox.moe/p5nn9y.png",
+    "https://files.catbox.moe/h7y3ec.png",
+    "https://files.catbox.moe/l57yxd.png",
 ]
 DEFAULT_EVENT_URLS = [
     "https://files.catbox.moe/9p8hc6.png",
     "https://files.catbox.moe/2vqj0b.png",
+    "https://files.catbox.moe/fpttbp.png",
+    "https://files.catbox.moe/5a5ua5.png",
+    "https://files.catbox.moe/b8u2sf.png",
+    "https://files.catbox.moe/o5n7wp.png",
+    "https://files.catbox.moe/u7e2j1.png",
+    "https://files.catbox.moe/54mima.png",
+    "https://files.catbox.moe/9llrtm.png",
+    "https://files.catbox.moe/w5a8pl.png",
 ]
 DEFAULT_BG_URLS = [
     "https://files.catbox.moe/5vn581.png",
     "https://files.catbox.moe/xes0gm.png",
+    "https://files.catbox.moe/jv6u4x.png",
+    "https://files.catbox.moe/6gpte7.png",
+    "https://files.catbox.moe/i86jh6.png",
+    "https://files.catbox.moe/e986ub.png",
+    "https://files.catbox.moe/ifgqui.png",
 ]
 DEFAULT_VICTORY_URLS = [
     "https://files.catbox.moe/wyjekh.png",
     "https://files.catbox.moe/dbc0p2.png",
+    "https://files.catbox.moe/qgvayb.png",
+    "https://files.catbox.moe/ipqv9c.png",
+    "https://files.catbox.moe/mmg5sb.png",
 ]
-
-# New: signup thumbnail fallbacks
 DEFAULT_SIGNUP_THUMB_URLS = [
-    "https://files.catbox.moe/example_thumb1.png",
-    "https://files.catbox.moe/example_thumb2.png",
+    "https://files.catbox.moe/gxmxyl.png",
+    "https://files.catbox.moe/x4uuz9.png",
 ]
-
-# New: no-survivors banner fallbacks
 DEFAULT_NO_SURVIVORS_URLS = [
-    "https://files.catbox.moe/no_survivors1.png",
-    "https://files.catbox.moe/no_survivors2.png",
+    "https://files.catbox.moe/u1rmqc.png",
+    "https://files.catbox.moe/gvkpsu.png",
+    "https://files.catbox.moe/eqhrjv.png",
+    "https://files.catbox.moe/6xt2zm.png",
 ]
 
 # Image constants
@@ -622,20 +642,81 @@ class BattleRoyale(commands.Cog):
             f"{attacker} misjudged the blow; {defender} stands bloodied but unbowed.",
             f"A lucky parry from {defender} turned the tide; {attacker} is left stunned.",
             f"{defender} found an opening and escaped {attacker}'s wrath.",
-            f"{attacker} landed a hit but {defender} refused to fall."
+            f"{attacker} landed a hit but {defender} refused to fall.",
+            f"{defender} slipped through the chaos and vanished from {attacker}'s sight.",
+            f"{attacker}'s blade grazed {defender}, who staggered but stayed standing.",
+            f"{defender} ducked under the swing and answered with a counter that missed by inches.",
+            f"{attacker} thought it was over, but {defender} still breathes and plots revenge.",
+            f"{defender} clung to life, bleeding but determined to return the favor.",
+            f"{attacker} overcommitted; {defender} used the moment to crawl to safety.",
+            f"{defender} rolled away from the blast and crawled back into the fight.",
+            f"{attacker} struck true but not true enough; {defender} survives another heartbeat.",
+            f"{defender} parried at the last second and the crowd gasped as they stayed upright.",
+            f"{attacker} left an opening; {defender} exploited it and escaped with a wound.",
+            f"{defender} tasted blood but not defeat, slipping into cover as {attacker} searched.",
+            f"{attacker} thought the match was decided until {defender} rose again.",
+            f"{defender} staggered, then steadied—refusing to be counted out by {attacker}.",
+            f"{attacker} struck hard, but {defender}'s will proved harder.",
+            f"{defender} used a feint to avoid death and now nurses a narrow victory.",
+            f"{attacker} nearly finished {defender}, who instead found a second wind.",
+            f"{defender} ducked a fatal blow and crawled toward a chance at redemption.",
+            f"{attacker} celebrated too soon as {defender} slipped from the jaws of defeat.",
+            f"{defender} absorbed the hit and limped away, breathing curses at {attacker}.",
+            f"{attacker} left {defender} for dead; {defender} proved otherwise.",
+            f"{defender} turned a desperate block into a lifeline and escaped the onslaught.",
+            f"{attacker} aimed for the heart but only clipped {defender}'s sleeve; survival follows.",
+            f"{defender} found a narrow crevice and squeezed through while {attacker} raged.",
+            f"{attacker} thought the end had come; {defender} proved him wrong and lived on."
         ]
         death_templates = [
             f"{attacker} found a fatal opening; {defender} fell in a spray of sparks.",
             f"A decisive strike from {attacker} ended {defender}'s run.",
             f"{defender} couldn't withstand {attacker}'s assault and was cut down.",
             f"{attacker} delivered a killing blow; {defender} collapsed to the ground.",
-            f"{defender} fought bravely but {attacker} proved the stronger."
+            f"{defender} fought bravely but {attacker} proved the stronger.",
+            f"{attacker} struck with cold precision and {defender} never rose again.",
+            f"{defender} gasped once as {attacker} finished the job and silence followed.",
+            f"{attacker} pierced through defenses; {defender} crumpled where they stood.",
+            f"{defender} met {attacker}'s blade and the world went dark.",
+            f"{attacker} ended the struggle in a single, brutal motion; {defender} was no more.",
+            f"{defender} fell under a rain of blows from {attacker}, life ebbing fast.",
+            f"{attacker} found the seam in armor and exploited it; {defender} paid the price.",
+            f"{defender} fought to the last breath before {attacker} claimed the field.",
+            f"{attacker} struck true and the crowd watched as {defender} fell silent.",
+            f"{defender} tried to crawl away but {attacker} closed the distance and finished them.",
+            f"{attacker} showed no mercy; {defender} was cut down in an instant.",
+            f"{defender} made a final, futile lunge as {attacker} ended their story.",
+            f"{attacker} capitalized on a mistake and {defender} paid with their life.",
+            f"{defender} crumpled beneath {attacker}'s onslaught, the fight over in a heartbeat.",
+            f"{attacker} struck like a viper; {defender} never had a chance.",
+            f"{defender} fell amid the wreckage, {attacker} standing over the ruin.",
+            f"{attacker} found the weak point and {defender} collapsed without a sound.",
+            f"{defender} breathed their last as {attacker} claimed the grim reward.",
+            f"{attacker} ended the duel with a single, merciless blow to {defender}.",
+            f"{defender} fought until the end, but {attacker} sealed their fate.",
+            f"{attacker} carved a path through defenses and {defender} could not follow.",
+            f"{defender} was struck down where they stood, {attacker} unflinching.",
+            f"{attacker} closed the chapter with a killing strike; {defender} lay still.",
+            f"{defender} fell in a flash of steel as {attacker} executed the final move."
         ]
 
         # small chance for a dramatic special line
         special = [
             f"The crowd roars as {attacker} and {defender} clash in a moment of legend.",
-            f"A sudden twist of fate between {attacker} and {defender} leaves everyone breathless."
+            f"A sudden twist of fate between {attacker} and {defender} leaves everyone breathless.",
+            f"Time seems to stop as {attacker} and {defender} collide in a single, unforgettable instant.",
+            f"Silence falls before the storm as {attacker} and {defender} trade blows that will be retold.",
+            f"The arena holds its breath while {attacker} and {defender} write a new chapter in blood.",
+            f"Lightning cracks the sky as {attacker} and {defender} meet in a clash that defies fate.",
+            f"All eyes fix on {attacker} and {defender} as they dance on the edge of legend.",
+            f"A heartbeat stretches into an eternity when {attacker} and {defender} lock eyes and strike.",
+            f"The world narrows to two figures: {attacker} and {defender}, locked in destiny's grip.",
+            f"Roars and whispers mingle as {attacker} and {defender} create a scene worthy of song.",
+            f"Steel sings and hearts stop as {attacker} and {defender} trade a blow that echoes forever.",
+            f"Under the watchful sky, {attacker} and {defender} carve a moment that will not fade.",
+            f"The crowd forgets to breathe as {attacker} and {defender} unleash everything they have.",
+            f"A flash of brilliance between {attacker} and {defender} turns the fight into folklore.",
+            f"{attacker} and {defender} collide with such force the ground remembers their names."
         ]
 
         if random.random() < 0.03:
@@ -653,12 +734,34 @@ class BattleRoyale(commands.Cog):
             f"Cheers erupt as {winner} claims the spoils and the title of champion.",
             f"{winner} raises their arms in triumph; legends will speak of this day.",
             f"Bloodied but unbroken, {winner} walks away as the last survivor.",
-            f"The battlefield falls quiet while {winner} basks in hard-won glory."
+            f"The battlefield falls quiet while {winner} basks in hard-won glory.",
+            f"{winner} stands amid the wreckage, breathing victory into the cold air.",
+            f"Silence settles as {winner} gathers the fallen and claims the spoils.",
+            f"{winner} wipes the blood from their hands and nods to the empty field.",
+            f"The crowd fades; {winner} remains, a quiet monument to survival.",
+            f"{winner} walks through the smoke, every step a testament to endurance.",
+            f"Under the dying light, {winner} lifts the prize and lets out a weary laugh.",
+            f"{winner} surveys the ruin, the last heartbeat of the battle echoing behind them.",
+            f"With steady hands, {winner} secures the spoils and turns away from the carnage.",
+            f"{winner} breathes in the stillness, the cost of victory heavy but theirs.",
+            f"A lone silhouette moves away from the chaos; it is {winner} who survived."
         ]
         # small chance for an epic line
         epic = [
             f"{winner}'s name will be carved into history after this brutal contest.",
-            f"A single figure remains: {winner}. Songs will be sung of this victory."
+            f"A single figure remains: {winner}. Songs will be sung of this victory.",
+            f"{winner}'s name will be carved into history after this brutal contest.",
+            f"A single figure remains: {winner}. Songs will be sung of this victory.",
+            f"The stars themselves dim in respect as {winner} claims destiny's favor.",
+            f"Legends will whisper of {winner}'s wrath until the end of days.",
+            f"{winner} stands where gods once fought; mortals will remember this hour.",
+            f"History bends to the will of {winner}, whose name will outlast empires.",
+            f"From ash and ruin, {winner} rises, a beacon for future generations.",
+            f"{winner} shattered fate's design and rewrote the story of this world.",
+            f"When bards sing, they will begin with {winner} and end with awe.",
+            f"{winner} turned the tide of fate with a single, unforgettable act.",
+            f"The earth remembers the footfall of {winner}; time will mark this victory.",
+            f"{winner} carved a path through legend and returned with the crown."
         ]
         if random.random() < 0.05:
             return random.choice(epic)
