@@ -1304,28 +1304,69 @@ class BattleRoyale(commands.Cog):
         if remaining:
             winner = remaining[0]
             winner_name = self._format_participant_name(winner)
-            # Build a richer victory embed with winner name and flavor text
             victory_text = self._victory_flavor_text(winner)
-            v_embed = discord.Embed(title="Battle Royale — Winner!", description=f"{winner_name} is the last one standing!", color=self._random_color())
+
+            # Prepare base embed
+            v_embed = discord.Embed(
+                title="Battle Royale — Winner!",
+                description=f"{winner_name} is the last one standing!",
+                color=self._random_color(),
+            )
             v_embed.add_field(name="Champion", value=winner_name, inline=True)
             v_embed.add_field(name="Victory", value=victory_text, inline=False)
 
+            # If the winner is a real Discord user, mention them and show their avatar
+            avatar_url = None
+            mention_text = None
             try:
-                # Use a smaller avatar and center it in the victory image; prefer victory background
-                victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))
-                v_image_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True, layout="center")
+                if isinstance(winner, int) and winner >= 0:
+                    user = self.bot.get_user(winner)
+                    if user:
+                        # mention the user in a field and use their avatar as thumbnail
+                        mention_text = user.mention
+                        try:
+                            avatar_url = str(user.display_avatar.replace(size=256).url)
+                        except Exception:
+                            avatar_url = None
+            except Exception:
+                avatar_url = None
+                mention_text = None
 
-                # Merge image embed with v_embed: ensure the image attachment is referenced
+            if mention_text:
+                # Add a visible mention field (Discord will render the mention)
+                v_embed.add_field(name="Winner", value=mention_text, inline=True)
+
+            # Try to compose and send the richer victory image embed (with attachment)
+            try:
+                victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))
+                v_image_embed, v_file = await self._compose_and_attach_image(
+                    ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True, layout="center"
+                )
+
+                # Merge textual fields into the image embed
+                # Preserve mention if present by adding the Winner field
                 v_image_embed.add_field(name="Champion", value=winner_name, inline=True)
                 v_image_embed.add_field(name="Victory", value=victory_text, inline=False)
+                if mention_text:
+                    v_image_embed.add_field(name="Winner", value=mention_text, inline=True)
+
+                # If we have a direct avatar URL for a real user, set it as the embed thumbnail
+                if avatar_url:
+                    v_image_embed.set_thumbnail(url=avatar_url)
 
                 # Ensure the embed references the attachment filename used when creating the File
                 v_image_embed.set_image(url="attachment://result.png")
 
-                # Send embed and file in the same call so the image is shown inside the embed
                 await channel.send(embed=v_image_embed, file=v_file)
             except Exception:
-                await channel.send(f"{winner_name} is the last one standing!")
+                # Fallback: send the simple embed (with thumbnail if available)
+                try:
+                    if avatar_url:
+                        v_embed.set_thumbnail(url=avatar_url)
+                    await channel.send(embed=v_embed)
+                except Exception:
+                    # Last-resort fallback to plain text
+                    await channel.send(f"{winner_name} is the last one standing!")
         else:
             # No survivors path: send a rich embed with a remote banner image and flavor text
             try:
