@@ -1330,9 +1330,18 @@ class BattleRoyale(commands.Cog):
         Usage: battleroyale reset confirm
         Note: This command is owner-only and will clear the on-disk leaderboard.json.
         """
+        # determine the bot prefix to show in the confirmation prompt
+        prefix = None
+        try:
+            prefix = getattr(ctx, "clean_prefix", None) or getattr(ctx, "prefix", None)
+        except Exception:
+            prefix = None
+        if not prefix:
+            prefix = "[p]"  # fallback if prefix can't be determined
+    
         # require explicit confirmation token
         if confirm != "confirm":
-            await ctx.send("This will permanently clear the leaderboard. To proceed, run: `battleroyale reset confirm`")
+            await ctx.send(f"This will permanently clear the leaderboard. To proceed, run: `{prefix}battleroyale reset confirm`")
             return
     
         # clear in-memory leaderboard and persist
