@@ -67,6 +67,9 @@ DEFAULT_NO_SURVIVORS_URLS = [
     "https://files.catbox.moe/eqhrjv.png",
     "https://files.catbox.moe/6xt2zm.png",
 ]
+DEFAULT_LEADERBOARD_THUMB_URL = [
+    "https://files.catbox.moe/no66t1.png",
+]
 
 # Image constants
 AVATAR_SIZE = 128
@@ -222,8 +225,9 @@ class BattleRoyale(commands.Cog):
             default_npc_urls=[],
             default_event_urls=[],
             default_bg_urls=[],
-            default_signup_thumb_urls=[],  # new
-            default_no_survivors_urls=[],  # new
+            default_signup_thumb_urls=[],  
+            default_no_survivors_urls=[],  
+            leaderboard_thumbnail_url=[],
         )
 
     def cog_unload(self):
@@ -1145,6 +1149,119 @@ class BattleRoyale(commands.Cog):
                     except Exception:
                         pass
             # ignore other emojis and continue loop
+
+    @battleroyale.command(name="leaderboard")
+    async def battleroyale_leaderboard(self, ctx: commands.Context, top: int = 10, thumbnail: str = None):
+        """Show a leaderboard of users with the most Battle Royale victories.
+        Usage: battleroyale leaderboard [top] [thumbnail_url]
+        - top: number of entries to show (1-25)
+        - thumbnail_url: optional URL to override the configured thumbnail
+        """
+        # sanitize top and cap to 25 (Discord embed field limit)
+        try:
+            top = int(top)
+        except Exception:
+            top = 10
+        top = max(1, min(top, 25))
+    
+        # Load persisted games
+        raw = load_json_file(GAMES_FILE, {})
+        persisted_games = []
+        if isinstance(raw, dict):
+            persisted_games = list(raw.values())
+        elif isinstance(raw, list):
+            persisted_games = raw
+    
+        # Include any finished games in active_games if present
+        all_games = persisted_games + [g for g in self.active_games.values()]
+    
+        # Count wins for positive (user) IDs only
+        wins: Dict[int, int] = {}
+        for g in all_games:
+            winner = g.get("winner")
+            if winner is None:
+                wlist = g.get("winners") or g.get("victors")
+                if isinstance(wlist, list) and len(wlist) > 0:
+                    winner = wlist[0]
+            if isinstance(winner, int) and winner > 0:
+                wins[winner] = wins.get(winner, 0) + 1
+    
+        if not wins:
+            await ctx.send("No recorded user victories found.")
+            return
+    
+        # Sort by wins desc
+        sorted_wins = sorted(wins.items(), key=lambda kv: (-kv[1], kv[0]))
+        top_list = sorted_wins[:top]
+    
+        # Build embed
+        embed = discord.Embed(title="Battle Royale Leaderboard", color=self._random_color())
+        embed.set_footer(text=f"Top {len(top_list)} players by victories")
+    
+        # Thumbnail selection order:
+        # 1) explicit thumbnail arg passed to command
+        # 2) configured leaderboard_thumbnail_url (persistent)
+        # 3) top player's avatar (cache or fetch)
+        thumbnail_url: Optional[str] = None
+    
+        # 1) runtime override
+        if thumbnail:
+            thumbnail_url = thumbnail
+    
+        # 2) configured persistent URL
+        if not thumbnail_url:
+            try:
+                cfg_thumb = await self.config.leaderboard_thumbnail_url()
+                if cfg_thumb:
+                    thumbnail_url = cfg_thumb
+            except Exception:
+                thumbnail_url = None
+    
+        # 3) top player's avatar (only if still None)
+        if not thumbnail_url and top_list:
+            top_uid = top_list[0][0]
+            top_user = self.bot.get_user(top_uid)
+            if top_user:
+                try:
+                    avatar = getattr(top_user, "display_avatar", None) or getattr(top_user, "avatar", None)
+                    if avatar:
+                        thumbnail_url = str(avatar.url)
+                except Exception:
+                    thumbnail_url = None
+            else:
+                try:
+                    fetched = await self.bot.fetch_user(top_uid)
+                    avatar = getattr(fetched, "display_avatar", None) or getattr(fetched, "avatar", None)
+                    if avatar:
+                        thumbnail_url = str(avatar.url)
+                except Exception:
+                    thumbnail_url = None
+    
+        # Apply thumbnail if available
+        if thumbnail_url:
+            try:
+                embed.set_thumbnail(url=thumbnail_url)
+            except Exception:
+                pass
+    
+        # Add fields for each top entry
+        for rank, (uid, count) in enumerate(top_list, start=1):
+            user = self.bot.get_user(uid)
+            display = None
+            if user:
+                display = f"**{user.display_name}**"
+            else:
+                try:
+                    fetched = await self.bot.fetch_user(uid)
+                    display = f"**{fetched.display_name}**"
+                except Exception:
+                    display = f"**User({uid})**"
+    
+            name = f"#{rank} — {display}"
+            value = f"**{count}** wins"
+            embed.add_field(name=name, value=value, inline=False)
+    
+        await ctx.send(embed=embed)
 
     # -----------------------
     # Add / remove NPC instances (persisted)
