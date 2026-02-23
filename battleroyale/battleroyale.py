@@ -1306,10 +1306,10 @@ class BattleRoyale(commands.Cog):
             winner_name = self._format_participant_name(winner)
             victory_text = self._victory_flavor_text(winner)
 
-            # Try to resolve a real Discord user and their avatar URL
+            # Resolve user mention and avatar URL (for real users) or NPC instance (for NPCs)
             avatar_url = None
             mention_text = None
-            npc_image_url = None
+            npc_inst = None
             try:
                 if isinstance(winner, int) and winner >= 0:
                     user = self.bot.get_user(winner)
@@ -1320,14 +1320,12 @@ class BattleRoyale(commands.Cog):
                         except Exception:
                             avatar_url = None
                 else:
-                    # NPC winner: try to get its configured image_url
-                    inst = self.npc_instances.get(winner)
-                    if inst:
-                        npc_image_url = inst.get("image_url")
+                    # NPC winner: get instance dict (may be None)
+                    npc_inst = self.npc_instances.get(winner)
             except Exception:
                 avatar_url = None
                 mention_text = None
-                npc_image_url = None
+                npc_inst = None
 
             # Build the textual embed (no redundant "is the last one standing" line)
             v_embed = discord.Embed(
@@ -1350,49 +1348,58 @@ class BattleRoyale(commands.Cog):
                 if banner_img is None:
                     banner_img = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
 
-                # Determine which avatar URL to use (user avatar preferred, else NPC image)
-                overlay_url = avatar_url or npc_image_url
+                # Determine overlay image:
+                # - If a real user avatar URL is available, fetch and use it.
+                # - Otherwise, if npc_inst exists, use _load_image_for_entity to get a properly sized NPC image.
+                overlay_img = None
+                avatar_diam = max(96, int(min(COMPOSITE_SIZE) * 0.22))
 
-                if overlay_url:
+                if avatar_url:
                     try:
-                        overlay_bytes = await self._fetch_image_bytes(overlay_url)
-                        if overlay_bytes:
-                            overlay_img = Image.open(io.BytesIO(overlay_bytes)).convert("RGBA")
-                            # size and position for the avatar on the banner
-                            avatar_diam = max(96, int(min(COMPOSITE_SIZE) * 0.22))
+                        avatar_bytes = await self._fetch_image_bytes(avatar_url)
+                        if avatar_bytes:
+                            overlay_img = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
                             overlay_img = ImageOps.fit(overlay_img, (avatar_diam, avatar_diam), Image.LANCZOS)
-
-                            # circular mask for rounded avatar
-                            mask = Image.new("L", (avatar_diam, avatar_diam), 0)
-                            mask_draw = ImageDraw.Draw(mask)
-                            mask_draw.ellipse((0, 0, avatar_diam, avatar_diam), fill=255)
-
-                            # compute paste position: centered horizontally, near top
-                            margin_top = 18
-                            x = (COMPOSITE_SIZE[0] - avatar_diam) // 2
-                            y = margin_top
-
-                            # subtle border behind avatar for contrast
-                            border = int(max(4, avatar_diam * 0.06))
-                            if border:
-                                border_box = Image.new("RGBA", (avatar_diam + border * 2, avatar_diam + border * 2), (0, 0, 0, 0))
-                                bd_draw = ImageDraw.Draw(border_box)
-                                bd_draw.ellipse((0, 0, avatar_diam + border * 2 - 1, avatar_diam + border * 2 - 1), fill=(10, 10, 10, 200))
-                                bx = x - border
-                                by = y - border
-                                try:
-                                    banner_img.paste(border_box, (bx, by), border_box)
-                                except Exception:
-                                    banner_img.paste(border_box, (bx, by))
-
-                            # paste the avatar using the circular mask
-                            try:
-                                banner_img.paste(overlay_img, (x, y), mask)
-                            except Exception:
-                                banner_img.paste(overlay_img, (x, y))
                     except Exception:
-                        # ignore overlay failures and continue with plain banner
-                        pass
+                        overlay_img = None
+
+                if overlay_img is None and npc_inst:
+                    # Use the existing loader which applies template fallbacks and resizing
+                    try:
+                        # _load_image_for_entity returns a PIL Image already resized to the requested size
+                        overlay_img = await self._load_image_for_entity(npc_inst.get("image_url"), DEFAULT_NPC_URLS, size=(avatar_diam, avatar_diam), default_type="npc", npc_instance=npc_inst)
+                    except Exception:
+                        overlay_img = None
+
+                # If we have an overlay image, paste it centered near the top with a subtle border
+                if overlay_img:
+                    # circular mask for rounded avatar
+                    mask = Image.new("L", (avatar_diam, avatar_diam), 0)
+                    mask_draw = ImageDraw.Draw(mask)
+                    mask_draw.ellipse((0, 0, avatar_diam, avatar_diam), fill=255)
+
+                    # compute paste position: centered horizontally, near top
+                    margin_top = 18
+                    x = (COMPOSITE_SIZE[0] - avatar_diam) // 2
+                    y = margin_top
+
+                    # subtle border behind avatar for contrast
+                    border = int(max(4, avatar_diam * 0.06))
+                    if border:
+                        border_box = Image.new("RGBA", (avatar_diam + border * 2, avatar_diam + border * 2), (0, 0, 0, 0))
+                        bd_draw = ImageDraw.Draw(border_box)
+                        bd_draw.ellipse((0, 0, avatar_diam + border * 2 - 1, avatar_diam + border * 2 - 1), fill=(10, 10, 10, 200))
+                        bx = x - border
+                        by = y - border
+                        try:
+                            banner_img.paste(border_box, (bx, by), border_box)
+                        except Exception:
+                            banner_img.paste(border_box, (bx, by))
+
+                    try:
+                        banner_img.paste(overlay_img, (x, y), mask)
+                    except Exception:
+                        banner_img.paste(overlay_img, (x, y))
 
                 # Save banner to BytesIO and send as attachment referenced by the embed
                 bio = io.BytesIO()
