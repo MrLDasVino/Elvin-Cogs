@@ -1053,29 +1053,100 @@ class BattleRoyale(commands.Cog):
 
     @enemy.command(name="list")
     async def enemy_list(self, ctx: commands.Context):
-        """List saved enemy templates."""
+        """List saved enemy templates with emoji-based pagination."""
         if not self.enemy_templates:
             await ctx.send("No enemy templates saved.")
             return
     
-        # Discord allows up to 25 fields per embed
         MAX_FIELDS = 25
-    
-        # Build a list of (name, url) pairs
         items = [(t.get("name", "Unnamed"), t.get("image_url") or "None") for t in self.enemy_templates]
     
-        # Chunk and send embeds
+        # Build embeds (pages)
+        embeds: List[discord.Embed] = []
+        total_pages = (len(items) + MAX_FIELDS - 1) // MAX_FIELDS
         for i in range(0, len(items), MAX_FIELDS):
             chunk = items[i : i + MAX_FIELDS]
             embed = discord.Embed(title="Enemy Templates", color=self._random_color())
             for name, url in chunk:
                 embed.add_field(name=name, value=url, inline=False)
-            # Optionally add page footer
             page = (i // MAX_FIELDS) + 1
-            total_pages = (len(items) + MAX_FIELDS - 1) // MAX_FIELDS
             embed.set_footer(text=f"Page {page}/{total_pages}")
-            await ctx.send(embed=embed)
-
+            embeds.append(embed)
+    
+        # Send first page
+        current = 0
+        message = await ctx.send(embed=embeds[current])
+    
+        # Emojis for navigation
+        EMOJI_PREV = "◀️"
+        EMOJI_NEXT = "▶️"
+        EMOJI_STOP = "⏹️"
+        nav_emojis = (EMOJI_PREV, EMOJI_STOP, EMOJI_NEXT)
+    
+        # Add reactions (best-effort; ignore failures)
+        for e in nav_emojis:
+            try:
+                await message.add_reaction(e)
+            except Exception:
+                pass
+    
+        def check(reaction: discord.Reaction, user: discord.User):
+            # Only accept reactions on our message and from the command invoker or a moderator
+            if reaction.message.id != message.id:
+                return False
+            if user.bot:
+                return False
+            # allow invoker or server mods/admins
+            try:
+                member = ctx.guild.get_member(user.id) if ctx.guild else None
+                if user.id == ctx.author.id:
+                    return True
+                if member and self.is_mod_or_admin(member):
+                    return True
+            except Exception:
+                pass
+            return False
+    
+        # Wait loop
+        while True:
+            try:
+                reaction, user = await self.bot.wait_for("reaction_add", timeout=120.0, check=check)
+            except asyncio.TimeoutError:
+                # Timeout: try to clear reactions to indicate end of interaction
+                try:
+                    await message.clear_reactions()
+                except Exception:
+                    pass
+                break
+    
+            # Remove the user's reaction to keep UI tidy (requires Manage Messages)
+            try:
+                await message.remove_reaction(reaction.emoji, user)
+            except Exception:
+                pass
+    
+            if reaction.emoji == EMOJI_STOP:
+                # Stop interaction: clear reactions and exit
+                try:
+                    await message.clear_reactions()
+                except Exception:
+                    pass
+                break
+            elif reaction.emoji == EMOJI_NEXT:
+                if current < len(embeds) - 1:
+                    current += 1
+                    try:
+                        await message.edit(embed=embeds[current])
+                    except Exception:
+                        pass
+            elif reaction.emoji == EMOJI_PREV:
+                if current > 0:
+                    current -= 1
+                    try:
+                        await message.edit(embed=embeds[current])
+                    except Exception:
+                        pass
+            # otherwise ignore unknown emoji and continue loop
 
     # -----------------------
     # Add / remove NPC instances (persisted)
