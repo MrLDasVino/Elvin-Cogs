@@ -17,6 +17,7 @@ EVENTS_FILE = os.path.join(BASE_DIR, "events.json")
 ENEMIES_FILE = os.path.join(BASE_DIR, "enemies.json")
 GAMES_FILE = os.path.join(BASE_DIR, "games.json")
 NPCS_FILE = os.path.join(BASE_DIR, "npcs.json")
+LEADERBOARD_FILE = os.path.join(BASE_DIR, "leaderboard.json")
 
 # Default remote fallback URLs (set to real URLs or leave empty)
 DEFAULT_NPC_URLS = [
@@ -203,6 +204,9 @@ class BattleRoyale(commands.Cog):
             except Exception:
                 continue
         self.next_npc_id: int = int(raw_npcs.get("next_npc_id", -1))
+        raw_leaderboard = load_json_file(LEADERBOARD_FILE, {})
+        self.leaderboard: Dict[str, int] = {k: int(v) for k, v in raw_leaderboard.items()}
+        self._leaderboard_lock = asyncio.Lock()
 
         # aiohttp session for fetching avatars and images
         self.session = aiohttp.ClientSession()
@@ -257,6 +261,26 @@ class BattleRoyale(commands.Cog):
     async def _save_templates(self):
         async with self._templates_lock:
             save_json_file(ENEMIES_FILE, self.enemy_templates)
+            
+    async def _save_leaderboard(self):
+        async with self._leaderboard_lock:
+            save_json_file(LEADERBOARD_FILE, {k: int(v) for k, v in self.leaderboard.items()})
+
+    def _id_to_key(self, pid: int) -> str:
+        """
+        Convert participant id to stable storage key.
+        Positive ints -> 'user:<id>'; negative ints -> 'npc:<id>'.
+        """
+        return f"npc:{pid}" if isinstance(pid, int) and pid < 0 else f"user:{pid}"
+
+    async def _record_winner(self, winner_id: int):
+        """
+        Increment persistent win count for winner_id (positive user id or negative npc id).
+        """
+        key = self._id_to_key(winner_id)
+        self.leaderboard[key] = self.leaderboard.get(key, 0) + 1
+        await self._save_leaderboard()
+            
 
     async def _restore_views(self):
         """Re-register JoinView for persisted signups whose messages still exist."""
@@ -1605,6 +1629,10 @@ class BattleRoyale(commands.Cog):
         remaining = game.get("players", [])
         if remaining:
             winner = remaining[0]
+            try:
+                await self._record_winner(winner)
+            except Exception:
+                pass                
             winner_name = self._format_participant_name(winner)
             victory_text = self._victory_flavor_text(winner)
             
