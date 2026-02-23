@@ -36,6 +36,12 @@ DEFAULT_VICTORY_URLS = [
     "https://files.catbox.moe/dbc0p2.png",
 ]
 
+# New: signup thumbnail fallbacks
+DEFAULT_SIGNUP_THUMB_URLS = [
+    "https://files.catbox.moe/example_thumb1.png",
+    "https://files.catbox.moe/example_thumb2.png",
+]
+
 # Image constants
 AVATAR_SIZE = 128
 COMPOSITE_SIZE = (700, 260)
@@ -103,6 +109,13 @@ class JoinView(discord.ui.View):
 
         game["players"].append(user.id)
         await self.cog._save_games()
+
+        # Refresh the signup embed to show updated counts
+        try:
+            await self.cog._refresh_signup_embed(self.signup_message_id)
+        except Exception:
+            pass
+
         await interaction.response.send_message("You joined the Battle Royale!", ephemeral=True)
 
 
@@ -183,6 +196,7 @@ class BattleRoyale(commands.Cog):
             default_npc_urls=[],
             default_event_urls=[],
             default_bg_urls=[],
+            default_signup_thumb_urls=[],  # new
         )
 
     def cog_unload(self):
@@ -783,6 +797,45 @@ class BattleRoyale(commands.Cog):
         return embed, file
 
     # -----------------------
+    # Signup embed refresh helper (new)
+    # -----------------------
+    async def _refresh_signup_embed(self, signup_message_id: int):
+        """
+        Update the signup embed to show current counts:
+          - Signed up: <total> (Bots: <bots>)
+        Keeps existing thumbnail and other fields intact where possible.
+        """
+        game = self.active_games.get(signup_message_id)
+        if not game:
+            return
+        try:
+            guild = self.bot.get_guild(game["guild_id"])
+            if not guild:
+                return
+            channel = guild.get_channel(game["channel_id"])
+            if not channel:
+                return
+            msg = await channel.fetch_message(signup_message_id)
+            embed = msg.embeds[0] if msg.embeds else discord.Embed(title="Battle Royale Signup")
+            total = len(game.get("players", []))
+            bots = sum(1 for p in game.get("players", []) if isinstance(p, int) and p < 0)
+
+            # update or add the Signed up field
+            found = False
+            for i, f in enumerate(embed.fields):
+                if f.name == "Signed up":
+                    embed.set_field_at(i, name="Signed up", value=f"{total} (Bots: {bots})", inline=False)
+                    found = True
+                    break
+            if not found:
+                embed.add_field(name="Signed up", value=f"{total} (Bots: {bots})", inline=False)
+
+            # edit the message
+            await msg.edit(embed=embed)
+        except Exception:
+            return
+
+    # -----------------------
     # Commands
     # -----------------------
     @commands.group(invoke_without_command=True)
@@ -801,11 +854,30 @@ class BattleRoyale(commands.Cog):
             return
 
         color = self._random_color()
+
+        # pick a thumbnail URL: prefer config, then module defaults
+        thumb_url = None
+        try:
+            cfg_thumbs = await self.config.default_signup_thumb_urls()
+        except Exception:
+            cfg_thumbs = []
+        candidates = [u for u in (cfg_thumbs or DEFAULT_SIGNUP_THUMB_URLS) if u]
+        if candidates:
+            random.shuffle(candidates)
+            thumb_url = candidates[0]
+
         embed = discord.Embed(
             title="Battle Royale Signup",
             description="Click **Join** to enter the next Battle Royale. Mods can add NPCs with `battleroyale addnpc`.",
             color=color,
         )
+        if thumb_url:
+            embed.set_thumbnail(url=thumb_url)
+
+        # initial counts
+        total = 0
+        bots = 0
+        embed.add_field(name="Signed up", value=f"{total} (Bots: {bots})", inline=False)
         embed.set_footer(text=f"Signup created by {ctx.author.display_name}")
         view = JoinView(self, signup_message_id=0)
 
@@ -951,6 +1023,12 @@ class BattleRoyale(commands.Cog):
         summary_parts = [f"{v}× {k}" for k, v in names_summary.items()]
         await ctx.send(f"Added {len(added_ids)} NPC(s) to signup {signup_message_id}: " + ", ".join(summary_parts) + ".")
 
+        # Refresh signup embed to reflect new counts
+        try:
+            await self._refresh_signup_embed(signup_message_id)
+        except Exception:
+            pass
+
     @battleroyale.command(name="removenpc")
     @commands.guild_only()
     async def removenpc(self, ctx: commands.Context, signup_message_id: int, npc_name: str, count: int = 1):
@@ -982,6 +1060,12 @@ class BattleRoyale(commands.Cog):
         await self._save_npcs()
         await self._save_games()
         await ctx.send(f"Removed {removed} NPC(s) named **{npc_name}** from signup {signup_message_id}.")
+
+        # Refresh signup embed to reflect new counts
+        try:
+            await self._refresh_signup_embed(signup_message_id)
+        except Exception:
+            pass
 
     # -----------------------
     # Start command with dropdown
