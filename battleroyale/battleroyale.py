@@ -1607,7 +1607,14 @@ class BattleRoyale(commands.Cog):
             winner = remaining[0]
             winner_name = self._format_participant_name(winner)
             victory_text = self._victory_flavor_text(winner)
-
+            
+            try:
+                game["winner"] = winner                
+                game["winners"] = [winner]
+                await self._save_games()
+            except Exception:
+                pass
+                
             # Resolve user mention and avatar URL (for real users) or NPC instance (for NPCs)
             avatar_url = None
             mention_text = None
@@ -1751,6 +1758,13 @@ class BattleRoyale(commands.Cog):
                 # If we have a banner URL, reference it directly in the embed (Discord will fetch it)
                 if banner_url:
                     no_embed.set_image(url=banner_url)
+                    
+                try:
+                    game["winner"] = None  
+                    game["winners"] = []
+                    await self._save_games()
+                except Exception: 
+                    pass                    
 
                 await channel.send(embed=no_embed)
             except Exception:
