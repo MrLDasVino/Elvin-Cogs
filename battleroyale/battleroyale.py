@@ -581,22 +581,32 @@ class BattleRoyale(commands.Cog):
         """
         Resolve an attack from attacker_id (or attacker_label) to target_id.
         Returns (target_survived: bool, result_text: str).
+    
         Survival probabilities:
           - 30% survive
           - 70% die
-        If attacker_label is provided it will be used instead of 'the environment'.
+    
+        When attacker_label is provided (used for Events), the phrasing will use
+        "the <Event Name>" and verbs tailored for event-style messages:
+          - "<Target> was killed by the <Event Name>."
+          - "<Target> survived the <Event Name>."
         """
         survived = random.random() < 0.30  # 30% survive
-
+    
+        # Determine attacker display name
         if attacker_label:
-            attacker_name = attacker_label
+            # For events we want "the <Event Name>" phrasing
+            attacker_name = f"the {attacker_label}"
         else:
             attacker_name = "the environment" if attacker_id is None else self._format_participant_name(attacker_id)
-
+    
         target_name = self._format_participant_name(target_id)
+    
         if survived:
-            return True, f"{target_name} survived an attack by {attacker_name}."
+            # Event-style: "survived the <Event Name>"
+            return True, f"{target_name} survived {attacker_name}."
         else:
+            # Event-style: "was killed by the <Event Name>"
             return False, f"{target_name} was killed by {attacker_name}."
 
     def _pvp_flavor_text(self, attacker_id: int, defender_id: int, survived: bool) -> str:
