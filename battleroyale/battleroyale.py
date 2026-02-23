@@ -1298,25 +1298,29 @@ class BattleRoyale(commands.Cog):
             except Exception:
                 pass
     
-        # Build a compact, pretty description with medals for top 3
+        # Build a compact, pretty description with medals for top 3 and collect mentions
         medals = ["🥇", "🥈", "🥉"]
         lines: List[str] = []
+        mention_ids: List[int] = []
         for rank, (key, count) in enumerate(items, start=1):
-            # Resolve display name
+            # Resolve display name and mention
             try:
                 kind, id_str = key.split(":", 1)
                 pid = int(id_str)
             except Exception:
                 display = key
+                pid = None
             else:
                 # kind should always be "user" here
                 user = self.bot.get_user(pid)
                 if user:
                     display = user.display_name
+                    mention_ids.append(pid)
                 else:
                     try:
                         fetched = await self.bot.fetch_user(pid)
                         display = fetched.display_name
+                        mention_ids.append(pid)
                     except Exception:
                         display = f"User({pid})"
     
@@ -1324,12 +1328,38 @@ class BattleRoyale(commands.Cog):
             # single-line entry: medal + name + wins
             lines.append(f"{medal} **{display}** — **{count}** wins")
     
-        # If there are many entries, show first N and mention how many total recorded users
         embed.description = "\n".join(lines)
     
-        await ctx.send(embed=embed)
-
-
+        # Prepare mention content to actually ping users (embeds do not trigger pings)
+        mention_content = None
+        if mention_ids:
+            # Build mention strings in the same order as items, but only for users we resolved
+            mention_parts = []
+            for key, _ in items:
+                if key.startswith("user:"):
+                    try:
+                        pid = int(key.split(":", 1)[1])
+                    except Exception:
+                        continue
+                    if pid in mention_ids:
+                        mention_parts.append(f"<@{pid}>")
+            if mention_parts:
+                mention_content = "Top players: " + " ".join(mention_parts)
+    
+        # Send embed with mention content and explicit allowed_mentions so pings occur
+        try:
+            if mention_content:
+                allowed = discord.AllowedMentions(users=[discord.Object(id=uid) for uid in mention_ids])
+                await ctx.send(content=mention_content, embed=embed, allowed_mentions=allowed)
+            else:
+                await ctx.send(embed=embed)
+        except Exception:
+            # fallback: send embed only
+            try:
+                await ctx.send(embed=embed)
+            except Exception:
+                await ctx.send("Could not display the leaderboard at this time.")
+    
     @battleroyale.command(name="reset")
     @commands.is_owner()
     async def battleroyale_reset(self, ctx: commands.Context, confirm: str = None):
