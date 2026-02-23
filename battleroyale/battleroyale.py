@@ -1234,9 +1234,10 @@ class BattleRoyale(commands.Cog):
         # Sort and take top entries
         items = sorted(normalized.items(), key=lambda kv: (-kv[1], kv[0]))[:top]
     
-        # Build embed
+        # Build embed (nicer layout)
         embed = discord.Embed(title="Battle Royale Leaderboard", color=self._random_color())
         embed.set_footer(text=f"Top {len(items)} players by victories")
+        embed.timestamp = discord.utils.utcnow()
     
         # Thumbnail selection order (enforced):
         # 1) module-level DEFAULT_LEADERBOARD_THUMB_URL (first entry)
@@ -1247,7 +1248,6 @@ class BattleRoyale(commands.Cog):
         # 1) module-level constant (this is the one you set at the top of the file)
         try:
             if DEFAULT_LEADERBOARD_THUMB_URL:
-                # use the first non-empty URL from the list
                 candidates = [u for u in DEFAULT_LEADERBOARD_THUMB_URL if u]
                 if candidates:
                     thumbnail_url = candidates[0]
@@ -1298,30 +1298,37 @@ class BattleRoyale(commands.Cog):
             except Exception:
                 pass
     
-        # Add fields for each top entry (users only)
+        # Build a compact, pretty description with medals for top 3
+        medals = ["🥇", "🥈", "🥉"]
+        lines: List[str] = []
         for rank, (key, count) in enumerate(items, start=1):
+            # Resolve display name
             try:
                 kind, id_str = key.split(":", 1)
                 pid = int(id_str)
             except Exception:
-                display = f"**{key}**"
+                display = key
             else:
                 # kind should always be "user" here
                 user = self.bot.get_user(pid)
                 if user:
-                    display = f"**{user.display_name}**"
+                    display = user.display_name
                 else:
                     try:
                         fetched = await self.bot.fetch_user(pid)
-                        display = f"**{fetched.display_name}**"
+                        display = fetched.display_name
                     except Exception:
-                        display = f"**User({pid})**"
+                        display = f"User({pid})"
     
-            name = f"#{rank} — {display}"
-            value = f"**{count}** wins"
-            embed.add_field(name=name, value=value, inline=False)
+            medal = medals[rank - 1] if rank <= 3 else f"#{rank}"
+            # single-line entry: medal + name + wins
+            lines.append(f"{medal} **{display}** — **{count}** wins")
+    
+        # If there are many entries, show first N and mention how many total recorded users
+        embed.description = "\n".join(lines)
     
         await ctx.send(embed=embed)
+
 
     @battleroyale.command(name="reset")
     @commands.is_owner()
