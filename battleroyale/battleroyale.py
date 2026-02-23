@@ -1306,66 +1306,102 @@ class BattleRoyale(commands.Cog):
             winner_name = self._format_participant_name(winner)
             victory_text = self._victory_flavor_text(winner)
 
-            # Prepare base embed
-            v_embed = discord.Embed(
-                title="Battle Royale — Winner!",
-                description=f"{winner_name} is the last one standing!",
-                color=self._random_color(),
-            )
-            v_embed.add_field(name="Champion", value=winner_name, inline=True)
-            v_embed.add_field(name="Victory", value=victory_text, inline=False)
-
-            # If the winner is a real Discord user, mention them and show their avatar
+            # Try to resolve a real Discord user and their avatar URL
             avatar_url = None
             mention_text = None
             try:
                 if isinstance(winner, int) and winner >= 0:
                     user = self.bot.get_user(winner)
                     if user:
-                        # mention the user in a field and use their avatar as thumbnail
                         mention_text = user.mention
                         try:
-                            avatar_url = str(user.display_avatar.replace(size=256).url)
+                            avatar_url = str(user.display_avatar.replace(size=512).url)
                         except Exception:
                             avatar_url = None
             except Exception:
                 avatar_url = None
                 mention_text = None
 
+            # Build the textual embed (we'll attach a composed banner image below)
+            v_embed = discord.Embed(
+                title="Battle Royale — Winner!",
+                description=f"{winner_name} is the last one standing!",
+                color=self._random_color(),
+            )
+            # Put the champion name and (if available) the mention directly under it
+            champion_value = winner_name
             if mention_text:
-                # Add a visible mention field (Discord will render the mention)
-                v_embed.add_field(name="Winner", value=mention_text, inline=True)
+                champion_value = f"{winner_name}\n{mention_text}"
+            v_embed.add_field(name="Champion", value=champion_value, inline=True)
+            v_embed.add_field(name="Victory", value=victory_text, inline=False)
 
-            # Try to compose and send the richer victory image embed (with attachment)
+            # Compose a banner image and, if possible, overlay the user's avatar onto it
             try:
-                victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))
-                v_image_embed, v_file = await self._compose_and_attach_image(
-                    ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True, layout="center"
-                )
+                # Prefer victory/background fallbacks for the banner
+                banner_img = await self._load_image_for_entity(None, DEFAULT_VICTORY_URLS, size=COMPOSITE_SIZE, default_type="bg")
+                if banner_img is None:
+                    banner_img = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
 
-                # Merge textual fields into the image embed
-                # Preserve mention if present by adding the Winner field
-                v_image_embed.add_field(name="Champion", value=winner_name, inline=True)
-                v_image_embed.add_field(name="Victory", value=victory_text, inline=False)
-                if mention_text:
-                    v_image_embed.add_field(name="Winner", value=mention_text, inline=True)
-
-                # If we have a direct avatar URL for a real user, set it as the embed thumbnail
+                # If we have an avatar URL for a real user, fetch and paste it onto the banner
                 if avatar_url:
-                    v_image_embed.set_thumbnail(url=avatar_url)
+                    try:
+                        avatar_bytes = await self._fetch_image_bytes(avatar_url)
+                        if avatar_bytes:
+                            avatar_img = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+                            # size and position for the avatar on the banner
+                            avatar_diam = max(96, int(min(COMPOSITE_SIZE) * 0.22))  # ~22% of smaller dimension
+                            avatar_img = ImageOps.fit(avatar_img, (avatar_diam, avatar_diam), Image.LANCZOS)
 
-                # Ensure the embed references the attachment filename used when creating the File
-                v_image_embed.set_image(url="attachment://result.png")
+                            # create a circular mask for a rounded avatar
+                            mask = Image.new("L", (avatar_diam, avatar_diam), 0)
+                            mask_draw = ImageDraw.Draw(mask)
+                            mask_draw.ellipse((0, 0, avatar_diam, avatar_diam), fill=255)
 
-                await channel.send(embed=v_image_embed, file=v_file)
+                            # compute paste position: centered horizontally, near top with small margin
+                            margin_top = 18
+                            x = (COMPOSITE_SIZE[0] - avatar_diam) // 2
+                            y = margin_top
+
+                            # optionally draw a subtle border behind the avatar for contrast
+                            border = int(max(4, avatar_diam * 0.06))
+                            if border:
+                                border_box = Image.new("RGBA", (avatar_diam + border * 2, avatar_diam + border * 2), (0, 0, 0, 0))
+                                bd_draw = ImageDraw.Draw(border_box)
+                                bd_draw.ellipse((0, 0, avatar_diam + border * 2 - 1, avatar_diam + border * 2 - 1), fill=(10, 10, 10, 200))
+                                # paste border
+                                bx = x - border
+                                by = y - border
+                                try:
+                                    banner_img.paste(border_box, (bx, by), border_box)
+                                except Exception:
+                                    banner_img.paste(border_box, (bx, by))
+
+                            # paste the avatar using the circular mask
+                            try:
+                                banner_img.paste(avatar_img, (x, y), mask)
+                            except Exception:
+                                banner_img.paste(avatar_img, (x, y))
+
+                    except Exception:
+                        # ignore avatar overlay failures and continue with plain banner
+                        pass
+
+                # Save banner to BytesIO and send as attachment referenced by the embed
+                bio = io.BytesIO()
+                banner_img.save(bio, "PNG")
+                bio.seek(0)
+                filename = "victory_banner.png"
+                file = File(bio, filename=filename)
+
+                # Use the banner as the embed image (not a thumbnail)
+                v_embed.set_image(url=f"attachment://{filename}")
+
+                await channel.send(embed=v_embed, file=file)
             except Exception:
-                # Fallback: send the simple embed (with thumbnail if available)
+                # Fallback: send the textual embed (with no banner) if anything fails
                 try:
-                    if avatar_url:
-                        v_embed.set_thumbnail(url=avatar_url)
                     await channel.send(embed=v_embed)
                 except Exception:
-                    # Last-resort fallback to plain text
                     await channel.send(f"{winner_name} is the last one standing!")
         else:
             # No survivors path: send a rich embed with a remote banner image and flavor text
