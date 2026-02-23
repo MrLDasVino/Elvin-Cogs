@@ -556,16 +556,22 @@ class BattleRoyale(commands.Cog):
         except Exception:
             return f"**{pid}**"
 
-    def _resolve_attack_single(self, attacker_id: Optional[int], target_id: int) -> Tuple[bool, str]:
+    def _resolve_attack_single(self, attacker_id: Optional[int], target_id: int, attacker_label: Optional[str] = None) -> Tuple[bool, str]:
         """
-        Resolve an attack from attacker_id to target_id.
+        Resolve an attack from attacker_id (or attacker_label) to target_id.
         Returns (target_survived: bool, result_text: str).
         Survival probabilities:
           - 30% survive
           - 70% die
+        If attacker_label is provided it will be used instead of 'the environment'.
         """
         survived = random.random() < 0.30  # 30% survive
-        attacker_name = "the environment" if attacker_id is None else self._format_participant_name(attacker_id)
+
+        if attacker_label:
+            attacker_name = attacker_label
+        else:
+            attacker_name = "the environment" if attacker_id is None else self._format_participant_name(attacker_id)
+
         target_name = self._format_participant_name(target_id)
         if survived:
             return True, f"{target_name} survived an attack by {attacker_name}."
@@ -605,6 +611,27 @@ class BattleRoyale(commands.Cog):
             return random.choice(special)
 
         return random.choice(survive_templates if survived else death_templates)
+
+    def _victory_flavor_text(self, winner_id: int) -> str:
+        """
+        Generate varied flavor text for the victory screen.
+        """
+        winner = self._format_participant_name(winner_id)
+        templates = [
+            f"{winner} stands alone amid the silence, the echoes of battle fading.",
+            f"Cheers erupt as {winner} claims the spoils and the title of champion.",
+            f"{winner} raises their arms in triumph; legends will speak of this day.",
+            f"Bloodied but unbroken, {winner} walks away as the last survivor.",
+            f"The battlefield falls quiet while {winner} basks in hard-won glory."
+        ]
+        # small chance for an epic line
+        epic = [
+            f"{winner}'s name will be carved into history after this brutal contest.",
+            f"A single figure remains: {winner}. Songs will be sung of this victory."
+        ]
+        if random.random() < 0.05:
+            return random.choice(epic)
+        return random.choice(templates)
 
     async def _compose_and_attach_image(self, ctx_or_channel, title: str, participants: List[int], dead_ids: Set[int], avatar_size: int = AVATAR_SIZE, center: bool = False, event: Optional[Dict] = None, victory: bool = False, layout: str = "auto") -> Tuple[discord.Embed, File]:
         """
@@ -1119,14 +1146,16 @@ class BattleRoyale(commands.Cog):
                 # Put all textual info into the embed, not on the image
                 embed.add_field(name="Round", value=str(round_num), inline=True)
                 embed.add_field(name="Type", value="PvP", inline=True)
-                embed.add_field(name="Flavor", value=flavor, inline=False)
+                embed.add_field(name="Battle", value=flavor, inline=False)  # renamed from "Flavor" to "Battle"
                 embed.add_field(name="Result", value="\n".join(result_lines), inline=False)
 
             else:
-                round_title = f"Round {round_num} — {event.get('name') if event else 'Event'}"
+                # Use the event name as the attacker label so flavor text and result reference the Event
+                attacker_label = event.get("name") if event else "Event"
+                round_title = f"Round {round_num} — {attacker_label}"
                 result_lines = []
                 for target in participants:
-                    survived, text = self._resolve_attack_single(None, target)
+                    survived, text = self._resolve_attack_single(None, target, attacker_label=attacker_label)
                     result_lines.append(text)
                     if not survived:
                         try:
@@ -1174,16 +1203,25 @@ class BattleRoyale(commands.Cog):
         if remaining:
             winner = remaining[0]
             winner_name = self._format_participant_name(winner)
-            embed = discord.Embed(title="Battle Royale — Winner!", description=f"{winner_name} is the last one standing!", color=self._random_color())
+            # Build a richer victory embed with winner name and flavor text
+            victory_text = self._victory_flavor_text(winner)
+            v_embed = discord.Embed(title="Battle Royale — Winner!", description=f"{winner_name} is the last one standing!", color=self._random_color())
+            v_embed.add_field(name="Champion", value=winner_name, inline=True)
+            v_embed.add_field(name="Victory", value=victory_text, inline=False)
+
             try:
                 # Use a smaller avatar and center it in the victory image; prefer victory background
                 victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))
-                v_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True, layout="center")
+                v_image_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True, layout="center")
+
+                # Merge image embed with v_embed: ensure the image attachment is referenced
+                v_image_embed.add_field(name="Champion", value=winner_name, inline=True)
+                v_image_embed.add_field(name="Victory", value=victory_text, inline=False)
 
                 # Ensure the embed references the attachment filename used when creating the File
-                v_embed.set_image(url="attachment://result.png")
+                v_image_embed.set_image(url="attachment://result.png")
 
                 # Send embed and file in the same call so the image is shown inside the embed
-                await channel.send(embed=v_embed, file=v_file)
+                await channel.send(embed=v_image_embed, file=v_file)
             except Exception:
                 await channel.send(f"{winner_name} is the last one standing!")
