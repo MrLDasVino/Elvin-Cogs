@@ -1323,6 +1323,32 @@ class BattleRoyale(commands.Cog):
     
         await ctx.send(embed=embed)
 
+    @battleroyale.command(name="reset")
+    @commands.is_owner()
+    async def battleroyale_reset(self, ctx: commands.Context, confirm: str = None):
+        """Reset the persistent Battle Royale leaderboard.
+        Usage: battleroyale reset confirm
+        Note: This command is owner-only and will clear the on-disk leaderboard.json.
+        """
+        # require explicit confirmation token
+        if confirm != "confirm":
+            await ctx.send("This will permanently clear the leaderboard. To proceed, run: `battleroyale reset confirm`")
+            return
+    
+        # clear in-memory leaderboard and persist
+        try:
+            self.leaderboard = {}
+            await self._save_leaderboard()
+        except Exception:
+            # attempt best-effort file write and report failure
+            try:
+                save_json_file(LEADERBOARD_FILE, {})
+            except Exception:
+                await ctx.send("Failed to reset leaderboard due to a file I/O error.")
+                return
+    
+        await ctx.send("Leaderboard has been reset.")
+
     # -----------------------
     # Add / remove NPC instances (persisted)
     # -----------------------
