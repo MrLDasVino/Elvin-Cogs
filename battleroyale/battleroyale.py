@@ -990,7 +990,7 @@ class BattleRoyale(commands.Cog):
     @commands.guild_only()
     async def battleroyale(self, ctx: commands.Context):
         """Battle Royale commands group."""
-        await ctx.send_help(ctx.command)
+        await channel.send_help(ctx.command)
 
 
     @battleroyale.command(name="signup")
@@ -998,7 +998,7 @@ class BattleRoyale(commands.Cog):
     async def signup(self, ctx: commands.Context, channel: discord.TextChannel):
         """Create a signup embed in the specified channel (mods/admins only)."""
         if not self.is_mod_or_admin(ctx.author):
-            await ctx.send("You need to be a moderator or admin to create a signup.")
+            await channel.send("You need to be a moderator or admin to create a signup.")
             return
 
         color = self._random_color()
@@ -1047,7 +1047,7 @@ class BattleRoyale(commands.Cog):
             pass
 
         await self._save_games()
-        await ctx.send(f"Signup posted in {channel.mention} (message id {msg.id}).")
+        await channel.send(f"Signup posted in {channel.mention} (message id {msg.id}).")
 
     # -----------------------
     # Enemy template management
@@ -1055,7 +1055,7 @@ class BattleRoyale(commands.Cog):
     @battleroyale.group(name="enemy", invoke_without_command=True)
     async def enemy(self, ctx: commands.Context):
         """Manage NPC enemy templates. Use subcommands add/list/remove."""
-        await ctx.send_help(ctx.command)
+        await channel.send_help(ctx.command)
 
     @enemy.command(name="add")
     @commands.is_owner()
@@ -1064,7 +1064,7 @@ class BattleRoyale(commands.Cog):
         template = {"name": name, "image_url": image_url}
         self.enemy_templates.append(template)
         await self._save_templates()
-        await ctx.send(f"Enemy template **{name}** added.")
+        await channel.send(f"Enemy template **{name}** added.")
 
     @enemy.command(name="remove")
     @commands.is_owner()
@@ -1075,15 +1075,15 @@ class BattleRoyale(commands.Cog):
         await self._save_templates()
         after = len(self.enemy_templates)
         if before == after:
-            await ctx.send(f"No enemy template named **{name}** found.")
+            await channel.send(f"No enemy template named **{name}** found.")
         else:
-            await ctx.send(f"Enemy template **{name}** removed.")
+            await channel.send(f"Enemy template **{name}** removed.")
 
     @enemy.command(name="list")
     async def enemy_list(self, ctx: commands.Context):
         """List saved enemy templates with emoji-based pagination (10 entries per page)."""
         if not self.enemy_templates:
-            await ctx.send("No enemy templates saved.")
+            await channel.send("No enemy templates saved.")
             return
     
         # Page size: 10 entries per page
@@ -1104,7 +1104,7 @@ class BattleRoyale(commands.Cog):
     
         # Send first page
         current = 0
-        message = await ctx.send(embed=embeds[current])
+        message = await channel.send(embed=embeds[current])
     
         # Navigation emojis
         EMOJI_PREV = "◀️"
@@ -1226,7 +1226,7 @@ class BattleRoyale(commands.Cog):
                     wins_legacy[winner] = wins_legacy.get(winner, 0) + 1
     
             if not wins_legacy:
-                await ctx.send("No recorded user victories found.")
+                await channel.send("No recorded user victories found.")
                 return
     
             for uid, cnt in wins_legacy.items():
@@ -1320,13 +1320,13 @@ class BattleRoyale(commands.Cog):
     
         # Send embed with AllowedMentions set to none so mentions inside the embed do not ping
         try:
-            await ctx.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         except Exception:
             # fallback: send embed only without allowed_mentions param
             try:
-                await ctx.send(embed=embed)
+                await channel.send(embed=embed)
             except Exception:
-                await ctx.send("Could not display the leaderboard at this time.")
+                await channel.send("Could not display the leaderboard at this time.")
        
     @battleroyale.command(name="reset")
     @commands.is_owner()
@@ -1346,7 +1346,7 @@ class BattleRoyale(commands.Cog):
     
         # require explicit confirmation token
         if confirm != "confirm":
-            await ctx.send(f"This will permanently clear the leaderboard. To proceed, run: `{prefix}battleroyale reset confirm`")
+            await channel.send(f"This will permanently clear the leaderboard. To proceed, run: `{prefix}battleroyale reset confirm`")
             return
     
         # clear in-memory leaderboard and persist
@@ -1358,10 +1358,10 @@ class BattleRoyale(commands.Cog):
             try:
                 save_json_file(LEADERBOARD_FILE, {})
             except Exception:
-                await ctx.send("Failed to reset leaderboard due to a file I/O error.")
+                await channel.send("Failed to reset leaderboard due to a file I/O error.")
                 return
     
-        await ctx.send("Leaderboard has been reset.")
+        await channel.send("Leaderboard has been reset.")
 
     # -----------------------
     # Add / remove NPC instances (persisted)
@@ -1379,12 +1379,12 @@ class BattleRoyale(commands.Cog):
         Requires moderator permissions.
         """
         if not self.is_mod_or_admin(ctx.author):
-            await ctx.send("You need to be a moderator or admin to add NPCs.")
+            await channel.send("You need to be a moderator or admin to add NPCs.")
             return
 
         game = self.active_games.get(signup_message_id)
         if not game:
-            await ctx.send("No signup found with that message id.")
+            await channel.send("No signup found with that message id.")
             return
 
         # clamp count to avoid abuse
@@ -1403,7 +1403,7 @@ class BattleRoyale(commands.Cog):
 
         if enemy_name.lower() == "random":
             if not self.enemy_templates:
-                await ctx.send("No enemy templates available. Add templates with `battleroyale enemy add` first.")
+                await channel.send("No enemy templates available. Add templates with `battleroyale enemy add` first.")
                 return
             for _ in range(count):
                 template = _pick_random_template()
@@ -1420,7 +1420,7 @@ class BattleRoyale(commands.Cog):
                     template = t
                     break
             if not template:
-                await ctx.send(f"No enemy template named **{enemy_name}** found. Use `battleroyale enemy list`.")
+                await channel.send(f"No enemy template named **{enemy_name}** found. Use `battleroyale enemy list`.")
                 return
             for _ in range(count):
                 nid = self.next_npc_id
@@ -1433,14 +1433,14 @@ class BattleRoyale(commands.Cog):
         await self._save_games()
 
         if not added_ids:
-            await ctx.send("No NPCs were added.")
+            await channel.send("No NPCs were added.")
             return
 
         names_summary: Dict[str, int] = {}
         for _, name in added_ids:
             names_summary[name] = names_summary.get(name, 0) + 1
         summary_parts = [f"{v}× {k}" for k, v in names_summary.items()]
-        await ctx.send(f"Added {len(added_ids)} NPC(s) to signup {signup_message_id}: " + ", ".join(summary_parts) + ".")
+        await channel.send(f"Added {len(added_ids)} NPC(s) to signup {signup_message_id}: " + ", ".join(summary_parts) + ".")
 
         # Refresh signup embed to reflect new counts
         try:
@@ -1456,12 +1456,12 @@ class BattleRoyale(commands.Cog):
         Usage: battleroyale removenpc <signup_message_id> <npc_name> [count]
         """
         if not self.is_mod_or_admin(ctx.author):
-            await ctx.send("You need to be a moderator or admin to remove NPCs.")
+            await channel.send("You need to be a moderator or admin to remove NPCs.")
             return
 
         game = self.active_games.get(signup_message_id)
         if not game:
-            await ctx.send("No signup found with that message id.")
+            await channel.send("No signup found with that message id.")
             return
 
         removed = 0
@@ -1478,7 +1478,7 @@ class BattleRoyale(commands.Cog):
 
         await self._save_npcs()
         await self._save_games()
-        await ctx.send(f"Removed {removed} NPC(s) named **{npc_name}** from signup {signup_message_id}.")
+        await channel.send(f"Removed {removed} NPC(s) named **{npc_name}** from signup {signup_message_id}.")
 
         # Refresh signup embed to reflect new counts
         try:
@@ -1494,20 +1494,20 @@ class BattleRoyale(commands.Cog):
     async def start(self, ctx: commands.Context, signup_message_id: Optional[int] = None):
         """Start the Battle Royale. If no id provided, shows a dropdown to pick a signup."""
         if not self.is_mod_or_admin(ctx.author):
-            await ctx.send("You need to be a moderator or admin to start a game.")
+            await channel.send("You need to be a moderator or admin to start a game.")
             return
 
         if signup_message_id:
             game = self.active_games.get(signup_message_id)
             if not game:
-                await ctx.send("No signup found with that message id.")
+                await channel.send("No signup found with that message id.")
                 return
             await self.start_game(ctx, game)
             return
 
         guild_games = [g for g in self.active_games.values() if g["guild_id"] == ctx.guild.id and not g.get("running", False)]
         if not guild_games:
-            await ctx.send("No active signup found to start.")
+            await channel.send("No active signup found to start.")
             return
 
         if len(guild_games) == 1:
@@ -1527,15 +1527,15 @@ class BattleRoyale(commands.Cog):
         if view.children and isinstance(view.children[0], discord.ui.Select):
             view.children[0].options = options
 
-        await ctx.send("Select which signup to start (60s):", view=view, ephemeral=True)
+        await channel.send("Select which signup to start (60s):", view=view, ephemeral=True)
         await view.wait()
         if not view.selected_game_id:
-            await ctx.send("No selection made; start cancelled.", ephemeral=True)
+            await channel.send("No selection made; start cancelled.", ephemeral=True)
             return
 
         selected_game = self.active_games.get(view.selected_game_id)
         if not selected_game:
-            await ctx.send("Selected signup no longer exists.", ephemeral=True)
+            await channel.send("Selected signup no longer exists.", ephemeral=True)
             return
 
         await self.start_game(ctx, selected_game)
@@ -1543,29 +1543,40 @@ class BattleRoyale(commands.Cog):
     async def start_game(self, ctx: commands.Context, game: Dict):
         """Start the provided game dict. Runs the game loop and handles cleanup."""
         if game.get("running"):
-            await ctx.send("That game is already running.")
+            await channel.send("That game is already running.")
             return
-
+    
         if len(game.get("players", [])) < 2:
-            await ctx.send("Need at least 2 players to start.")
+            await channel.send("Need at least 2 players to start.")
             return
-
+    
+        # Resolve the channel where the signup was posted
+        guild = self.bot.get_guild(game.get("guild_id"))
+        if not guild:
+            await channel.send("Could not find the guild for that signup.")
+            return
+        channel = guild.get_channel(game.get("channel_id"))
+        if not channel:
+            await channel.send("Could not find the signup channel (it may have been deleted).")
+            return
+    
         # mark running and persist
         game["running"] = True
         await self._save_games()
-
+    
         # remove the persistent Join view so no more joins are possible
         try:
             self.bot.remove_view(view=None, message_id=game["signup_message_id"])
         except Exception:
             pass
-
+    
         try:
-            await self._run_game_loop(ctx, game)
+            # pass the resolved channel to the game loop
+            await self._run_game_loop(channel, game)
         finally:
             # ensure the game is no longer marked running
             game["running"] = False
-
+    
             # cleanup NPC instances not referenced by any signup
             used_ids: Set[int] = set()
             for g in self.active_games.values():
@@ -1576,15 +1587,15 @@ class BattleRoyale(commands.Cog):
                 if nid not in used_ids:
                     self.npc_instances.pop(nid, None)
             await self._save_npcs()
-
+    
             # remove this signup so it cannot be reused; require a new signup to start again
             try:
                 self.active_games.pop(game["signup_message_id"], None)
             except Exception:
                 pass
-
+    
             await self._save_games()
-
+    
             # ensure the view is removed (defensive)
             try:
                 self.bot.remove_view(view=None, message_id=game["signup_message_id"])
@@ -1594,7 +1605,8 @@ class BattleRoyale(commands.Cog):
     # -----------------------
     # Main game loop (replacement)
     # -----------------------
-    async def _run_game_loop(self, ctx: commands.Context, game: Dict):
+    async def _run_game_loop(self, channel: discord.TextChannel, game: Dict):
+    # channel is the signup channel resolved by start_game
         """
         Simplified game loop that runs until one participant remains.
         Each iteration:
@@ -1607,7 +1619,7 @@ class BattleRoyale(commands.Cog):
 
         # quick guard
         if not game.get("players") or len(game.get("players", [])) < 2:
-            await ctx.send("Not enough participants to run the game.")
+            await channel.send("Not enough participants to run the game.")
             return
 
         # track dead ids to show overlays in images
