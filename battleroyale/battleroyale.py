@@ -1320,7 +1320,6 @@ class BattleRoyale(commands.Cog):
                         except Exception:
                             avatar_url = None
                 else:
-                    # NPC winner: get instance dict (may be None)
                     npc_inst = self.npc_instances.get(winner)
             except Exception:
                 avatar_url = None
@@ -1333,9 +1332,9 @@ class BattleRoyale(commands.Cog):
                 color=self._random_color(),
             )
 
-            # Champion field: include mention only for real users
+            # Champion field: show only the mention for real users, otherwise show the formatted NPC/user name
             if mention_text:
-                champion_value = f"{winner_name}\n{mention_text}"
+                champion_value = mention_text
             else:
                 champion_value = winner_name
             v_embed.add_field(name="Champion", value=champion_value, inline=True)
@@ -1343,17 +1342,14 @@ class BattleRoyale(commands.Cog):
 
             # Compose a banner image and overlay the winner's avatar (user or NPC) onto it
             try:
-                # Prefer victory/background fallbacks for the banner
                 banner_img = await self._load_image_for_entity(None, DEFAULT_VICTORY_URLS, size=COMPOSITE_SIZE, default_type="bg")
                 if banner_img is None:
                     banner_img = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
 
-                # Determine overlay image:
-                # - If a real user avatar URL is available, fetch and use it.
-                # - Otherwise, if npc_inst exists, use _load_image_for_entity to get a properly sized NPC image.
                 overlay_img = None
                 avatar_diam = max(96, int(min(COMPOSITE_SIZE) * 0.22))
 
+                # Try user avatar first
                 if avatar_url:
                     try:
                         avatar_bytes = await self._fetch_image_bytes(avatar_url)
@@ -1363,27 +1359,23 @@ class BattleRoyale(commands.Cog):
                     except Exception:
                         overlay_img = None
 
+                # If no user avatar, try NPC instance image via loader (resized)
                 if overlay_img is None and npc_inst:
-                    # Use the existing loader which applies template fallbacks and resizing
                     try:
-                        # _load_image_for_entity returns a PIL Image already resized to the requested size
                         overlay_img = await self._load_image_for_entity(npc_inst.get("image_url"), DEFAULT_NPC_URLS, size=(avatar_diam, avatar_diam), default_type="npc", npc_instance=npc_inst)
                     except Exception:
                         overlay_img = None
 
-                # If we have an overlay image, paste it centered near the top with a subtle border
+                # Paste overlay if available
                 if overlay_img:
-                    # circular mask for rounded avatar
                     mask = Image.new("L", (avatar_diam, avatar_diam), 0)
                     mask_draw = ImageDraw.Draw(mask)
                     mask_draw.ellipse((0, 0, avatar_diam, avatar_diam), fill=255)
 
-                    # compute paste position: centered horizontally, near top
                     margin_top = 18
                     x = (COMPOSITE_SIZE[0] - avatar_diam) // 2
                     y = margin_top
 
-                    # subtle border behind avatar for contrast
                     border = int(max(4, avatar_diam * 0.06))
                     if border:
                         border_box = Image.new("RGBA", (avatar_diam + border * 2, avatar_diam + border * 2), (0, 0, 0, 0))
@@ -1401,19 +1393,16 @@ class BattleRoyale(commands.Cog):
                     except Exception:
                         banner_img.paste(overlay_img, (x, y))
 
-                # Save banner to BytesIO and send as attachment referenced by the embed
+                # Save and send banner as attachment referenced by embed
                 bio = io.BytesIO()
                 banner_img.save(bio, "PNG")
                 bio.seek(0)
                 filename = "victory_banner.png"
                 file = File(bio, filename=filename)
 
-                # Use the banner as the embed image (not a thumbnail)
                 v_embed.set_image(url=f"attachment://{filename}")
-
                 await channel.send(embed=v_embed, file=file)
             except Exception:
-                # Fallback: send the textual embed (with no banner) if anything fails
                 try:
                     await channel.send(embed=v_embed)
                 except Exception:
