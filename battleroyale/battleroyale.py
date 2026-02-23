@@ -1180,6 +1180,7 @@ class BattleRoyale(commands.Cog):
         Usage: battleroyale leaderboard [top]
         - top: number of entries to show (1-25)
         Note: thumbnail arg is ignored; the thumbnail comes from the module-level DEFAULT_LEADERBOARD_THUMB_URL.
+        Mentions are shown inside the embed but will not ping users.
         """
         # sanitize top and cap to 25 (Discord embed field limit)
         try:
@@ -1234,7 +1235,7 @@ class BattleRoyale(commands.Cog):
         # Sort and take top entries
         items = sorted(normalized.items(), key=lambda kv: (-kv[1], kv[0]))[:top]
     
-        # Build embed (nicer layout)
+        # Build embed (cleaner layout)
         embed = discord.Embed(title="Battle Royale Leaderboard", color=self._random_color())
         embed.set_footer(text=f"Top {len(items)} players by victories")
         embed.timestamp = discord.utils.utcnow()
@@ -1302,31 +1303,18 @@ class BattleRoyale(commands.Cog):
         medals = ["🥇", "🥈", "🥉"]
         lines: List[str] = []
         for rank, (key, count) in enumerate(items, start=1):
-            # Resolve display name and mention string
+            # Resolve mention string only (no duplicate display name)
             try:
                 kind, id_str = key.split(":", 1)
                 pid = int(id_str)
             except Exception:
-                display = key
-                mention_str = key
+                mention_str = str(key)
             else:
-                # mention string (will appear as a mention text inside the embed)
                 mention_str = f"<@{pid}>"
-                # Try to get a friendly display name for readability
-                user = self.bot.get_user(pid)
-                if user:
-                    display = user.display_name
-                else:
-                    try:
-                        fetched = await self.bot.fetch_user(pid)
-                        display = fetched.display_name
-                    except Exception:
-                        display = f"User({pid})"
     
             medal = medals[rank - 1] if rank <= 3 else f"#{rank}"
-            # single-line entry: medal + mention (visual) + display name + wins
-            # show mention first (visual mention text), then display name in parentheses for clarity
-            lines.append(f"{medal} {mention_str} — **{display}** — **{count}** wins")
+            # single-line entry: medal + mention (visual) + wins
+            lines.append(f"{medal} {mention_str} — **{count}** wins")
     
         embed.description = "\n".join(lines)
     
