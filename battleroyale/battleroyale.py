@@ -572,16 +572,49 @@ class BattleRoyale(commands.Cog):
         else:
             return False, f"{target_name} was killed by {attacker_name}."
 
-    async def _compose_and_attach_image(self, ctx_or_channel, title: str, participants: List[int], dead_ids: Set[int], avatar_size: int = AVATAR_SIZE, center: bool = False, event: Optional[Dict] = None, victory: bool = False) -> Tuple[discord.Embed, File]:
+    def _pvp_flavor_text(self, attacker_id: int, defender_id: int, survived: bool) -> str:
+        """
+        Generate varied flavor text for PvP rounds.
+        Uses templates for both survival and death outcomes and includes attacker/defender names.
+        """
+        attacker = self._format_participant_name(attacker_id)
+        defender = self._format_participant_name(defender_id)
+
+        survive_templates = [
+            f"{defender} narrowly dodged {attacker}'s strike and lived to fight another round.",
+            f"{attacker} misjudged the blow; {defender} stands bloodied but unbowed.",
+            f"A lucky parry from {defender} turned the tide; {attacker} is left stunned.",
+            f"{defender} found an opening and escaped {attacker}'s wrath.",
+            f"{attacker} landed a hit but {defender} refused to fall."
+        ]
+        death_templates = [
+            f"{attacker} found a fatal opening; {defender} fell in a spray of sparks.",
+            f"A decisive strike from {attacker} ended {defender}'s run.",
+            f"{defender} couldn't withstand {attacker}'s assault and was cut down.",
+            f"{attacker} delivered a killing blow; {defender} collapsed to the ground.",
+            f"{defender} fought bravely but {attacker} proved the stronger."
+        ]
+
+        # small chance for a dramatic special line
+        special = [
+            f"The crowd roars as {attacker} and {defender} clash in a moment of legend.",
+            f"A sudden twist of fate between {attacker} and {defender} leaves everyone breathless."
+        ]
+
+        if random.random() < 0.03:
+            return random.choice(special)
+
+        return random.choice(survive_templates if survived else death_templates)
+
+    async def _compose_and_attach_image(self, ctx_or_channel, title: str, participants: List[int], dead_ids: Set[int], avatar_size: int = AVATAR_SIZE, center: bool = False, event: Optional[Dict] = None, victory: bool = False, layout: str = "auto") -> Tuple[discord.Embed, File]:
         """
         Create a composite image for the round and return (embed, discord.File).
-        - Uses an event-specific background if available, otherwise falls back to configured defaults and module defaults.
-        - Does NOT draw any text onto the image; all text is placed in the embed.
-        - avatar_size: pixel size to use for each avatar (overrides AVATAR_SIZE)
-        - center: if True, center the participants horizontally in the canvas
+        - layout controls avatar placement:
+            - "auto": original behavior (avatars placed left-to-right)
+            - "center": center participants horizontally
+            - "separate": for exactly two participants, place one at far left and one at far right
         - event: optional event dict to prefer its image as background
         - victory: if True, prefer victory background fallbacks
-        The embed will reference the attachment via attachment://result.png so the image appears inside the embed.
         """
         width, height = COMPOSITE_SIZE
 
@@ -613,46 +646,101 @@ class BattleRoyale(commands.Cog):
         avail_w = width - padding * 2
 
         # compute slot width and avatar dimensions
-        slot_w = min(avatar_size, max(32, avail_w // n))
-        avatar_w = min(avatar_size, slot_w)
-        total_width_needed = n * slot_w + (n - 1) * 8  # 8 px gap
+        # For 'separate' layout with two participants, give them more space and place at extremes
+        if layout == "separate" and n == 2:
+            avatar_w = min(avatar_size, max(32, int(avail_w * 0.28)))
+            left_x = padding
+            right_x = width - padding - avatar_w
+            y = (height - avatar_w) // 2
 
-        # starting x: either left padding or centered
-        if center:
-            x = max(padding, (width - total_width_needed) // 2)
-        else:
-            x = padding
-
-        y = (height - avatar_w) // 2
-
-        for pid in participants:
-            # load image for participant
-            if isinstance(pid, int) and pid < 0:
-                inst = self.npc_instances.get(pid, {})
+            # left participant
+            pid_left = participants[0]
+            if isinstance(pid_left, int) and pid_left < 0:
+                inst = self.npc_instances.get(pid_left, {})
                 url = inst.get("image_url")
-                img = await self._load_image_for_entity(url, DEFAULT_NPC_URLS, size=(avatar_w, avatar_w), default_type="npc", npc_instance=inst)
+                img_left = await self._load_image_for_entity(url, DEFAULT_NPC_URLS, size=(avatar_w, avatar_w), default_type="npc", npc_instance=inst)
             else:
-                user = self.bot.get_user(pid)
+                user = self.bot.get_user(pid_left)
                 url = None
                 if user:
                     try:
                         url = str(user.display_avatar.replace(size=avatar_w).url)
                     except Exception:
                         url = None
-                img = await self._load_image_for_entity(url, DEFAULT_NPC_URLS, size=(avatar_w, avatar_w), default_type="npc")
+                img_left = await self._load_image_for_entity(url, DEFAULT_NPC_URLS, size=(avatar_w, avatar_w), default_type="npc")
 
-            # apply dead overlay if needed
-            if pid in dead_ids:
-                img = self._apply_dead_overlay(img)
+            if pid_left in dead_ids:
+                img_left = self._apply_dead_overlay(img_left)
 
-            # paste avatar onto background
+            # right participant
+            pid_right = participants[1]
+            if isinstance(pid_right, int) and pid_right < 0:
+                inst = self.npc_instances.get(pid_right, {})
+                url = inst.get("image_url")
+                img_right = await self._load_image_for_entity(url, DEFAULT_NPC_URLS, size=(avatar_w, avatar_w), default_type="npc", npc_instance=inst)
+            else:
+                user = self.bot.get_user(pid_right)
+                url = None
+                if user:
+                    try:
+                        url = str(user.display_avatar.replace(size=avatar_w).url)
+                    except Exception:
+                        url = None
+                img_right = await self._load_image_for_entity(url, DEFAULT_NPC_URLS, size=(avatar_w, avatar_w), default_type="npc")
+
+            if pid_right in dead_ids:
+                img_right = self._apply_dead_overlay(img_right)
+
             try:
-                canvas.paste(img, (x, y), img)
+                canvas.paste(img_left, (left_x, y), img_left)
             except Exception:
-                # fallback: paste without mask
-                canvas.paste(img, (x, y))
+                canvas.paste(img_left, (left_x, y))
+            try:
+                canvas.paste(img_right, (right_x, y), img_right)
+            except Exception:
+                canvas.paste(img_right, (right_x, y))
 
-            x += slot_w + 8
+        else:
+            # fallback to original left-to-right or centered layout
+            slot_w = min(avatar_size, max(32, avail_w // n))
+            avatar_w = min(avatar_size, slot_w)
+            total_width_needed = n * slot_w + (n - 1) * 8  # 8 px gap
+
+            if layout == "center" or center:
+                x = max(padding, (width - total_width_needed) // 2)
+            else:
+                x = padding
+
+            y = (height - avatar_w) // 2
+
+            for pid in participants:
+                # load image for participant
+                if isinstance(pid, int) and pid < 0:
+                    inst = self.npc_instances.get(pid, {})
+                    url = inst.get("image_url")
+                    img = await self._load_image_for_entity(url, DEFAULT_NPC_URLS, size=(avatar_w, avatar_w), default_type="npc", npc_instance=inst)
+                else:
+                    user = self.bot.get_user(pid)
+                    url = None
+                    if user:
+                        try:
+                            url = str(user.display_avatar.replace(size=avatar_w).url)
+                        except Exception:
+                            url = None
+                    img = await self._load_image_for_entity(url, DEFAULT_NPC_URLS, size=(avatar_w, avatar_w), default_type="npc")
+
+                # apply dead overlay if needed
+                if pid in dead_ids:
+                    img = self._apply_dead_overlay(img)
+
+                # paste avatar onto background
+                try:
+                    canvas.paste(img, (x, y), img)
+                except Exception:
+                    # fallback: paste without mask
+                    canvas.paste(img, (x, y))
+
+                x += slot_w + 8
 
         # Note: no text is drawn onto the image. All textual information is added to the embed.
 
@@ -1021,12 +1109,19 @@ class BattleRoyale(commands.Cog):
                     except ValueError:
                         pass
                     dead_ids.add(defender)
-                # compose image and embed, attach file and send (PvP: don't center by default)
-                embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids, event=None, victory=False, center=False)
+
+                # generate varied flavor text for PvP
+                flavor = self._pvp_flavor_text(attacker, defender, survived)
+
+                # compose image and embed, attach file and send (use 'separate' layout for PvP)
+                embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids, event=None, victory=False, layout="separate")
+
                 # Put all textual info into the embed, not on the image
                 embed.add_field(name="Round", value=str(round_num), inline=True)
                 embed.add_field(name="Type", value="PvP", inline=True)
+                embed.add_field(name="Flavor", value=flavor, inline=False)
                 embed.add_field(name="Result", value="\n".join(result_lines), inline=False)
+
             else:
                 round_title = f"Round {round_num} — {event.get('name') if event else 'Event'}"
                 result_lines = []
@@ -1046,7 +1141,7 @@ class BattleRoyale(commands.Cog):
 
                 # compose image and embed, attach file and send
                 # pass event so event-specific background can be used; center avatars for events
-                embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids, event=event, victory=False, center=True)
+                embed, file = await self._compose_and_attach_image(ctx, round_title, participants, dead_ids, event=event, victory=False, layout="center")
 
                 # Put all textual info into the embed, not on the image
                 embed.add_field(name="Round", value=str(round_num), inline=True)
@@ -1083,7 +1178,7 @@ class BattleRoyale(commands.Cog):
             try:
                 # Use a smaller avatar and center it in the victory image; prefer victory background
                 victory_avatar_size = max(48, int(AVATAR_SIZE * 0.75))
-                v_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True)
+                v_embed, v_file = await self._compose_and_attach_image(ctx, "Victory", [winner], dead_ids, avatar_size=victory_avatar_size, center=True, victory=True, layout="center")
 
                 # Ensure the embed references the attachment filename used when creating the File
                 v_embed.set_image(url="attachment://result.png")
