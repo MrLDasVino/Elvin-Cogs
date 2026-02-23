@@ -1309,6 +1309,7 @@ class BattleRoyale(commands.Cog):
             # Try to resolve a real Discord user and their avatar URL
             avatar_url = None
             mention_text = None
+            npc_image_url = None
             try:
                 if isinstance(winner, int) and winner >= 0:
                     user = self.bot.get_user(winner)
@@ -1318,57 +1319,65 @@ class BattleRoyale(commands.Cog):
                             avatar_url = str(user.display_avatar.replace(size=512).url)
                         except Exception:
                             avatar_url = None
+                else:
+                    # NPC winner: try to get its configured image_url
+                    inst = self.npc_instances.get(winner)
+                    if inst:
+                        npc_image_url = inst.get("image_url")
             except Exception:
                 avatar_url = None
                 mention_text = None
+                npc_image_url = None
 
-            # Build the textual embed (we'll attach a composed banner image below)
+            # Build the textual embed (no redundant "is the last one standing" line)
             v_embed = discord.Embed(
                 title="Battle Royale — Winner!",
-                description=f"{winner_name} is the last one standing!",
                 color=self._random_color(),
             )
-            # Put the champion name and (if available) the mention directly under it
-            champion_value = winner_name
+
+            # Champion field: include mention only for real users
             if mention_text:
                 champion_value = f"{winner_name}\n{mention_text}"
+            else:
+                champion_value = winner_name
             v_embed.add_field(name="Champion", value=champion_value, inline=True)
             v_embed.add_field(name="Victory", value=victory_text, inline=False)
 
-            # Compose a banner image and, if possible, overlay the user's avatar onto it
+            # Compose a banner image and overlay the winner's avatar (user or NPC) onto it
             try:
                 # Prefer victory/background fallbacks for the banner
                 banner_img = await self._load_image_for_entity(None, DEFAULT_VICTORY_URLS, size=COMPOSITE_SIZE, default_type="bg")
                 if banner_img is None:
                     banner_img = Image.new("RGBA", COMPOSITE_SIZE, (30, 30, 30, 255))
 
-                # If we have an avatar URL for a real user, fetch and paste it onto the banner
-                if avatar_url:
-                    try:
-                        avatar_bytes = await self._fetch_image_bytes(avatar_url)
-                        if avatar_bytes:
-                            avatar_img = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-                            # size and position for the avatar on the banner
-                            avatar_diam = max(96, int(min(COMPOSITE_SIZE) * 0.22))  # ~22% of smaller dimension
-                            avatar_img = ImageOps.fit(avatar_img, (avatar_diam, avatar_diam), Image.LANCZOS)
+                # Determine which avatar URL to use (user avatar preferred, else NPC image)
+                overlay_url = avatar_url or npc_image_url
 
-                            # create a circular mask for a rounded avatar
+                if overlay_url:
+                    try:
+                        overlay_bytes = await self._fetch_image_bytes(overlay_url)
+                        if overlay_bytes:
+                            overlay_img = Image.open(io.BytesIO(overlay_bytes)).convert("RGBA")
+                            # size and position for the avatar on the banner
+                            avatar_diam = max(96, int(min(COMPOSITE_SIZE) * 0.22))
+                            overlay_img = ImageOps.fit(overlay_img, (avatar_diam, avatar_diam), Image.LANCZOS)
+
+                            # circular mask for rounded avatar
                             mask = Image.new("L", (avatar_diam, avatar_diam), 0)
                             mask_draw = ImageDraw.Draw(mask)
                             mask_draw.ellipse((0, 0, avatar_diam, avatar_diam), fill=255)
 
-                            # compute paste position: centered horizontally, near top with small margin
+                            # compute paste position: centered horizontally, near top
                             margin_top = 18
                             x = (COMPOSITE_SIZE[0] - avatar_diam) // 2
                             y = margin_top
 
-                            # optionally draw a subtle border behind the avatar for contrast
+                            # subtle border behind avatar for contrast
                             border = int(max(4, avatar_diam * 0.06))
                             if border:
                                 border_box = Image.new("RGBA", (avatar_diam + border * 2, avatar_diam + border * 2), (0, 0, 0, 0))
                                 bd_draw = ImageDraw.Draw(border_box)
                                 bd_draw.ellipse((0, 0, avatar_diam + border * 2 - 1, avatar_diam + border * 2 - 1), fill=(10, 10, 10, 200))
-                                # paste border
                                 bx = x - border
                                 by = y - border
                                 try:
@@ -1378,12 +1387,11 @@ class BattleRoyale(commands.Cog):
 
                             # paste the avatar using the circular mask
                             try:
-                                banner_img.paste(avatar_img, (x, y), mask)
+                                banner_img.paste(overlay_img, (x, y), mask)
                             except Exception:
-                                banner_img.paste(avatar_img, (x, y))
-
+                                banner_img.paste(overlay_img, (x, y))
                     except Exception:
-                        # ignore avatar overlay failures and continue with plain banner
+                        # ignore overlay failures and continue with plain banner
                         pass
 
                 # Save banner to BytesIO and send as attachment referenced by the embed
@@ -1402,7 +1410,7 @@ class BattleRoyale(commands.Cog):
                 try:
                     await channel.send(embed=v_embed)
                 except Exception:
-                    await channel.send(f"{winner_name} is the last one standing!")
+                    await channel.send(f"{winner_name} is the champion!")
         else:
             # No survivors path: send a rich embed with a remote banner image and flavor text
             try:
