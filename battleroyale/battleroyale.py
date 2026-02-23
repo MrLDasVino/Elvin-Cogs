@@ -42,6 +42,12 @@ DEFAULT_SIGNUP_THUMB_URLS = [
     "https://files.catbox.moe/example_thumb2.png",
 ]
 
+# New: no-survivors banner fallbacks
+DEFAULT_NO_SURVIVORS_URLS = [
+    "https://files.catbox.moe/no_survivors1.png",
+    "https://files.catbox.moe/no_survivors2.png",
+]
+
 # Image constants
 AVATAR_SIZE = 128
 COMPOSITE_SIZE = (700, 260)
@@ -197,6 +203,7 @@ class BattleRoyale(commands.Cog):
             default_event_urls=[],
             default_bg_urls=[],
             default_signup_thumb_urls=[],  # new
+            default_no_survivors_urls=[],  # new
         )
 
     def cog_unload(self):
@@ -1309,3 +1316,49 @@ class BattleRoyale(commands.Cog):
                 await channel.send(embed=v_image_embed, file=v_file)
             except Exception:
                 await channel.send(f"{winner_name} is the last one standing!")
+        else:
+            # No survivors path: send a rich embed with a remote banner image and flavor text
+            try:
+                no_embed = discord.Embed(
+                    title="Battle Royale — No Survivors",
+                    description="The battlefield falls silent. There are no survivors — everyone perished in the chaos.",
+                    color=self._random_color(),
+                )
+                flavor = "A brutal contest with no victor. The ashes of battle are all that remain."
+                no_embed.add_field(name="Outcome", value=flavor, inline=False)
+                no_embed.set_footer(text="This Battle Royale ended with no survivors.")
+
+                # Choose a remote banner URL: prefer configured default_no_survivors_urls, then configured bg/victory, then module fallbacks
+                banner_url = None
+                try:
+                    cfg_no = await self.config.default_no_survivors_urls()
+                except Exception:
+                    cfg_no = []
+
+                candidates = [u for u in (cfg_no or DEFAULT_NO_SURVIVORS_URLS) if u]
+                if candidates:
+                    random.shuffle(candidates)
+                    banner_url = candidates[0]
+
+                # If no configured no-survivors URL, fall back to configured bg/victory lists
+                if not banner_url:
+                    try:
+                        cfg_bg = await self.config.default_bg_urls()
+                    except Exception:
+                        cfg_bg = []
+                    candidates = [u for u in (cfg_bg or DEFAULT_VICTORY_URLS) if u]
+                    if candidates:
+                        random.shuffle(candidates)
+                        banner_url = candidates[0]
+
+                # final fallback: any module-level victory URL
+                if not banner_url and DEFAULT_VICTORY_URLS:
+                    banner_url = random.choice(DEFAULT_VICTORY_URLS)
+
+                # If we have a banner URL, reference it directly in the embed (Discord will fetch it)
+                if banner_url:
+                    no_embed.set_image(url=banner_url)
+
+                await channel.send(embed=no_embed)
+            except Exception:
+                await channel.send("The battle ended with no survivors. There is no winner.")
