@@ -1177,9 +1177,9 @@ class BattleRoyale(commands.Cog):
     @battleroyale.command(name="leaderboard")
     async def battleroyale_leaderboard(self, ctx: commands.Context, top: int = 10, thumbnail: str = None):
         """Show a leaderboard of users with the most Battle Royale victories.
-        Usage: battleroyale leaderboard [top] [thumbnail_url]
+        Usage: battleroyale leaderboard [top]
         - top: number of entries to show (1-25)
-        - thumbnail_url: optional URL to override the configured thumbnail
+        Note: thumbnail arg is ignored; the thumbnail comes from the module-level DEFAULT_LEADERBOARD_THUMB_URL.
         """
         # sanitize top and cap to 25 (Discord embed field limit)
         try:
@@ -1188,19 +1188,22 @@ class BattleRoyale(commands.Cog):
             top = 10
         top = max(1, min(top, 25))
     
-        # Build normalized mapping from self.leaderboard (accept "user:<id>", "npc:<id>", or legacy numeric keys)
+        # Build normalized mapping from self.leaderboard (accept "user:<id>" and legacy numeric keys)
         normalized: Dict[str, int] = {}
         for k, v in (self.leaderboard or {}).items():
-            if isinstance(k, str) and (k.startswith("user:") or k.startswith("npc:")):
+            # Only include user entries; skip npc keys entirely
+            if isinstance(k, str) and k.startswith("user:"):
                 nk = k
             else:
+                # legacy numeric key -> assume user
                 try:
                     nk = f"user:{int(k)}"
                 except Exception:
-                    nk = str(k)
+                    # non-numeric or npc-like keys are ignored
+                    continue
             normalized[nk] = normalized.get(nk, 0) + int(v)
     
-        # If no recorded wins, fall back to scanning persisted/active games for backward compatibility
+        # If no normalized entries found, fall back to scanning persisted/active games for legacy wins (users only)
         if not normalized:
             raw = load_json_file(GAMES_FILE, {})
             persisted_games = []
@@ -1210,7 +1213,6 @@ class BattleRoyale(commands.Cog):
                 persisted_games = raw
             all_games = persisted_games + [g for g in self.active_games.values()]
     
-            # Count wins for positive (user) IDs only (legacy behavior)
             wins_legacy: Dict[int, int] = {}
             for g in all_games:
                 winner = g.get("winner")
@@ -1218,6 +1220,7 @@ class BattleRoyale(commands.Cog):
                     wlist = g.get("winners") or g.get("victors")
                     if isinstance(wlist, list) and len(wlist) > 0:
                         winner = wlist[0]
+                # only count positive user IDs
                 if isinstance(winner, int) and winner > 0:
                     wins_legacy[winner] = wins_legacy.get(winner, 0) + 1
     
@@ -1225,7 +1228,6 @@ class BattleRoyale(commands.Cog):
                 await ctx.send("No recorded user victories found.")
                 return
     
-            # convert legacy numeric wins into normalized form
             for uid, cnt in wins_legacy.items():
                 normalized[f"user:{uid}"] = normalized.get(f"user:{uid}", 0) + cnt
     
@@ -1236,17 +1238,23 @@ class BattleRoyale(commands.Cog):
         embed = discord.Embed(title="Battle Royale Leaderboard", color=self._random_color())
         embed.set_footer(text=f"Top {len(items)} players by victories")
     
-        # Thumbnail selection order:
-        # 1) explicit thumbnail arg passed to command
+        # Thumbnail selection order (enforced):
+        # 1) module-level DEFAULT_LEADERBOARD_THUMB_URL (first entry)
         # 2) configured leaderboard_thumbnail_url (persistent)
-        # 3) top player's avatar (cache or fetch)
+        # 3) top user's avatar (only as last resort)
         thumbnail_url: Optional[str] = None
     
-        # 1) runtime override
-        if thumbnail:
-            thumbnail_url = thumbnail
+        # 1) module-level constant (this is the one you set at the top of the file)
+        try:
+            if DEFAULT_LEADERBOARD_THUMB_URL:
+                # use the first non-empty URL from the list
+                candidates = [u for u in DEFAULT_LEADERBOARD_THUMB_URL if u]
+                if candidates:
+                    thumbnail_url = candidates[0]
+        except Exception:
+            thumbnail_url = None
     
-        # 2) configured persistent URL
+        # 2) configured persistent URL (only if module-level not set)
         if not thumbnail_url:
             try:
                 cfg_thumb = await self.config.leaderboard_thumbnail_url()
@@ -1255,9 +1263,8 @@ class BattleRoyale(commands.Cog):
             except Exception:
                 thumbnail_url = None
     
-        # 3) top player's avatar (only if still None)
+        # 3) top user's avatar (only if still None)
         if not thumbnail_url and items:
-            # find first user entry (skip NPCs) to use avatar if possible
             top_uid = None
             for key, _ in items:
                 if key.startswith("user:"):
@@ -1291,28 +1298,24 @@ class BattleRoyale(commands.Cog):
             except Exception:
                 pass
     
-        # Add fields for each top entry
+        # Add fields for each top entry (users only)
         for rank, (key, count) in enumerate(items, start=1):
-            display = None
             try:
                 kind, id_str = key.split(":", 1)
                 pid = int(id_str)
             except Exception:
                 display = f"**{key}**"
             else:
-                if kind == "user":
-                    user = self.bot.get_user(pid)
-                    if user:
-                        display = f"**{user.display_name}**"
-                    else:
-                        try:
-                            fetched = await self.bot.fetch_user(pid)
-                            display = f"**{fetched.display_name}**"
-                        except Exception:
-                            display = f"**User({pid})**"
-                else:  # npc
-                    inst = self.npc_instances.get(pid)
-                    display = f"**{inst.get('name', f'NPC({pid})')}**" if inst else f"**NPC({pid})**"
+                # kind should always be "user" here
+                user = self.bot.get_user(pid)
+                if user:
+                    display = f"**{user.display_name}**"
+                else:
+                    try:
+                        fetched = await self.bot.fetch_user(pid)
+                        display = f"**{fetched.display_name}**"
+                    except Exception:
+                        display = f"**User({pid})**"
     
             name = f"#{rank} — {display}"
             value = f"**{count}** wins"
