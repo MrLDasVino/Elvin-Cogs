@@ -275,13 +275,25 @@ class BattleRoyale(commands.Cog):
 
     async def _record_winner(self, winner_id: int):
         """
-        Increment persistent win count for winner_id (positive user id or negative npc id).
+        Increment persistent win count for winner_id.
+        Only record wins for positive user IDs; ignore NPC victories.
         """
-        key = self._id_to_key(winner_id)
-        self.leaderboard[key] = self.leaderboard.get(key, 0) + 1
-        await self._save_leaderboard()
-            
-
+        # Ignore NPC wins (negative ids)
+        try:
+            if isinstance(winner_id, int) and winner_id < 0:
+                return
+    
+            key = self._id_to_key(winner_id)
+            # Ensure we only create user keys (defensive)
+            if not key.startswith("user:"):
+                return
+    
+            self.leaderboard[key] = self.leaderboard.get(key, 0) + 1
+            await self._save_leaderboard()
+        except Exception:
+            # keep behavior robust on unexpected input
+            return
+          
     async def _restore_views(self):
         """Re-register JoinView for persisted signups whose messages still exist."""
         await self.bot.wait_until_ready()
