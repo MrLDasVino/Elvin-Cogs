@@ -1,0 +1,8 @@
+{
+  "name": "Weather",
+  "author": ["Elvin"],
+  "version": "1.0.0",
+  "short": "Current weather using Open-Meteo (no API key required)",
+  "description": "Fetches current weather for a city/place using Open-Meteo and Nominatim geocoding. Shows a rich embed with random colors.",
+  "requirements": []
+}
