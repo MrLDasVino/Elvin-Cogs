@@ -5,11 +5,21 @@ import random
 import datetime
 from typing import Optional, Tuple
 
+# --- Place your banner/thumbnail URLs here (fill the strings) ---
+BANNER_URLS = {
+    "clear": "https://files.catbox.moe/m6c3m7.png",   
+    "rain": "https://files.catbox.moe/2h3ra6.png",     
+    "thunder": "https://files.catbox.moe/72mmym.png", 
+    "snow": "https://files.catbox.moe/fao60b.png",    
+    "clouds": "https://files.catbox.moe/5hjndp.png",  
+    "fog": "https://files.catbox.moe/c1iwe3.png",     
+    "default": "https://files.catbox.moe/m6c3m7.png", 
+}
+
 DEFAULTS = {
     "units": "metric",  # "metric" -> Celsius, "imperial" -> Fahrenheit
     "default_location": None,  # optional per-guild default location string
 }
-
 
 WEATHERCODE_MAP = {
     0: "Clear sky",
@@ -94,13 +104,18 @@ class Weather(commands.Cog):
     @commands.command(name="weather")
     async def weather_cmd(self, ctx: commands.Context, *, location: Optional[str] = None):
         """Show current weather for a location. Example: `[p]weather hamburg`"""
+        # If the user runs the command with no args, show the help for this command.
+        if not location:
+            # Show Redbot/discord.py help for the weather command
+            try:
+                await ctx.send_help(self.weather_cmd)
+            except Exception:
+                # Fallback: send a short usage message if send_help isn't available
+                await ctx.send("Usage: `[p]weather <location>` — Example: `[p]weather Hamburg`")
+            return
+
         guild_conf = await self.config.guild(ctx.guild).all()
         units = guild_conf.get("units", "metric")
-        if not location:
-            location = guild_conf.get("default_location")
-            if not location:
-                await ctx.send("No location provided and no guild default set. Example: `[p]weather Hamburg`.")
-                return
 
         # Geocode location -> (name, lat, lon, country)
         geocode = await self._geocode(location)
@@ -175,26 +190,68 @@ class Weather(commands.Cog):
         unit_symbol = "°C" if units == "metric" else "°F"
         wind_unit = "km/h" if units == "metric" else "mph"
 
-        color = random.randint(0, 0xFFFFFF)
+        # Choose a color and banner based on weather category
+        category = self._weathercode_to_category(weathercode)
+        color_map = {
+            "clear": 0xFFD166,
+            "clouds": 0xAAB2BD,
+            "rain": 0x4A90E2,
+            "thunder": 0x6B5B95,
+            "snow": 0xBEE3F8,
+            "fog": 0x9AA0A6,
+            "default": random.randint(0, 0xFFFFFF),
+        }
+        color = color_map.get(category, random.randint(0, 0xFFFFFF))
+
         title = f"Weather — {name}" + (f", {country}" if country else "")
         embed = discord.Embed(title=title, description=desc, color=color)
-        embed.add_field(name="Temperature", value=f"{temp}{unit_symbol}", inline=True)
-        embed.add_field(name="Wind", value=f"{windspeed} {wind_unit} ({_deg_to_compass(winddir)})", inline=True)
-        embed.add_field(name="Wind direction", value=f"{winddir}°", inline=True)
-        embed.add_field(name="Condition code", value=str(weathercode), inline=True)
+        # Main fields
+        embed.add_field(name="Temperature", value=f"{temp}{unit_symbol}" if temp is not None else "N/A", inline=True)
+        embed.add_field(name="Feels like", value="N/A", inline=True)  # placeholder for future expansion
+        embed.add_field(name="Wind", value=f"{windspeed} {wind_unit} ({_deg_to_compass(winddir)})" if windspeed is not None else "N/A", inline=True)
+        embed.add_field(name="Wind direction", value=f"{winddir}°" if winddir is not None else "N/A", inline=True)
+        embed.add_field(name="Condition code", value=str(weathercode) if weathercode is not None else "N/A", inline=True)
         embed.add_field(name="Local time", value=time_str or "N/A", inline=True)
         embed.add_field(name="Elevation", value=f"{elevation} m" if elevation is not None else "N/A", inline=True)
 
-        # Small footer and location coordinates
-        embed.set_footer(text="Data provided by Open‑Meteo • Geocoding by Nominatim (OSM)")
-        embed.timestamp = datetime.datetime.utcnow()
-        embed.set_thumbnail(url=self._weathercode_to_thumbnail(weathercode))
+        # Coordinates and timestamp
         embed.add_field(name="Coordinates", value=f"{lat:.4f}, {lon:.4f}", inline=False)
+        embed.timestamp = datetime.datetime.utcnow()
+
+        # Set banner image (large) if provided, otherwise set a small thumbnail
+        banner_url = BANNER_URLS.get(category) or BANNER_URLS.get("default")
+        if banner_url:
+            embed.set_image(url=banner_url)
+        else:
+            thumb = self._weathercode_to_thumbnail(weathercode)
+            if thumb:
+                embed.set_thumbnail(url=thumb)
+
+        # Note: footer removed per request (no "Data provided by..." line)
         return embed
+
+    def _weathercode_to_category(self, code: Optional[int]) -> str:
+        """Map weather code to a broad category used for banners/colors."""
+        if code is None:
+            return "default"
+        if code == 0:
+            return "clear"
+        if code in (1, 2, 3):
+            return "clouds"
+        if code in (45, 48):
+            return "fog"
+        if 51 <= code <= 57 or 61 <= code <= 67 or 80 <= code <= 82:
+            return "rain"
+        if 71 <= code <= 77 or 85 <= code <= 86:
+            return "snow"
+        if 95 <= code <= 99:
+            return "thunder"
+        return "default"
 
     def _weathercode_to_thumbnail(self, code: Optional[int]) -> Optional[str]:
         """Return a small icon URL for some weather codes (uses simple emoji-to-image mapping via twemoji CDN).
         This is optional; Open‑Meteo doesn't provide icons. Returns None for unknown."""
+        # If a banner URL exists for the category, prefer that (handled in _build_embed).
         if code is None:
             return None
         # Map broad categories to emoji
@@ -215,7 +272,6 @@ class Weather(commands.Cog):
         else:
             emoji = "🌈"
         # Convert emoji to twemoji PNG (simple approach)
-        # Use the first codepoint of the emoji
         try:
             codepoint = "-".join(f"{ord(ch):x}" for ch in emoji)
             return f"https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/{codepoint}.png"
