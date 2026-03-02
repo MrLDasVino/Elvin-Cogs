@@ -165,7 +165,7 @@ class Weather(commands.Cog):
             "timezone": "auto",
             "temperature_unit": temp_unit,
             "windspeed_unit": "kmh" if units == "metric" else "mph",
-            # daily fields for a simple day forecast
+            # daily fields for a simple day forecast (several days)
             "daily": "temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum",
         }
         try:
@@ -234,7 +234,7 @@ class Weather(commands.Cog):
 
         embed.add_field(name="Elevation", value=f"{elevation} m" if elevation is not None else "N/A", inline=True)
 
-        # Add a simple "Today" forecast using daily data if available
+        # Add "Today" and "Tomorrow" forecasts using daily data if available
         daily = data.get("daily", {})
         try:
             dates = daily.get("time", [])
@@ -253,6 +253,7 @@ class Weather(commands.Cog):
                 except Exception:
                     today_idx = 0
 
+            # Prepare today's forecast
             if dates and today_idx < len(dates):
                 high = temps_max[today_idx] if today_idx < len(temps_max) else None
                 low = temps_min[today_idx] if today_idx < len(temps_min) else None
@@ -263,7 +264,23 @@ class Weather(commands.Cog):
                 forecast_value = f"High {high}{unit_symbol} / Low {low}{unit_symbol}" if high is not None and low is not None else "N/A"
                 precip_value = f"{pr} mm" if pr is not None else "N/A"
 
-                embed.add_field(name="Today", value=f"{forecast_desc}\n{forecast_value}\nPrecipitation: {precip_value}", inline=False)
+                # Add Today field (inline so it can appear next to Tomorrow)
+                embed.add_field(name="Today", value=f"{forecast_desc}\n{forecast_value}\nPrecipitation: {precip_value}", inline=True)
+
+            # Prepare tomorrow's forecast (today_idx + 1)
+            tomorrow_idx = today_idx + 1
+            if dates and tomorrow_idx < len(dates):
+                thigh = temps_max[tomorrow_idx] if tomorrow_idx < len(temps_max) else None
+                tlow = temps_min[tomorrow_idx] if tomorrow_idx < len(temps_min) else None
+                twc = weathercodes[tomorrow_idx] if tomorrow_idx < len(weathercodes) else None
+                tpr = precip[tomorrow_idx] if tomorrow_idx < len(precip) else None
+
+                tforecast_desc = WEATHERCODE_MAP.get(twc, "N/A")
+                tforecast_value = f"High {thigh}{unit_symbol} / Low {tlow}{unit_symbol}" if thigh is not None and tlow is not None else "N/A"
+                tprecip_value = f"{tpr} mm" if tpr is not None else "N/A"
+
+                # Add Tomorrow field inline next to Today
+                embed.add_field(name="Tomorrow", value=f"{tforecast_desc}\n{tforecast_value}\nPrecipitation: {tprecip_value}", inline=True)
         except Exception:
             # silently ignore forecast parsing errors; don't break the embed
             pass
