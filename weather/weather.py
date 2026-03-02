@@ -7,13 +7,13 @@ from typing import Optional, Tuple
 
 # --- Place your banner/thumbnail URLs here (fill the strings) ---
 BANNER_URLS = {
-    "clear": "https://files.catbox.moe/m6c3m7.png",   
-    "rain": "https://files.catbox.moe/2h3ra6.png",     
-    "thunder": "https://files.catbox.moe/72mmym.png", 
-    "snow": "https://files.catbox.moe/fao60b.png",    
-    "clouds": "https://files.catbox.moe/5hjndp.png",  
-    "fog": "https://files.catbox.moe/c1iwe3.png",     
-    "default": "https://files.catbox.moe/m6c3m7.png", 
+    "clear": "https://files.catbox.moe/m6c3m7.png",
+    "rain": "https://files.catbox.moe/2h3ra6.png",
+    "thunder": "https://files.catbox.moe/72mmym.png",
+    "snow": "https://files.catbox.moe/fao60b.png",
+    "clouds": "https://files.catbox.moe/5hjndp.png",
+    "fog": "https://files.catbox.moe/c1iwe3.png",
+    "default": "https://files.catbox.moe/m6c3m7.png",
 }
 
 DEFAULTS = {
@@ -104,13 +104,11 @@ class Weather(commands.Cog):
     @commands.command(name="weather")
     async def weather_cmd(self, ctx: commands.Context, *, location: Optional[str] = None):
         """Show current weather for a location. Example: `[p]weather hamburg`"""
-        # If the user runs the command with no args, show the help for this command.
+        # If the user runs the command with no args, show the help for this command
         if not location:
-            # Show Redbot/discord.py help for the weather command
             try:
                 await ctx.send_help(self.weather_cmd)
             except Exception:
-                # Fallback: send a short usage message if send_help isn't available
                 await ctx.send("Usage: `[p]weather <location>` — Example: `[p]weather Hamburg`")
             return
 
@@ -157,7 +155,7 @@ class Weather(commands.Cog):
             return None
 
     async def _fetch_open_meteo(self, lat: float, lon: float, units: str) -> Optional[dict]:
-        """Fetch current weather from Open-Meteo. Returns JSON or None."""
+        """Fetch current weather plus a simple daily forecast from Open-Meteo."""
         base = "https://api.open-meteo.com/v1/forecast"
         temp_unit = "celsius" if units == "metric" else "fahrenheit"
         params = {
@@ -167,6 +165,8 @@ class Weather(commands.Cog):
             "timezone": "auto",
             "temperature_unit": temp_unit,
             "windspeed_unit": "kmh" if units == "metric" else "mph",
+            # daily fields for a simple day forecast
+            "daily": "temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum",
         }
         try:
             async with aiohttp.ClientSession() as session:
@@ -177,6 +177,21 @@ class Weather(commands.Cog):
         except Exception:
             return None
 
+    def _format_local_time(self, time_str: Optional[str], tz_name: Optional[str]) -> str:
+        """Turn an ISO time string into a readable local time with optional timezone label."""
+        if not time_str:
+            return "N/A"
+        try:
+            # Open-Meteo typically returns a naive ISO string like "2026-03-02T01:00"
+            dt = datetime.datetime.fromisoformat(time_str)
+            # Format: Mon 02 Mar 2026 01:00
+            pretty = dt.strftime("%a %d %b %Y %H:%M")
+            if tz_name:
+                return f"{pretty} ({tz_name})"
+            return pretty
+        except Exception:
+            return time_str
+
     def _build_embed(self, name: str, country: str, lat: float, lon: float, data: dict, units: str) -> discord.Embed:
         cw = data.get("current_weather", {})
         temp = cw.get("temperature")
@@ -185,6 +200,7 @@ class Weather(commands.Cog):
         weathercode = cw.get("weathercode")
         time_str = cw.get("time")
         elevation = data.get("elevation")
+        timezone_name = data.get("timezone")
 
         desc = WEATHERCODE_MAP.get(weathercode, "Unknown")
         unit_symbol = "°C" if units == "metric" else "°F"
@@ -205,14 +221,52 @@ class Weather(commands.Cog):
 
         title = f"Weather — {name}" + (f", {country}" if country else "")
         embed = discord.Embed(title=title, description=desc, color=color)
-        # Main fields
+
+        # Main fields (removed Feels like placeholder)
         embed.add_field(name="Temperature", value=f"{temp}{unit_symbol}" if temp is not None else "N/A", inline=True)
-        embed.add_field(name="Feels like", value="N/A", inline=True)  # placeholder for future expansion
         embed.add_field(name="Wind", value=f"{windspeed} {wind_unit} ({_deg_to_compass(winddir)})" if windspeed is not None else "N/A", inline=True)
         embed.add_field(name="Wind direction", value=f"{winddir}°" if winddir is not None else "N/A", inline=True)
         embed.add_field(name="Condition code", value=str(weathercode) if weathercode is not None else "N/A", inline=True)
-        embed.add_field(name="Local time", value=time_str or "N/A", inline=True)
+
+        # Format local time nicely
+        pretty_time = self._format_local_time(time_str, timezone_name)
+        embed.add_field(name="Local time", value=pretty_time, inline=True)
+
         embed.add_field(name="Elevation", value=f"{elevation} m" if elevation is not None else "N/A", inline=True)
+
+        # Add a simple "Today" forecast using daily data if available
+        daily = data.get("daily", {})
+        try:
+            dates = daily.get("time", [])
+            temps_max = daily.get("temperature_2m_max", [])
+            temps_min = daily.get("temperature_2m_min", [])
+            weathercodes = daily.get("weathercode", [])
+            precip = daily.get("precipitation_sum", [])
+
+            # find today's index by matching date portion of current time (fallback to index 0)
+            today_idx = 0
+            if time_str and dates:
+                try:
+                    current_date = datetime.datetime.fromisoformat(time_str).date().isoformat()
+                    if current_date in dates:
+                        today_idx = dates.index(current_date)
+                except Exception:
+                    today_idx = 0
+
+            if dates and today_idx < len(dates):
+                high = temps_max[today_idx] if today_idx < len(temps_max) else None
+                low = temps_min[today_idx] if today_idx < len(temps_min) else None
+                wc = weathercodes[today_idx] if today_idx < len(weathercodes) else None
+                pr = precip[today_idx] if today_idx < len(precip) else None
+
+                forecast_desc = WEATHERCODE_MAP.get(wc, "N/A")
+                forecast_value = f"High {high}{unit_symbol} / Low {low}{unit_symbol}" if high is not None and low is not None else "N/A"
+                precip_value = f"{pr} mm" if pr is not None else "N/A"
+
+                embed.add_field(name="Today", value=f"{forecast_desc}\n{forecast_value}\nPrecipitation: {precip_value}", inline=False)
+        except Exception:
+            # silently ignore forecast parsing errors; don't break the embed
+            pass
 
         # Coordinates and timestamp
         embed.add_field(name="Coordinates", value=f"{lat:.4f}, {lon:.4f}", inline=False)
@@ -227,7 +281,6 @@ class Weather(commands.Cog):
             if thumb:
                 embed.set_thumbnail(url=thumb)
 
-        # Note: footer removed per request (no "Data provided by..." line)
         return embed
 
     def _weathercode_to_category(self, code: Optional[int]) -> str:
