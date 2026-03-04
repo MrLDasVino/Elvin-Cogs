@@ -203,8 +203,34 @@ class Weather(commands.Cog):
         timezone_name = data.get("timezone")
 
         desc = WEATHERCODE_MAP.get(weathercode, "Unknown")
+
+        # Determine unit labels
         unit_symbol = "°C" if units == "metric" else "°F"
         wind_unit = "km/h" if units == "metric" else "mph"
+
+        # Conversion helpers: Open-Meteo returns temperatures in the requested units.
+        def to_celsius(t: Optional[float]) -> Optional[float]:
+            if t is None:
+                return None
+            return (t - 32) * 5.0 / 9.0 if units == "imperial" else t
+
+        def to_fahrenheit(t: Optional[float]) -> Optional[float]:
+            if t is None:
+                return None
+            return (t * 9.0 / 5.0) + 32 if units == "metric" else t
+
+        def fmt_temp_pair(t: Optional[float]) -> str:
+            if t is None:
+                return "N/A"
+            c = to_celsius(t)
+            f = to_fahrenheit(t)
+            # show one decimal if not integer
+            def fmt(x):
+                try:
+                    return f"{x:.1f}" if abs(x - round(x)) >= 0.05 else f"{int(round(x))}"
+                except Exception:
+                    return str(x)
+            return f"{fmt(c)}°C / {fmt(f)}°F"
 
         # Choose a color and banner based on weather category
         category = self._weathercode_to_category(weathercode)
@@ -222,9 +248,18 @@ class Weather(commands.Cog):
         title = f"Weather — {name}" + (f", {country}" if country else "")
         embed = discord.Embed(title=title, description=desc, color=color)
 
-        # Main fields (removed Feels like placeholder)
-        embed.add_field(name="Temperature", value=f"{temp}{unit_symbol}" if temp is not None else "N/A", inline=True)
-        embed.add_field(name="Wind", value=f"{windspeed} {wind_unit} ({_deg_to_compass(winddir)})" if windspeed is not None else "N/A", inline=True)
+        # Current temperature field (shows both C and F)
+        embed.add_field(
+            name="Temperature",
+            value=fmt_temp_pair(temp) if temp is not None else "N/A",
+            inline=True,
+        )
+
+        embed.add_field(
+            name="Wind",
+            value=f"{windspeed} {wind_unit} ({_deg_to_compass(winddir)})" if windspeed is not None else "N/A",
+            inline=True,
+        )
         embed.add_field(name="Wind direction", value=f"{winddir}°" if winddir is not None else "N/A", inline=True)
         embed.add_field(name="Condition code", value=str(weathercode) if weathercode is not None else "N/A", inline=True)
 
@@ -261,7 +296,10 @@ class Weather(commands.Cog):
                 pr = precip[today_idx] if today_idx < len(precip) else None
 
                 forecast_desc = WEATHERCODE_MAP.get(wc, "N/A")
-                forecast_value = f"High {high}{unit_symbol} / Low {low}{unit_symbol}" if high is not None and low is not None else "N/A"
+                forecast_value = (
+                    f"High {fmt_temp_pair(high)} / Low {fmt_temp_pair(low)}"
+                    if high is not None and low is not None else "N/A"
+                )
                 precip_value = f"{pr} mm" if pr is not None else "N/A"
 
                 # Add Today field (inline so it can appear next to Tomorrow)
@@ -276,7 +314,10 @@ class Weather(commands.Cog):
                 tpr = precip[tomorrow_idx] if tomorrow_idx < len(precip) else None
 
                 tforecast_desc = WEATHERCODE_MAP.get(twc, "N/A")
-                tforecast_value = f"High {thigh}{unit_symbol} / Low {tlow}{unit_symbol}" if thigh is not None and tlow is not None else "N/A"
+                tforecast_value = (
+                    f"High {fmt_temp_pair(thigh)} / Low {fmt_temp_pair(tlow)}"
+                    if thigh is not None and tlow is not None else "N/A"
+                )
                 tprecip_value = f"{tpr} mm" if tpr is not None else "N/A"
 
                 # Add Tomorrow field inline next to Today
