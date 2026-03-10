@@ -10,7 +10,6 @@ from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageChops, ImageDra
 import discord
 from redbot.core import commands
 
-
 URL_RE = re.compile(r"https?://\S+")
 
 
@@ -71,12 +70,9 @@ class Glint(commands.Cog):
 
         # 3) If a URL was provided as argument or present in message content, try to fetch it
         if image_bytes is None:
-            # Try the explicit argument first
             candidate_text = maybe_url or ""
-            # If no explicit arg, search the whole message content for a URL
             if not candidate_text:
                 candidate_text = ctx.message.content or ""
-            # Find first http(s) URL
             m = URL_RE.search(candidate_text)
             if m:
                 url = m.group(0)
@@ -141,6 +137,7 @@ class GlintSession:
         self.message: Optional[discord.Message] = None
         self.finished = False
         self.intensity = 100  # percent
+        self.owner_id = ctx.author.id
 
     def set_message(self, message: discord.Message):
         self.message = message
@@ -173,22 +170,22 @@ class GlintSession:
         # Try to edit the original message and attach the updated image in-place.
         # Different discord.py/Red versions handle attachments differently; try robustly.
         try:
+            # Many modern versions accept attachments on edit
             await self.message.edit(embed=embed, attachments=[file], view=view)
             return
         except Exception:
             pass
 
-        # Some versions don't accept attachments on edit; try editing embed only then send the file so the embed image resolves.
         try:
+            # Some versions accept embed edit only; send file separately so embed image resolves
             await self.message.edit(embed=embed, view=view)
-            # send the file separately (ephemeral to channel)
             await self.ctx.send(file=file)
             return
         except Exception:
             pass
 
-        # Last resort: send a new message with embed+file and update session.message to point to it (so future edits target it).
         try:
+            # Last resort: send a new message with embed+file and update session.message to point to it
             new_msg = await self.ctx.send(embed=embed, file=file, view=view)
             self.message = new_msg
         except Exception:
@@ -303,46 +300,75 @@ class GlintEditorView(discord.ui.View):
         self.cancel_button.callback = self.cancel_callback
         self.add_item(self.cancel_button)
 
+    # Helper: ensure only the command user can interact with this view
+    def _is_owner(self, user: discord.User) -> bool:
+        return user.id == self.session.owner_id
+
     async def select_callback(self, interaction: discord.Interaction):
+        if not self._is_owner(interaction.user):
+            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
+            return
         # Save the selected values (read-only property)
         self.selected_effects = list(self.select.values)
-        await interaction.response.defer()
+        # Acknowledge silently (no public reply)
+        await interaction.response.defer(ephemeral=True)
 
     async def decrease_intensity(self, interaction: discord.Interaction):
+        if not self._is_owner(interaction.user):
+            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
+            return
         # Decrease by 10%, min 10%
         self.session.intensity = max(10, self.session.intensity - 10)
         self.intensity_label.label = f"{self.session.intensity}%"
         await self.session.update_message(self, f"Intensity set to {self.session.intensity}%")
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
 
     async def increase_intensity(self, interaction: discord.Interaction):
+        if not self._is_owner(interaction.user):
+            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
+            return
         # Increase by 10%, max 300%
         self.session.intensity = min(300, self.session.intensity + 10)
         self.intensity_label.label = f"{self.session.intensity}%"
         await self.session.update_message(self, f"Intensity set to {self.session.intensity}%")
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
 
     async def apply_callback(self, interaction: discord.Interaction):
+        if not self._is_owner(interaction.user):
+            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
+            return
         await interaction.response.defer(thinking=True)
         async with self.session.ctx.typing():
             if not self.selected_effects:
                 await interaction.followup.send("No effects selected. Use the dropdown to pick effects.", ephemeral=True)
                 return
+            # Apply selected effects
             await self.session.apply_effects(self.selected_effects)
+            # Update the message embed and show the current image (only the editor message is edited)
             await self.session.update_message(self, f"Applied: {', '.join(self.selected_effects)}")
-            # Clear stored selection and recreate select to clear UI
+            # Clear stored selection and reset the select options in-place (avoids orphaned components)
             self.selected_effects = []
             try:
-                self.remove_item(self.select)
+                # Reset options to new SelectOption objects; this clears the UI selection without replacing the component
+                self.select.options = _make_select_options()
+                # Also reset placeholder to encourage new selection
+                self.select.placeholder = "Choose effects (multi-select)"
             except Exception:
-                pass
-            self.select = discord.ui.Select(placeholder="Choose effects (multi-select)", min_values=1, max_values=5, options=_make_select_options())
-            self.select.callback = self.select_callback
-            # Add the new select back into the view (discord.py will append; that's acceptable)
-            self.add_item(self.select)
+                # If the library/version doesn't allow setting options, fall back to removing/adding (less ideal)
+                try:
+                    self.remove_item(self.select)
+                    self.select = discord.ui.Select(placeholder="Choose effects (multi-select)", min_values=1, max_values=5, options=_make_select_options())
+                    self.select.callback = self.select_callback
+                    self.add_item(self.select)
+                except Exception:
+                    pass
+            # Inform the user privately that effects were applied
             await interaction.followup.send("Effects applied.", ephemeral=True)
 
     async def undo_callback(self, interaction: discord.Interaction):
+        if not self._is_owner(interaction.user):
+            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
+            return
         await interaction.response.defer(thinking=True)
         undone = await self.session.undo()
         if not undone:
@@ -352,12 +378,18 @@ class GlintEditorView(discord.ui.View):
         await interaction.followup.send("Undid last effect.", ephemeral=True)
 
     async def finish_callback(self, interaction: discord.Interaction):
+        if not self._is_owner(interaction.user):
+            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
+            return
         await interaction.response.defer(thinking=True)
         await self.session.finish_post(finalize=True)
         await interaction.followup.send("Final image posted.", ephemeral=True)
         self.stop()
 
     async def cancel_callback(self, interaction: discord.Interaction):
+        if not self._is_owner(interaction.user):
+            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
+            return
         await interaction.response.defer(thinking=True)
         await interaction.followup.send("Editor closed without posting final image.", ephemeral=True)
         self.stop()
