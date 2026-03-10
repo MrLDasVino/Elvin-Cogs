@@ -6,10 +6,9 @@ from typing import List, Optional
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageChops, ImageDraw
 
 import discord
-from discord.ext import commands
+from redbot.core import commands
 
-# Ensure Red's bot has discord.py with ui support
-# Cog class
+
 class Glint(commands.Cog):
     """Image effects editor: apply, stack, undo, and post image effects via dropdown and buttons."""
 
@@ -27,7 +26,6 @@ class Glint(commands.Cog):
         - Provide an image URL: `[p]glint https://.../image.png`
         - Attach an image and run `[p]glint`
         """
-        # Resolve image: check attachments, reply reference, or provided URL
         image_bytes = None
         image_name = "glint.png"
 
@@ -81,6 +79,7 @@ class Glint(commands.Cog):
         if not session.finished:
             await session.finish_post(finalize=False)
 
+
 # ---------- Session and UI ----------
 
 class GlintSession:
@@ -106,7 +105,6 @@ class GlintSession:
         if not self.message:
             return
         embed = self.make_embed(description)
-        # attach current image as file and set embed image
         bio = io.BytesIO()
         self.current_image.convert("RGBA").save(bio, "PNG")
         bio.seek(0)
@@ -121,7 +119,6 @@ class GlintSession:
                 pass
 
     async def apply_effects(self, effects: List[str]):
-        # Apply effects in order to current_image
         img = self.current_image.copy()
         for eff in effects:
             img = apply_effect(img, eff)
@@ -129,7 +126,6 @@ class GlintSession:
         self.current_image = img
 
     async def undo(self):
-        # Undo last effect by reapplying from base_image
         if not self.applied_effects:
             return False
         self.applied_effects.pop()
@@ -151,6 +147,7 @@ class GlintSession:
         embed.set_image(url=f"attachment://{self.filename}")
         await self.ctx.send(embed=embed, file=file)
         self.finished = True
+
 
 # ---------- UI View ----------
 
@@ -187,13 +184,11 @@ class GlintEditorView(discord.ui.View):
         self.session = session
         self.selected_effects: List[str] = []
 
-        # Add Select
         options = [discord.SelectOption(label=label, value=value) for label, value in EFFECT_CHOICES]
         self.select = discord.ui.Select(placeholder="Choose effects (you can multi-select)", min_values=1, max_values=5, options=options)
         self.select.callback = self.select_callback
         self.add_item(self.select)
 
-        # Buttons
         self.apply_button = discord.ui.Button(label="Apply", style=discord.ButtonStyle.success)
         self.apply_button.callback = self.apply_callback
         self.add_item(self.apply_button)
@@ -241,6 +236,7 @@ class GlintEditorView(discord.ui.View):
     async def cancel_callback(self, interaction: discord.Interaction):
         await interaction.response.send_message("Editor closed without posting final image.", ephemeral=True)
         self.stop()
+
 
 # ---------- Image effect implementations ----------
 
@@ -302,7 +298,6 @@ def apply_effect(img: Image.Image, effect: str) -> Image.Image:
         return img
     return img
 
-# Helper effect functions
 
 def sepia(img: Image.Image) -> Image.Image:
     img = img.convert("RGB")
@@ -317,78 +312,79 @@ def sepia(img: Image.Image) -> Image.Image:
             pixels[px, py] = (min(255, tr), min(255, tg), min(255, tb))
     return img.convert("RGBA")
 
+
 def pixelate(img: Image.Image, pixel_size: int = 10) -> Image.Image:
     small = img.resize((max(1, img.width // pixel_size), max(1, img.height // pixel_size)), resample=Image.NEAREST)
     result = small.resize(img.size, Image.NEAREST)
     return result.convert("RGBA")
 
+
 def vignette(img: Image.Image) -> Image.Image:
     width, height = img.size
-    # Create radial gradient
     gradient = Image.new('L', (width, height), 0)
     draw = ImageDraw.Draw(gradient)
-    max_dist = math.hypot(width/2, height/2)
+    max_dist = math.hypot(width / 2, height / 2)
     for y in range(height):
         for x in range(width):
-            dx = x - width/2
-            dy = y - height/2
+            dx = x - width / 2
+            dy = y - height / 2
             d = math.hypot(dx, dy)
             intensity = int(255 * (d / max_dist))
             if intensity > 255:
                 intensity = 255
             draw.point((x, y), fill=intensity)
-    alpha = gradient.filter(ImageFilter.GaussianBlur(radius=min(width, height)//10))
+    alpha = gradient.filter(ImageFilter.GaussianBlur(radius=min(width, height) // 10))
     black = Image.new('RGBA', (width, height), (0, 0, 0, 255))
     img_with_vignette = Image.composite(black, img.convert("RGBA"), alpha)
     return img_with_vignette
 
-def color_tone(img: Image.Image, shifts=(0,0,0)) -> Image.Image:
+
+def color_tone(img: Image.Image, shifts=(0, 0, 0)) -> Image.Image:
     r_shift, g_shift, b_shift = shifts
     r, g, b, a = img.split()
-    r = ImageEnhance.Brightness(r).enhance(1 + r_shift/100.0)
-    g = ImageEnhance.Brightness(g).enhance(1 + g_shift/100.0)
-    b = ImageEnhance.Brightness(b).enhance(1 + b_shift/100.0)
+    r = ImageEnhance.Brightness(r).enhance(1 + r_shift / 100.0)
+    g = ImageEnhance.Brightness(g).enhance(1 + g_shift / 100.0)
+    b = ImageEnhance.Brightness(b).enhance(1 + b_shift / 100.0)
     return Image.merge("RGBA", (r, g, b, a))
 
+
 def old_film(img: Image.Image) -> Image.Image:
-    # Add grain and slight sepia
     sep = sepia(img)
-    noise = Image.effect_noise(img.size, 64).convert("L").point(lambda p: p//3)
+    noise = Image.effect_noise(img.size, 64).convert("L").point(lambda p: p // 3)
     noise = Image.merge("RGBA", (noise, noise, noise, Image.new("L", img.size, 80)))
     combined = ImageChops.add(sep.convert("RGBA"), noise)
     return combined
 
+
 def add_frame(img: Image.Image, border=30, color=(30, 30, 30)) -> Image.Image:
-    new_w = img.width + border*2
-    new_h = img.height + border*2
+    new_w = img.width + border * 2
+    new_h = img.height + border * 2
     framed = Image.new("RGBA", (new_w, new_h), color + (255,))
     framed.paste(img, (border, border), img)
     return framed
 
+
 def shift_hue(img: Image.Image, deg: int) -> Image.Image:
-    # Convert to HSV, shift H, convert back
     img = img.convert("RGBA")
     arr = img.convert("RGBA")
     r, g, b, a = arr.split()
     rgb = Image.merge("RGB", (r, g, b)).convert("HSV")
     h, s, v = rgb.split()
-    # shift hue
     lut = [(i + int(deg * 255 / 360)) % 256 for i in range(256)]
     h = h.point(lut)
     new_rgb = Image.merge("HSV", (h, s, v)).convert("RGBA")
     new_rgb.putalpha(a)
     return new_rgb
 
+
 def swap_red_blue(img: Image.Image) -> Image.Image:
     r, g, b, a = img.split()
     return Image.merge("RGBA", (b, g, r, a))
 
+
 def solar_glow(img: Image.Image) -> Image.Image:
-    # Bright center glow
     img = img.convert("RGBA")
     glow = img.copy().filter(ImageFilter.GaussianBlur(radius=20))
     enhancer = ImageEnhance.Brightness(glow)
     glow = enhancer.enhance(1.8)
     return ImageChops.screen(img, glow)
-
-
