@@ -1,0 +1,9 @@
+{
+  "name": "Glint",
+  "author": ["Elvin"],
+  "description": "Interactive image editor: apply stacked effects, undo, and post results via dropdown and buttons.",
+  "install_msg": "Thanks for installing Glint. Use [p]glint to open the editor.",
+  "short": "Interactive image effects editor",
+  "requirements": ["Pillow"],
+  "tags": ["image", "editor", "effects", "pillow", "ui"]
+}
