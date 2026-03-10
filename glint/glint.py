@@ -678,3 +678,6 @@ def solar_glow(img: Image.Image, intensity: int = 100) -> Image.Image:
         return img
 
 
+# Cog setup
+def setup(bot: commands.Bot):
+    bot.add_cog(Glint(bot))
