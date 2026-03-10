@@ -126,9 +126,9 @@ class Glint(commands.Cog):
 
         session.set_message(message)
         await view.wait()
-        # When view times out, finalize if not already posted
-        if not session.finished:
-            await session.finish_post(finalize=False)
+        # NOTE: Do not auto-post on timeout or cancel. Posting happens only when Finish is pressed.
+        # Previously the code called session.finish_post(finalize=False) here which caused posting on timeout.
+        return
 
 
 async def _fetch_bytes(url: str, ctx: commands.Context, timeout: int = 10) -> Optional[bytes]:
@@ -382,15 +382,15 @@ class GlintEditorView(discord.ui.View):
             except Exception:
                 pass
 
-        # Edit the message to reflect disabled controls and post final image if not already posted
+        # Edit the message to reflect disabled controls (do not post final image on timeout)
         try:
             if self.session.message:
                 await self.session.update_message(self, "Editor timed out; current image (controls disabled).")
         except Exception:
             pass
-        # Post final result if not already posted
-        if not self.session.finished:
-            await self.session.finish_post(finalize=False)
+
+        # Do NOT call finish_post here. Final image should be posted only when Finish is pressed.
+        # Previously this method called finish_post which caused the bot to post on timeout.
 
     async def select_callback(self, interaction: discord.Interaction):
         # interaction_check already validated owner
@@ -494,6 +494,7 @@ class GlintEditorView(discord.ui.View):
                 await self.session.update_message(self, "Editor closed without posting final image (controls disabled).")
         except Exception:
             pass
+        # Do NOT post final image on cancel.
         self.stop()
 
 
