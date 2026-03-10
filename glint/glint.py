@@ -1,4 +1,4 @@
-# glint_cog.py
+# glint.py
 import io
 import math
 import asyncio
@@ -10,7 +10,7 @@ import aiohttp
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageChops, ImageDraw
 
 import discord
-from discord.ext import commands
+from redbot.core import commands
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -33,34 +33,28 @@ class Glint(commands.Cog):
         - Provide an image URL: [p]glint https://.../image.png
         - Attach an image and run [p]glint
         - Mention a user to use their avatar: [p]glint @SomeUser
-
-        Behavior:
-        - The editor message is public but only the command user can interact with the UI.
-        - Selecting an effect applies it immediately (no separate Apply button).
-        - The editor edits the same message in-place; no extra replies are sent while editing.
-        - Buttons and select are disabled when the session ends (timeout, finish, cancel).
         """
         image_bytes = None
         image_name = "glint.png"
 
-        # 0) If user mentioned someone, try to use their avatar (explicit mention anywhere in message)
+        # 0) Mentioned user's avatar (first mention)
         if ctx.message.mentions:
             target = ctx.message.mentions[0]
             try:
                 avatar = getattr(target, "display_avatar", None) or getattr(target, "avatar", None)
                 if avatar:
-                    # discord.py v2: avatar has .url and .with_size
                     try:
                         avatar_url = avatar.replace(size=1024).url
                     except Exception:
-                        avatar_url = str(avatar.url) if hasattr(avatar, "url") else str(avatar)
-                    image_bytes = await _fetch_bytes(avatar_url, ctx)
-                    if image_bytes:
-                        image_name = f"{target.id}_avatar.png"
+                        avatar_url = getattr(avatar, "url", None) or str(avatar)
+                    if avatar_url:
+                        image_bytes = await _fetch_bytes(avatar_url, ctx)
+                        if image_bytes:
+                            image_name = f"{target.id}_avatar.png"
             except Exception:
                 image_bytes = None
 
-        # 1) If message has attachments (highest priority after mention)
+        # 1) Attachments on the command message
         if image_bytes is None and ctx.message.attachments:
             attachment = ctx.message.attachments[0]
             try:
@@ -69,7 +63,7 @@ class Glint(commands.Cog):
             except Exception:
                 image_bytes = None
 
-        # 2) If replied to a message with attachments
+        # 2) Replied-to message attachments
         if image_bytes is None and ctx.message.reference:
             try:
                 ref = await ctx.channel.fetch_message(ctx.message.reference.message_id)
@@ -80,7 +74,7 @@ class Glint(commands.Cog):
             except Exception:
                 pass
 
-        # 3) If a URL was provided as argument or present in message content, try to fetch it
+        # 3) URL in argument or message content
         if image_bytes is None:
             candidate_text = maybe_text or ""
             if not candidate_text:
@@ -88,14 +82,11 @@ class Glint(commands.Cog):
             m = URL_RE.search(candidate_text)
             if m:
                 url = m.group(0)
-                try:
-                    image_bytes = await _fetch_bytes(url, ctx)
-                    if image_bytes:
-                        image_name = url.split("/")[-1].split("?")[0] or image_name
-                except Exception:
-                    image_bytes = None
+                image_bytes = await _fetch_bytes(url, ctx)
+                if image_bytes:
+                    image_name = url.split("/")[-1].split("?")[0] or image_name
 
-        # 4) If still none, error
+        # 4) Nothing found -> error
         if image_bytes is None:
             await ctx.send(
                 "Please attach an image, reply to a message with an image, mention a user to use their avatar, or provide an image URL."
@@ -109,22 +100,20 @@ class Glint(commands.Cog):
             await ctx.send("Couldn't open the image. Make sure it's a valid image file.")
             return
 
-        # Create session state
+        # Create session and view
         session = GlintSession(ctx, base_image, image_name)
         view = GlintEditorView(session, timeout=300)
         embed = session.make_embed("Editor opened - choose effects from the dropdown (selection applies immediately).", random_color=True)
 
-        # Attach the initial image to the editor message so it can be edited in-place
+        # Attach initial image
         bio = io.BytesIO()
         base_image.convert("RGBA").save(bio, "PNG")
         bio.seek(0)
         file = discord.File(bio, filename=image_name)
 
-        # Send the editor message (public). The view restricts interactions to the command user.
         try:
             message = await ctx.send(embed=embed, file=file, view=view)
         except Exception:
-            # Fallback: send without file (some versions) then send file separately and keep the editor message
             message = await ctx.send(embed=embed, view=view)
             try:
                 await ctx.send(file=file)
@@ -133,20 +122,16 @@ class Glint(commands.Cog):
 
         session.set_message(message)
         await view.wait()
-        # When view times out, finalize if not already posted
         if not session.finished:
             await session.finish_post(finalize=False)
 
 
 async def _fetch_bytes(url: str, ctx: commands.Context, timeout: int = 10) -> Optional[bytes]:
-    """
-    Robust helper to fetch bytes from a URL. Tries bot's internal session if available,
-    otherwise uses aiohttp.ClientSession.
-    """
-    # Quick sanity check for data URLs or unsupported schemes
+    """Robust fetch helper: tries bot's http session then aiohttp fallback."""
     if not url.lower().startswith(("http://", "https://")):
         return None
-    # Try to use bot's http session if available
+
+    # Try to use Red's internal session if available
     session_obj = None
     try:
         session_obj = getattr(ctx.bot.http, "_session", None)
@@ -161,7 +146,6 @@ async def _fetch_bytes(url: str, ctx: commands.Context, timeout: int = 10) -> Op
                     if "image" in ctype or url.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
                         return await resp.read()
                     return None
-        # fallback to new session
         async with aiohttp.ClientSession() as s:
             async with s.get(url, timeout=timeout) as resp:
                 if resp.status == 200:
@@ -173,7 +157,7 @@ async def _fetch_bytes(url: str, ctx: commands.Context, timeout: int = 10) -> Op
     return None
 
 
-# Session and UI
+# Session and UI classes (unchanged structure, Red-compatible types)
 
 class GlintSession:
     def __init__(self, ctx: commands.Context, base_image: Image.Image, filename: str):
@@ -184,7 +168,7 @@ class GlintSession:
         self.applied_effects: List[str] = []
         self.message: Optional[discord.Message] = None
         self.finished = False
-        self.intensity = 100  # percent
+        self.intensity = 100
         self.owner_id = ctx.author.id
 
     def set_message(self, message: discord.Message):
@@ -208,7 +192,6 @@ class GlintSession:
         embed = self._nice_embed_base("Glint Editor", description, color)
         embed.add_field(name="Applied effects", value=(", ".join(self.applied_effects) or "None"), inline=False)
         embed.add_field(name="Intensity", value=f"{self.intensity}%", inline=True)
-        # Use attachment image when sending file
         embed.set_thumbnail(url=f"attachment://{self.filename}")
         return embed
 
@@ -222,22 +205,18 @@ class GlintSession:
         file = discord.File(bio, filename=self.filename)
         embed.set_image(url=f"attachment://{self.filename}")
 
-        # Try to edit the original message and attach the updated image in-place.
         try:
             await self.message.edit(embed=embed, attachments=[file], view=view)
             return
         except Exception:
             pass
 
-        # If attachments on edit are not supported, edit embed only (best-effort).
         try:
             await self.message.edit(embed=embed, view=view)
             return
         except Exception:
             pass
 
-        # Last resort: send a new message with embed+file and update session.message to point to it,
-        # then delete the old editor message to avoid duplicates (best-effort).
         try:
             new_msg = await self.message.channel.send(embed=embed, file=file, view=view)
             try:
@@ -246,7 +225,6 @@ class GlintSession:
                 pass
             self.message = new_msg
         except Exception:
-            # If even that fails, silently ignore to avoid crashing the bot
             pass
 
     async def apply_effects(self, effects: List[str]):
@@ -281,7 +259,6 @@ class GlintSession:
         try:
             await self.ctx.send(embed=embed, file=file)
         except Exception:
-            # If posting to the original channel fails, attempt to DM the user the final result instead
             try:
                 await self.ctx.author.send(embed=embed, file=file)
             except Exception:
@@ -289,8 +266,7 @@ class GlintSession:
         self.finished = True
 
 
-# UI View
-
+# UI and effects (same as previous corrected version)
 EFFECT_CHOICES = [
     ("Grayscale", "grayscale"),
     ("Sepia", "sepia"),
@@ -329,7 +305,6 @@ class GlintEditorView(discord.ui.View):
         self.session = session
         self.selected_effects: List[str] = []
 
-        # Select (selecting applies immediately)
         options = _make_select_options()
         self.select = discord.ui.Select(
             placeholder="Choose effects (multi-select) - selection applies immediately",
@@ -340,7 +315,6 @@ class GlintEditorView(discord.ui.View):
         self.select.callback = self.select_callback
         self.add_item(self.select)
 
-        # Intensity controls (small buttons)
         self.decrease_button = discord.ui.Button(label="-", style=discord.ButtonStyle.secondary, row=1)
         self.decrease_button.callback = self.decrease_intensity
         self.add_item(self.decrease_button)
@@ -352,7 +326,6 @@ class GlintEditorView(discord.ui.View):
         self.increase_button.callback = self.increase_intensity
         self.add_item(self.increase_button)
 
-        # Action buttons
         self.undo_button = discord.ui.Button(label="Undo", style=discord.ButtonStyle.secondary, row=2)
         self.undo_button.callback = self.undo_callback
         self.add_item(self.undo_button)
@@ -365,12 +338,10 @@ class GlintEditorView(discord.ui.View):
         self.cancel_button.callback = self.cancel_callback
         self.add_item(self.cancel_button)
 
-    # Helper: ensure only the command user can interact with this view
     def _is_owner(self, user: discord.User) -> bool:
         return user.id == self.session.owner_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # Prevent others from interacting; send ephemeral notice if not owner
         if not self._is_owner(interaction.user):
             try:
                 await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
@@ -380,51 +351,35 @@ class GlintEditorView(discord.ui.View):
         return True
 
     async def on_timeout(self) -> None:
-        # Disable all components when the view times out and update the message
         for child in list(self.children):
             try:
                 child.disabled = True
             except Exception:
                 pass
-
-        # Edit the message to reflect disabled controls and post final image if not already posted
         try:
             if self.session.message:
                 await self.session.update_message(self, "Editor timed out; current image (controls disabled).")
         except Exception:
             pass
-        # Post final result if not already posted
         if not self.session.finished:
             await self.session.finish_post(finalize=False)
 
     async def select_callback(self, interaction: discord.Interaction):
-        # interaction_check already validated owner
-        # Save the selected values (read-only property)
         self.selected_effects = list(self.select.values)
-        # Acknowledge the interaction to avoid "This interaction failed"
         try:
             await interaction.response.defer()
         except Exception:
             pass
-
-        # Immediately apply the selected effects
         if not self.selected_effects:
             return
-
         await self.session.apply_effects(self.selected_effects)
-        # Update the editor message in-place (no extra public replies)
         await self.session.update_message(self, f"Applied: {', '.join(self.selected_effects)}")
-
-        # Clear stored selection and reset the select options in-place (preferred)
         self.selected_effects = []
         try:
-            # Reset the select's values to clear selection
             self.select.values = []
             self.select.placeholder = "Choose effects (multi-select) - selection applies immediately"
-            # Rebuild options to ensure no selected flags remain
             self.select.options = _make_select_options()
         except Exception:
-            # Fallback: remove and re-add select (Less ideal)
             try:
                 self.remove_item(self.select)
                 self.select = discord.ui.Select(
@@ -439,7 +394,6 @@ class GlintEditorView(discord.ui.View):
                 pass
 
     async def decrease_intensity(self, interaction: discord.Interaction):
-        # interaction_check already validated owner
         self.session.intensity = max(10, self.session.intensity - 10)
         self.intensity_label.label = f"{self.session.intensity}%"
         await self.session.update_message(self, f"Intensity set to {self.session.intensity}%")
@@ -449,7 +403,6 @@ class GlintEditorView(discord.ui.View):
             pass
 
     async def increase_intensity(self, interaction: discord.Interaction):
-        # interaction_check already validated owner
         self.session.intensity = min(300, self.session.intensity + 10)
         self.intensity_label.label = f"{self.session.intensity}%"
         await self.session.update_message(self, f"Intensity set to {self.session.intensity}%")
@@ -459,31 +412,25 @@ class GlintEditorView(discord.ui.View):
             pass
 
     async def undo_callback(self, interaction: discord.Interaction):
-        # interaction_check already validated owner
         try:
             await interaction.response.defer()
         except Exception:
             pass
         undone = await self.session.undo()
-
         if not undone:
             return
         await self.session.update_message(self, "Undid last effect")
-        # Do not send any followup or ephemeral message.
 
     async def finish_callback(self, interaction: discord.Interaction):
-        # interaction_check already validated owner
         try:
             await interaction.response.defer()
         except Exception:
             pass
-        # Disable all components immediately so users can't interact while posting
         for child in list(self.children):
             try:
                 child.disabled = True
             except Exception:
                 pass
-        # Update the editor message to show controls disabled
         try:
             if self.session.message:
                 await self.session.update_message(self, "Finishing and posting final image (controls disabled).")
@@ -493,19 +440,15 @@ class GlintEditorView(discord.ui.View):
         self.stop()
 
     async def cancel_callback(self, interaction: discord.Interaction):
-        # interaction_check already validated owner
         try:
             await interaction.response.defer()
         except Exception:
             pass
-
-        # Disable all components immediately
         for child in list(self.children):
             try:
                 child.disabled = True
             except Exception:
                 pass
-
         try:
             if self.session.message:
                 await self.session.update_message(self, "Editor closed without posting final image (controls disabled).")
@@ -514,8 +457,7 @@ class GlintEditorView(discord.ui.View):
         self.stop()
 
 
-# Image effect implementations (with intensity)
-
+# Image effect functions (same as earlier corrected implementations)
 def apply_effect(img: Image.Image, effect: str, intensity: int = 100) -> Image.Image:
     try:
         if effect == "grayscale":
@@ -605,7 +547,6 @@ def vignette(img: Image.Image, intensity: int = 100) -> Image.Image:
     draw = ImageDraw.Draw(gradient)
     max_dist = math.hypot(width / 2, height / 2)
     intensity_factor = min(1.0, (intensity / 100.0) * 1.5)
-    # Draw radial gradient
     for y in range(height):
         for x in range(width):
             dx = x - width / 2
@@ -678,6 +619,6 @@ def solar_glow(img: Image.Image, intensity: int = 100) -> Image.Image:
         return img
 
 
-# Cog setup
-def setup(bot: commands.Bot):
-    bot.add_cog(Glint(bot))
+# Red cog setup (async)
+async def setup(bot: commands.Bot):
+    await bot.add_cog(Glint(bot))
