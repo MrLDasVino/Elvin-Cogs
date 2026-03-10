@@ -16,7 +16,7 @@ URL_RE = re.compile(r"https?://\S+")
 # ---------- Cog ----------
 
 class Glint(commands.Cog):
-    """Interactive image editor: apply stacked effects in a private DM session, undo, adjustable intensity, and post results."""
+    """Interactive image editor: apply stacked effects, undo, adjustable intensity, and post results."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -24,14 +24,18 @@ class Glint(commands.Cog):
 
     @commands.command(name="glint")
     @commands.guild_only()
-    async def glint(self, ctx: commands.Context, *, maybe_url: Optional[str] = None):
+    async def glint(self, ctx: commands.Context, *, maybe_text: Optional[str] = None):
         """
-        Open the Glint image editor in a private DM (only you see the editing process).
+        Open the Glint image editor.
         Usage:
         - Reply to a message with an image and run `[p]glint`
         - Provide an image URL: `[p]glint https://.../image.png`
         - Attach an image and run `[p]glint`
         - Mention a user to use their avatar: `[p]glint @SomeUser`
+        Notes:
+        - The editing UI is restricted to the command user.
+        - The editor updates the same message (no extra public replies).
+        - Final result is posted publicly when you press Finish or when the editor times out.
         """
         image_bytes = None
         image_name = "glint.png"
@@ -40,11 +44,13 @@ class Glint(commands.Cog):
         if ctx.message.mentions:
             target = ctx.message.mentions[0]
             try:
-                avatar_url = target.display_avatar.replace(size=1024).url
-                async with self.bot.http._session.get(avatar_url, timeout=10) as resp:
-                    if resp.status == 200:
-                        image_bytes = await resp.read()
-                        image_name = f"{target.id}_avatar.png"
+                avatar_url = getattr(target, "display_avatar", None) or getattr(target, "avatar", None)
+                if avatar_url:
+                    avatar_url = avatar_url.replace(size=1024).url
+                    async with self.bot.http._session.get(avatar_url, timeout=10) as resp:
+                        if resp.status == 200:
+                            image_bytes = await resp.read()
+                            image_name = f"{target.id}_avatar.png"
             except Exception:
                 image_bytes = None
 
@@ -70,16 +76,15 @@ class Glint(commands.Cog):
 
         # 3) If a URL was provided as argument or present in message content, try to fetch it
         if image_bytes is None:
-            candidate_text = maybe_url or ""
+            candidate_text = maybe_text or ""
             if not candidate_text:
-                # Use the raw content (includes mentions/args). This helps catch URLs pasted anywhere.
+                # Use the raw content (includes pasted URLs)
                 candidate_text = ctx.message.content or ""
             m = URL_RE.search(candidate_text)
             if m:
                 url = m.group(0)
                 try:
                     async with self.bot.http._session.get(url, timeout=10) as resp:
-                        # Ensure we actually got an image
                         ctype = resp.headers.get("content-type", "")
                         if resp.status == 200 and ("image" in ctype or url.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))):
                             image_bytes = await resp.read()
@@ -102,27 +107,26 @@ class Glint(commands.Cog):
         # Create session state
         session = GlintSession(ctx, base_image, image_name)
         view = GlintEditorView(session, timeout=300)
+        embed = session.make_embed("Editor opened — choose effects from the dropdown and press Apply", random_color=True)
 
-        # Prepare initial embed + file
-        embed = session.make_embed("Editor opened — this session is private to you. Choose effects and press Apply.", random_color=True)
+        # Attach the initial image to the editor message so it can be edited in-place
         bio = io.BytesIO()
         base_image.convert("RGBA").save(bio, "PNG")
         bio.seek(0)
         file = discord.File(bio, filename=image_name)
 
-        # Send the editor message to the user's DM so only they see the editing process
+        # Send the editor message (public). The view restricts interactions to the command user.
         try:
-            dm = await ctx.author.create_dm()
-            editor_message = await dm.send(embed=embed, file=file, view=view)
+            message = await ctx.send(embed=embed, file=file, view=view)
         except Exception:
-            # If DM fails (user closed DMs), fall back to ephemeral reply in channel (no image preview)
+            # Fallback: send without file (some versions) then send file separately and keep the editor message
+            message = await ctx.send(embed=embed, view=view)
             try:
-                await ctx.send("I couldn't open a DM with you. Please enable DMs from server members or attach the image directly.", delete_after=10)
+                await ctx.send(file=file)
             except Exception:
                 pass
-            return
 
-        session.set_message(editor_message)
+        session.set_message(message)
         await view.wait()
         # When view times out, finalize if not already posted
         if not session.finished:
@@ -133,12 +137,12 @@ class Glint(commands.Cog):
 
 class GlintSession:
     def __init__(self, ctx: commands.Context, base_image: Image.Image, filename: str):
-        self.ctx = ctx  # original context (for final posting)
+        self.ctx = ctx
         self.base_image = base_image.copy()
         self.current_image = base_image.copy()
         self.filename = filename
         self.applied_effects: List[str] = []
-        self.message: Optional[discord.Message] = None  # editor message (in DM)
+        self.message: Optional[discord.Message] = None
         self.finished = False
         self.intensity = 100  # percent
         self.owner_id = ctx.author.id
@@ -161,7 +165,10 @@ class GlintSession:
         return embed
 
     async def update_message(self, view: discord.ui.View, description: str):
-        """Edit the DM editor message in-place with the updated image and embed. No public messages are sent here."""
+        """
+        Edit the editor message in-place with the updated image and embed.
+        No extra public replies are sent. This attempts to attach the updated image to the same message.
+        """
         if not self.message:
             return
         embed = self.make_embed(description, random_color=True)
@@ -171,26 +178,36 @@ class GlintSession:
         file = discord.File(bio, filename=self.filename)
         embed.set_image(url=f"attachment://{self.filename}")
 
-        # Try to edit the original DM message and attach the updated image in-place.
-        # Many discord.py versions accept attachments on edit; try robustly.
+        # Try to edit the original message and attach the updated image in-place.
+        # Different discord.py/Red versions behave differently; try robustly but avoid sending extra messages.
         try:
+            # Preferred: edit message with new attachments and view
             await self.message.edit(embed=embed, attachments=[file], view=view)
             return
         except Exception:
             pass
 
-        # Some versions accept embed edit only; try editing embed and then replace the message by sending a new DM message
         try:
+            # Some versions accept embed edit only; edit embed and then send the file as a single message but delete it quickly
             await self.message.edit(embed=embed, view=view)
-            # send the file as a separate DM message (keeps editing private)
-            await self.message.channel.send(file=file)
+            # send the file but delete it immediately to avoid clutter (keep only the edited embed visible)
+            temp = await self.message.channel.send(file=file)
+            try:
+                await temp.delete()
+            except Exception:
+                pass
             return
         except Exception:
             pass
 
-        # Last resort: send a new DM message with embed+file and update session.message to point to it
         try:
+            # Last resort: send a new message with embed+file and update session.message to point to it
             new_msg = await self.message.channel.send(embed=embed, file=file, view=view)
+            # attempt to delete the old editor message to avoid duplicates (best-effort)
+            try:
+                await self.message.delete()
+            except Exception:
+                pass
             self.message = new_msg
         except Exception:
             # If even that fails, silently ignore to avoid crashing the bot
@@ -214,7 +231,6 @@ class GlintSession:
         return True
 
     async def finish_post(self, finalize=True):
-        """Post the final result publicly in the original channel where the command was invoked."""
         if self.finished:
             return
         bio = io.BytesIO()
@@ -316,56 +332,61 @@ class GlintEditorView(discord.ui.View):
     def _is_owner(self, user: discord.User) -> bool:
         return user.id == self.session.owner_id
 
-    async def select_callback(self, interaction: discord.Interaction):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Prevent others from interacting; send ephemeral notice if not owner
         if not self._is_owner(interaction.user):
-            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
-            return
+            try:
+                await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
+            except Exception:
+                pass
+            return False
+        return True
+
+    async def select_callback(self, interaction: discord.Interaction):
+        # interaction_check already validated owner
         # Save the selected values (read-only property)
         self.selected_effects = list(self.select.values)
-        # Acknowledge silently (no public reply)
-        await interaction.response.defer(ephemeral=True)
+        # Acknowledge silently by editing the editor message embed (no public followups)
+        await interaction.response.defer()
 
     async def decrease_intensity(self, interaction: discord.Interaction):
-        if not self._is_owner(interaction.user):
-            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
-            return
-        # Decrease by 10%, min 10%
+        # interaction_check already validated owner
         self.session.intensity = max(10, self.session.intensity - 10)
         self.intensity_label.label = f"{self.session.intensity}%"
+        # Update the editor message in-place (no extra public replies)
         await self.session.update_message(self, f"Intensity set to {self.session.intensity}%")
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
 
     async def increase_intensity(self, interaction: discord.Interaction):
-        if not self._is_owner(interaction.user):
-            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
-            return
-        # Increase by 10%, max 300%
+        # interaction_check already validated owner
         self.session.intensity = min(300, self.session.intensity + 10)
         self.intensity_label.label = f"{self.session.intensity}%"
         await self.session.update_message(self, f"Intensity set to {self.session.intensity}%")
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
 
     async def apply_callback(self, interaction: discord.Interaction):
-        if not self._is_owner(interaction.user):
-            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
+        # interaction_check already validated owner
+        await interaction.response.defer()
         async with self.session.ctx.typing():
             if not self.selected_effects:
-                await interaction.followup.send("No effects selected. Use the dropdown to pick effects.", ephemeral=True)
+                # send ephemeral error to the user only
+                try:
+                    await interaction.followup.send("No effects selected. Use the dropdown to pick effects.", ephemeral=True)
+                except Exception:
+                    pass
                 return
             # Apply selected effects
             await self.session.apply_effects(self.selected_effects)
-            # Update the DM editor message in-place (keeps editing private)
+            # Update the editor message in-place (no extra public replies)
             await self.session.update_message(self, f"Applied: {', '.join(self.selected_effects)}")
-            # Clear stored selection and reset the select options in-place (avoids orphaned components)
+            # Clear stored selection and reset the select options in-place (preferred)
             self.selected_effects = []
             try:
                 # Try to clear selection by replacing options objects (preferred)
                 self.select.options = _make_select_options()
                 self.select.placeholder = "Choose effects (multi-select)"
             except Exception:
-                # Fallback: remove and re-add select (less ideal but works)
+                # Fallback: remove and re-add select (less ideal)
                 try:
                     self.remove_item(self.select)
                     self.select = discord.ui.Select(placeholder="Choose effects (multi-select)", min_values=1, max_values=5, options=_make_select_options())
@@ -373,36 +394,45 @@ class GlintEditorView(discord.ui.View):
                     self.add_item(self.select)
                 except Exception:
                     pass
-            # No public messages are sent; only ephemeral confirmation to the user
-            await interaction.followup.send("Effects applied (private preview).", ephemeral=True)
+            # No public messages are sent; only ephemeral confirmation if possible
+            try:
+                await interaction.followup.send("Effects applied (private preview).", ephemeral=True)
+            except Exception:
+                pass
 
     async def undo_callback(self, interaction: discord.Interaction):
-        if not self._is_owner(interaction.user):
-            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
+        # interaction_check already validated owner
+        await interaction.response.defer()
         undone = await self.session.undo()
         if not undone:
-            await interaction.followup.send("Nothing to undo.", ephemeral=True)
+            try:
+                await interaction.followup.send("Nothing to undo.", ephemeral=True)
+            except Exception:
+                pass
             return
         await self.session.update_message(self, "Undid last effect")
-        await interaction.followup.send("Undid last effect (private preview).", ephemeral=True)
+        try:
+            await interaction.followup.send("Undid last effect (private preview).", ephemeral=True)
+        except Exception:
+            pass
 
     async def finish_callback(self, interaction: discord.Interaction):
-        if not self._is_owner(interaction.user):
-            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
+        # interaction_check already validated owner
+        await interaction.response.defer()
         await self.session.finish_post(finalize=True)
-        await interaction.followup.send("Final image posted to the original channel.", ephemeral=True)
+        try:
+            await interaction.followup.send("Final image posted to the original channel.", ephemeral=True)
+        except Exception:
+            pass
         self.stop()
 
     async def cancel_callback(self, interaction: discord.Interaction):
-        if not self._is_owner(interaction.user):
-            await interaction.response.send_message("This editor session isn't yours.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send("Editor closed without posting final image.", ephemeral=True)
+        # interaction_check already validated owner
+        await interaction.response.defer()
+        try:
+            await interaction.followup.send("Editor closed without posting final image.", ephemeral=True)
+        except Exception:
+            pass
         self.stop()
 
 
