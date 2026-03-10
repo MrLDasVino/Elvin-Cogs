@@ -1,7 +1,8 @@
 import io
 import math
 import asyncio
-from typing import List, Optional
+import random
+from typing import List, Optional, Tuple
 
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageChops, ImageDraw
 
@@ -9,8 +10,10 @@ import discord
 from redbot.core import commands
 
 
+# ---------- Cog ----------
+
 class Glint(commands.Cog):
-    """Image effects editor: apply, stack, undo, and post image effects via dropdown and buttons."""
+    """Interactive image editor: apply stacked effects, undo, and post results via dropdown and buttons."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -25,18 +28,32 @@ class Glint(commands.Cog):
         - Reply to a message with an image and run `[p]glint`
         - Provide an image URL: `[p]glint https://.../image.png`
         - Attach an image and run `[p]glint`
+        - Mention a user to use their avatar: `[p]glint @SomeUser`
         """
+        # Resolve image: attachments, reply reference, mention avatar, or provided URL
         image_bytes = None
         image_name = "glint.png"
 
-        # 1) If message has attachments
-        if ctx.message.attachments:
+        # If user mentioned someone, try to use their avatar
+        if ctx.message.mentions:
+            target = ctx.message.mentions[0]
+            try:
+                avatar_url = target.display_avatar.replace(size=1024).url
+                async with self.bot.http._session.get(avatar_url) as resp:
+                    if resp.status == 200:
+                        image_bytes = await resp.read()
+                        image_name = f"{target.id}_avatar.png"
+            except Exception:
+                image_bytes = None
+
+        # 1) If message has attachments (takes precedence over URL)
+        if image_bytes is None and ctx.message.attachments:
             attachment = ctx.message.attachments[0]
             image_bytes = await attachment.read()
             image_name = attachment.filename
 
         # 2) If replied to a message with attachments
-        elif ctx.message.reference:
+        if image_bytes is None and ctx.message.reference:
             try:
                 ref = await ctx.channel.fetch_message(ctx.message.reference.message_id)
                 if ref.attachments:
@@ -48,17 +65,19 @@ class Glint(commands.Cog):
 
         # 3) If URL provided
         if image_bytes is None and url:
-            try:
-                async with self.bot.http._session.get(url) as resp:
-                    if resp.status == 200:
-                        image_bytes = await resp.read()
-                        image_name = url.split("/")[-1].split("?")[0] or "glint.png"
-            except Exception:
-                image_bytes = None
+            # If url looks like a mention (e.g., @user) we've already handled mentions above.
+            if url.startswith("http"):
+                try:
+                    async with self.bot.http._session.get(url) as resp:
+                        if resp.status == 200:
+                            image_bytes = await resp.read()
+                            image_name = url.split("/")[-1].split("?")[0] or "glint.png"
+                except Exception:
+                    image_bytes = None
 
         # 4) If still none, error
         if image_bytes is None:
-            await ctx.send("Please attach an image, reply to a message with an image, or provide an image URL.")
+            await ctx.send("Please attach an image, reply to a message with an image, mention a user to use their avatar, or provide an image URL.")
             return
 
         # Load image
@@ -71,7 +90,7 @@ class Glint(commands.Cog):
         # Create session state
         session = GlintSession(ctx, base_image, image_name)
         view = GlintEditorView(session, timeout=300)
-        embed = session.make_embed("Editor opened — choose effects from the dropdown and press Apply")
+        embed = session.make_embed("Editor opened — choose effects from the dropdown and press Apply", random_color=True)
         message = await ctx.send(embed=embed, view=view)
         session.set_message(message)
         await view.wait()
@@ -95,23 +114,35 @@ class GlintSession:
     def set_message(self, message: discord.Message):
         self.message = message
 
-    def make_embed(self, description: str) -> discord.Embed:
-        embed = discord.Embed(title="Glint Image Editor", description=description, color=0x00FFAA)
+    def _nice_embed_base(self, title: str, description: str, color: int) -> discord.Embed:
+        embed = discord.Embed(title=title, description=description, color=color)
+        embed.set_author(name="Glint Image Editor", icon_url=self.ctx.bot.user.display_avatar.replace(size=64).url)
+        embed.set_footer(text="Select effects, press Apply to stack, Undo to remove last, Finish to post.")
+        return embed
+
+    def make_embed(self, description: str, random_color: bool = False) -> discord.Embed:
+        color = random.randint(0, 0xFFFFFF) if random_color else 0x00FFAA
+        embed = self._nice_embed_base("Glint Editor", description, color)
         embed.add_field(name="Applied effects", value=(", ".join(self.applied_effects) or "None"), inline=False)
-        embed.set_footer(text="Use the dropdown to pick effects. Apply stacks them. Undo removes last.")
+        # Add a small thumbnail of the current image (attachment will be used to show it)
+        embed.set_thumbnail(url=f"attachment://{self.filename}")
         return embed
 
     async def update_message(self, view: discord.ui.View, description: str):
         if not self.message:
             return
-        embed = self.make_embed(description)
+        embed = self.make_embed(description, random_color=True)
+        # attach current image as file and set embed image
         bio = io.BytesIO()
         self.current_image.convert("RGBA").save(bio, "PNG")
         bio.seek(0)
         file = discord.File(bio, filename=self.filename)
         embed.set_image(url=f"attachment://{self.filename}")
         try:
-            await self.message.edit(embed=embed, attachments=[file], view=view)
+            # message.edit does not accept 'file' directly; replace by sending a new message if edit fails
+            await self.message.edit(embed=embed, view=view)
+            # follow up with attachment so embed image resolves (edit cannot attach files reliably across versions)
+            await self.ctx.send(file=file)
         except Exception:
             try:
                 await self.ctx.send(embed=embed, file=file, view=view)
@@ -142,7 +173,8 @@ class GlintSession:
         self.current_image.convert("RGBA").save(bio, "PNG")
         bio.seek(0)
         file = discord.File(bio, filename=self.filename)
-        embed = discord.Embed(title="Glint Result", description=("Final image" if finalize else "Editor timed out; current image"), color=0x00FFAA)
+        color = random.randint(0, 0xFFFFFF)
+        embed = self._nice_embed_base("Glint Result", ("Final image" if finalize else "Editor timed out; current image"), color)
         embed.add_field(name="Effects", value=(", ".join(self.applied_effects) or "None"), inline=False)
         embed.set_image(url=f"attachment://{self.filename}")
         await self.ctx.send(embed=embed, file=file)
@@ -178,17 +210,23 @@ EFFECT_CHOICES = [
     ("Solar Glow", "solar_glow"),
 ]
 
+def _make_select_options() -> List[discord.SelectOption]:
+    return [discord.SelectOption(label=label, value=value) for label, value in EFFECT_CHOICES]
+
+
 class GlintEditorView(discord.ui.View):
     def __init__(self, session: GlintSession, timeout: int = 300):
         super().__init__(timeout=timeout)
         self.session = session
         self.selected_effects: List[str] = []
 
-        options = [discord.SelectOption(label=label, value=value) for label, value in EFFECT_CHOICES]
+        # Add Select
+        options = _make_select_options()
         self.select = discord.ui.Select(placeholder="Choose effects (you can multi-select)", min_values=1, max_values=5, options=options)
         self.select.callback = self.select_callback
         self.add_item(self.select)
 
+        # Buttons
         self.apply_button = discord.ui.Button(label="Apply", style=discord.ButtonStyle.success)
         self.apply_button.callback = self.apply_callback
         self.add_item(self.apply_button)
@@ -206,35 +244,56 @@ class GlintEditorView(discord.ui.View):
         self.add_item(self.cancel_button)
 
     async def select_callback(self, interaction: discord.Interaction):
-        self.selected_effects = self.select.values
+        # Save the selected values (read-only property)
+        self.selected_effects = list(self.select.values)
         await interaction.response.defer()
 
     async def apply_callback(self, interaction: discord.Interaction):
+        # Defer early to avoid "interaction not responded" errors while processing
+        await interaction.response.defer(thinking=True)
         async with self.session.ctx.typing():
             if not self.selected_effects:
-                await interaction.response.send_message("No effects selected. Use the dropdown to pick effects.", ephemeral=True)
+                # ephemeral message to user
+                await interaction.followup.send("No effects selected. Use the dropdown to pick effects.", ephemeral=True)
                 return
+            # Apply selected effects
             await self.session.apply_effects(self.selected_effects)
+            # Update the message embed and show the current image
             await self.session.update_message(self, f"Applied: {', '.join(self.selected_effects)}")
+            # Clear the stored selection
             self.selected_effects = []
-            self.select.values = []
-            await interaction.response.defer()
+            # Reset the select UI by recreating options with default=False
+            new_options = _make_select_options()
+            # Replace the select item in the view
+            try:
+                # remove old select and add a fresh one (keeps UI consistent across discord.py versions)
+                self.remove_item(self.select)
+            except Exception:
+                pass
+            self.select = discord.ui.Select(placeholder="Choose effects (you can multi-select)", min_values=1, max_values=5, options=new_options)
+            self.select.callback = self.select_callback
+            self.add_item(self.select)
+            # Inform user briefly
+            await interaction.followup.send("Effects applied.", ephemeral=True)
 
     async def undo_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
         undone = await self.session.undo()
         if not undone:
-            await interaction.response.send_message("Nothing to undo.", ephemeral=True)
+            await interaction.followup.send("Nothing to undo.", ephemeral=True)
             return
         await self.session.update_message(self, "Undid last effect")
-        await interaction.response.defer()
+        await interaction.followup.send("Undid last effect.", ephemeral=True)
 
     async def finish_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
         await self.session.finish_post(finalize=True)
-        await interaction.response.send_message("Final image posted.", ephemeral=True)
+        await interaction.followup.send("Final image posted.", ephemeral=True)
         self.stop()
 
     async def cancel_callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message("Editor closed without posting final image.", ephemeral=True)
+        await interaction.response.defer(thinking=True)
+        await interaction.followup.send("Editor closed without posting final image.", ephemeral=True)
         self.stop()
 
 
