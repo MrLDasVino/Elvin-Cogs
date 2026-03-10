@@ -33,10 +33,11 @@ class Glint(commands.Cog):
         - Attach an image and run `[p]glint`
         - Mention a user to use their avatar: `[p]glint @SomeUser`
 
-        Notes:
+        Behavior:
         - The editor message is public but only the command user can interact with the UI.
-        - The bot will edit the same message in-place when applying/undoing effects (no extra replies).
-        - Final result is posted publicly when you press Finish or when the editor times out.
+        - Selecting an effect applies it immediately (no separate Apply button).
+        - The editor edits the same message in-place; no extra replies are sent while editing.
+        - Buttons and select are disabled when the session ends (timeout, finish, cancel).
         """
         image_bytes = None
         image_name = "glint.png"
@@ -45,11 +46,10 @@ class Glint(commands.Cog):
         if ctx.message.mentions:
             target = ctx.message.mentions[0]
             try:
-                # Support both Member.display_avatar and legacy avatar attributes
                 avatar = getattr(target, "display_avatar", None) or getattr(target, "avatar", None) or getattr(target, "avatar_url", None)
                 if avatar:
                     avatar_url = avatar.replace(size=1024).url if hasattr(avatar, "replace") else str(avatar)
-                    async with self.bot.http._session.get(avatar_url, timeout=10) as resp:
+                    async with ctx.bot.http._session.get(avatar_url, timeout=10) as resp:
                         if resp.status == 200:
                             image_bytes = await resp.read()
                             image_name = f"{target.id}_avatar.png"
@@ -86,7 +86,7 @@ class Glint(commands.Cog):
             if m:
                 url = m.group(0)
                 try:
-                    async with self.bot.http._session.get(url, timeout=10) as resp:
+                    async with ctx.bot.http._session.get(url, timeout=10) as resp:
                         ctype = resp.headers.get("content-type", "")
                         # Accept if content-type indicates image OR filename ends with common image extensions
                         if resp.status == 200 and ("image" in ctype or url.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))):
@@ -110,7 +110,7 @@ class Glint(commands.Cog):
         # Create session state
         session = GlintSession(ctx, base_image, image_name)
         view = GlintEditorView(session, timeout=300)
-        embed = session.make_embed("Editor opened — choose effects from the dropdown and press Apply", random_color=True)
+        embed = session.make_embed("Editor opened — choose effects from the dropdown (selection applies immediately).", random_color=True)
 
         # Attach the initial image to the editor message so it can be edited in-place
         bio = io.BytesIO()
@@ -156,7 +156,7 @@ class GlintSession:
     def _nice_embed_base(self, title: str, description: str, color: int) -> discord.Embed:
         embed = discord.Embed(title=title, description=description, color=color)
         embed.set_author(name="Glint Image Editor", icon_url=self.ctx.bot.user.display_avatar.replace(size=64).url)
-        embed.set_footer(text="Select effects, press Apply to stack, Undo to remove last, Finish to post.")
+        embed.set_footer(text="Select effects to apply immediately. Undo removes last. Finish posts final image.")
         return embed
 
     def make_embed(self, description: str, random_color: bool = False) -> discord.Embed:
@@ -190,7 +190,6 @@ class GlintSession:
             pass
 
         # If attachments on edit are not supported, edit embed only (best-effort).
-        # This avoids sending extra public messages. The embed image may not update on some library versions.
         try:
             await self.message.edit(embed=embed, view=view)
             return
@@ -290,9 +289,9 @@ class GlintEditorView(discord.ui.View):
         self.session = session
         self.selected_effects: List[str] = []
 
-        # Select
+        # Select (selecting applies immediately)
         options = _make_select_options()
-        self.select = discord.ui.Select(placeholder="Choose effects (multi-select)", min_values=1, max_values=5, options=options)
+        self.select = discord.ui.Select(placeholder="Choose effects (multi-select) — selection applies immediately", min_values=1, max_values=5, options=options)
         self.select.callback = self.select_callback
         self.add_item(self.select)
 
@@ -309,10 +308,6 @@ class GlintEditorView(discord.ui.View):
         self.add_item(self.increase_button)
 
         # Action buttons
-        self.apply_button = discord.ui.Button(label="Apply", style=discord.ButtonStyle.success, row=2)
-        self.apply_button.callback = self.apply_callback
-        self.add_item(self.apply_button)
-
         self.undo_button = discord.ui.Button(label="Undo", style=discord.ButtonStyle.secondary, row=2)
         self.undo_button.callback = self.undo_callback
         self.add_item(self.undo_button)
@@ -339,17 +334,53 @@ class GlintEditorView(discord.ui.View):
             return False
         return True
 
+    async def on_timeout(self) -> None:
+        # Disable all components when the view times out and update the message
+        for child in list(self.children):
+            try:
+                child.disabled = True
+            except Exception:
+                pass
+        # Edit the message to reflect disabled controls and post final image if not already posted
+        try:
+            if self.session.message:
+                # update embed to indicate timeout
+                await self.session.update_message(self, "Editor timed out; current image (controls disabled).")
+        except Exception:
+            pass
+        # Post final result if not already posted
+        if not self.session.finished:
+            await self.session.finish_post(finalize=False)
+
     async def select_callback(self, interaction: discord.Interaction):
         # interaction_check already validated owner
         # Save the selected values (read-only property)
         self.selected_effects = list(self.select.values)
-        # Acknowledge silently by deferring the interaction (no public followups)
+        # Acknowledge the interaction to avoid "This interaction failed"
         try:
             await interaction.response.defer()
         except Exception:
-            # If defer fails, try a simple response to avoid "This interaction failed"
+            pass
+
+        # Immediately apply the selected effects
+        if not self.selected_effects:
+            return
+        await self.session.apply_effects(self.selected_effects)
+        # Update the editor message in-place (no extra public replies)
+        await self.session.update_message(self, f"Applied: {', '.join(self.selected_effects)}")
+        # Clear stored selection and reset the select options in-place (preferred)
+        self.selected_effects = []
+        try:
+            # Replace options objects to clear selection without removing the component
+            self.select.options = _make_select_options()
+            self.select.placeholder = "Choose effects (multi-select) — selection applies immediately"
+        except Exception:
+            # Fallback: remove and re-add select (less ideal)
             try:
-                await interaction.response.send_message(content=None, ephemeral=True)
+                self.remove_item(self.select)
+                self.select = discord.ui.Select(placeholder="Choose effects (multi-select) — selection applies immediately", min_values=1, max_values=5, options=_make_select_options())
+                self.select.callback = self.select_callback
+                self.add_item(self.select)
             except Exception:
                 pass
 
@@ -357,7 +388,6 @@ class GlintEditorView(discord.ui.View):
         # interaction_check already validated owner
         self.session.intensity = max(10, self.session.intensity - 10)
         self.intensity_label.label = f"{self.session.intensity}%"
-        # Update the editor message in-place (no extra public replies)
         await self.session.update_message(self, f"Intensity set to {self.session.intensity}%")
         try:
             await interaction.response.defer()
@@ -373,39 +403,6 @@ class GlintEditorView(discord.ui.View):
             await interaction.response.defer()
         except Exception:
             pass
-
-    async def apply_callback(self, interaction: discord.Interaction):
-        # interaction_check already validated owner
-        # Defer to acknowledge the interaction and avoid "This interaction failed"
-        try:
-            await interaction.response.defer()
-        except Exception:
-            pass
-
-        async with self.session.ctx.typing():
-            if not self.selected_effects:
-                # No followups or public messages — just return after acknowledging
-                return
-            # Apply selected effects
-            await self.session.apply_effects(self.selected_effects)
-            # Update the editor message in-place (no extra public replies)
-            await self.session.update_message(self, f"Applied: {', '.join(self.selected_effects)}")
-            # Clear stored selection and reset the select options in-place (preferred)
-            self.selected_effects = []
-            try:
-                # Replace options objects to clear selection without removing the component
-                self.select.options = _make_select_options()
-                self.select.placeholder = "Choose effects (multi-select)"
-            except Exception:
-                # Fallback: remove and re-add select (less ideal)
-                try:
-                    self.remove_item(self.select)
-                    self.select = discord.ui.Select(placeholder="Choose effects (multi-select)", min_values=1, max_values=5, options=_make_select_options())
-                    self.select.callback = self.select_callback
-                    self.add_item(self.select)
-                except Exception:
-                    pass
-            # Do not send any followup or ephemeral message.
 
     async def undo_callback(self, interaction: discord.Interaction):
         # interaction_check already validated owner
@@ -425,6 +422,18 @@ class GlintEditorView(discord.ui.View):
             await interaction.response.defer()
         except Exception:
             pass
+        # Disable all components immediately so users can't interact while posting
+        for child in list(self.children):
+            try:
+                child.disabled = True
+            except Exception:
+                pass
+        # Update the editor message to show controls disabled
+        try:
+            if self.session.message:
+                await self.session.update_message(self, "Finishing and posting final image (controls disabled).")
+        except Exception:
+            pass
         await self.session.finish_post(finalize=True)
         self.stop()
 
@@ -434,7 +443,17 @@ class GlintEditorView(discord.ui.View):
             await interaction.response.defer()
         except Exception:
             pass
-        # Close without posting final image
+        # Disable all components immediately
+        for child in list(self.children):
+            try:
+                child.disabled = True
+            except Exception:
+                pass
+        try:
+            if self.session.message:
+                await self.session.update_message(self, "Editor closed without posting final image (controls disabled).")
+        except Exception:
+            pass
         self.stop()
 
 
