@@ -2,7 +2,8 @@ import io
 import math
 import asyncio
 import random
-from typing import List, Optional, Tuple
+import re
+from typing import List, Optional
 
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageChops, ImageDraw
 
@@ -10,10 +11,13 @@ import discord
 from redbot.core import commands
 
 
+URL_RE = re.compile(r"https?://\S+")
+
+
 # ---------- Cog ----------
 
 class Glint(commands.Cog):
-    """Interactive image editor: apply stacked effects, undo, and post results via dropdown and buttons."""
+    """Interactive image editor: apply stacked effects, undo, adjustable intensity, and post results."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -21,7 +25,7 @@ class Glint(commands.Cog):
 
     @commands.command(name="glint")
     @commands.guild_only()
-    async def glint(self, ctx: commands.Context, *, url: Optional[str] = None):
+    async def glint(self, ctx: commands.Context, *, maybe_url: Optional[str] = None):
         """
         Open the Glint image editor.
         Usage:
@@ -30,11 +34,10 @@ class Glint(commands.Cog):
         - Attach an image and run `[p]glint`
         - Mention a user to use their avatar: `[p]glint @SomeUser`
         """
-        # Resolve image: attachments, reply reference, mention avatar, or provided URL
         image_bytes = None
         image_name = "glint.png"
 
-        # If user mentioned someone, try to use their avatar
+        # 0) If user mentioned someone, try to use their avatar (explicit mention anywhere in message)
         if ctx.message.mentions:
             target = ctx.message.mentions[0]
             try:
@@ -46,11 +49,14 @@ class Glint(commands.Cog):
             except Exception:
                 image_bytes = None
 
-        # 1) If message has attachments (takes precedence over URL)
+        # 1) If message has attachments (highest priority after mention)
         if image_bytes is None and ctx.message.attachments:
             attachment = ctx.message.attachments[0]
-            image_bytes = await attachment.read()
-            image_name = attachment.filename
+            try:
+                image_bytes = await attachment.read()
+                image_name = attachment.filename or image_name
+            except Exception:
+                image_bytes = None
 
         # 2) If replied to a message with attachments
         if image_bytes is None and ctx.message.reference:
@@ -59,19 +65,26 @@ class Glint(commands.Cog):
                 if ref.attachments:
                     attachment = ref.attachments[0]
                     image_bytes = await attachment.read()
-                    image_name = attachment.filename
+                    image_name = attachment.filename or image_name
             except Exception:
                 pass
 
-        # 3) If URL provided
-        if image_bytes is None and url:
-            # If url looks like a mention (e.g., @user) we've already handled mentions above.
-            if url.startswith("http"):
+        # 3) If a URL was provided as argument or present in message content, try to fetch it
+        if image_bytes is None:
+            # Try the explicit argument first
+            candidate_text = maybe_url or ""
+            # If no explicit arg, search the whole message content for a URL
+            if not candidate_text:
+                candidate_text = ctx.message.content or ""
+            # Find first http(s) URL
+            m = URL_RE.search(candidate_text)
+            if m:
+                url = m.group(0)
                 try:
                     async with self.bot.http._session.get(url) as resp:
                         if resp.status == 200:
                             image_bytes = await resp.read()
-                            image_name = url.split("/")[-1].split("?")[0] or "glint.png"
+                            image_name = url.split("/")[-1].split("?")[0] or image_name
                 except Exception:
                     image_bytes = None
 
@@ -91,7 +104,24 @@ class Glint(commands.Cog):
         session = GlintSession(ctx, base_image, image_name)
         view = GlintEditorView(session, timeout=300)
         embed = session.make_embed("Editor opened — choose effects from the dropdown and press Apply", random_color=True)
-        message = await ctx.send(embed=embed, view=view)
+
+        # Attach the initial image to the editor message so it can be edited in-place
+        bio = io.BytesIO()
+        base_image.convert("RGBA").save(bio, "PNG")
+        bio.seek(0)
+        file = discord.File(bio, filename=image_name)
+
+        # Send the editor message with the image attached. Keep a reference to the message for in-place edits.
+        try:
+            message = await ctx.send(embed=embed, file=file, view=view)
+        except Exception:
+            # Fallback: send without file (some versions) then send file separately and keep the editor message
+            message = await ctx.send(embed=embed, view=view)
+            try:
+                await ctx.send(file=file)
+            except Exception:
+                pass
+
         session.set_message(message)
         await view.wait()
         # When view times out, finalize if not already posted
@@ -110,6 +140,7 @@ class GlintSession:
         self.applied_effects: List[str] = []
         self.message: Optional[discord.Message] = None
         self.finished = False
+        self.intensity = 100  # percent
 
     def set_message(self, message: discord.Message):
         self.message = message
@@ -124,7 +155,7 @@ class GlintSession:
         color = random.randint(0, 0xFFFFFF) if random_color else 0x00FFAA
         embed = self._nice_embed_base("Glint Editor", description, color)
         embed.add_field(name="Applied effects", value=(", ".join(self.applied_effects) or "None"), inline=False)
-        # Add a small thumbnail of the current image (attachment will be used to show it)
+        embed.add_field(name="Intensity", value=f"{self.intensity}%", inline=True)
         embed.set_thumbnail(url=f"attachment://{self.filename}")
         return embed
 
@@ -138,21 +169,36 @@ class GlintSession:
         bio.seek(0)
         file = discord.File(bio, filename=self.filename)
         embed.set_image(url=f"attachment://{self.filename}")
+
+        # Try to edit the original message and attach the updated image in-place.
+        # Different discord.py/Red versions handle attachments differently; try robustly.
         try:
-            # message.edit does not accept 'file' directly; replace by sending a new message if edit fails
-            await self.message.edit(embed=embed, view=view)
-            # follow up with attachment so embed image resolves (edit cannot attach files reliably across versions)
-            await self.ctx.send(file=file)
+            await self.message.edit(embed=embed, attachments=[file], view=view)
+            return
         except Exception:
-            try:
-                await self.ctx.send(embed=embed, file=file, view=view)
-            except Exception:
-                pass
+            pass
+
+        # Some versions don't accept attachments on edit; try editing embed only then send the file so the embed image resolves.
+        try:
+            await self.message.edit(embed=embed, view=view)
+            # send the file separately (ephemeral to channel)
+            await self.ctx.send(file=file)
+            return
+        except Exception:
+            pass
+
+        # Last resort: send a new message with embed+file and update session.message to point to it (so future edits target it).
+        try:
+            new_msg = await self.ctx.send(embed=embed, file=file, view=view)
+            self.message = new_msg
+        except Exception:
+            # If even that fails, silently ignore (we don't want to crash the bot)
+            pass
 
     async def apply_effects(self, effects: List[str]):
         img = self.current_image.copy()
         for eff in effects:
-            img = apply_effect(img, eff)
+            img = apply_effect(img, eff, intensity=self.intensity)
             self.applied_effects.append(eff)
         self.current_image = img
 
@@ -162,7 +208,7 @@ class GlintSession:
         self.applied_effects.pop()
         img = self.base_image.copy()
         for eff in self.applied_effects:
-            img = apply_effect(img, eff)
+            img = apply_effect(img, eff, intensity=self.intensity)
         self.current_image = img
         return True
 
@@ -176,6 +222,7 @@ class GlintSession:
         color = random.randint(0, 0xFFFFFF)
         embed = self._nice_embed_base("Glint Result", ("Final image" if finalize else "Editor timed out; current image"), color)
         embed.add_field(name="Effects", value=(", ".join(self.applied_effects) or "None"), inline=False)
+        embed.add_field(name="Intensity", value=f"{self.intensity}%", inline=True)
         embed.set_image(url=f"attachment://{self.filename}")
         await self.ctx.send(embed=embed, file=file)
         self.finished = True
@@ -210,7 +257,8 @@ EFFECT_CHOICES = [
     ("Solar Glow", "solar_glow"),
 ]
 
-def _make_select_options() -> List[discord.SelectOption]:
+
+def _make_select_options():
     return [discord.SelectOption(label=label, value=value) for label, value in EFFECT_CHOICES]
 
 
@@ -220,26 +268,38 @@ class GlintEditorView(discord.ui.View):
         self.session = session
         self.selected_effects: List[str] = []
 
-        # Add Select
+        # Select
         options = _make_select_options()
-        self.select = discord.ui.Select(placeholder="Choose effects (you can multi-select)", min_values=1, max_values=5, options=options)
+        self.select = discord.ui.Select(placeholder="Choose effects (multi-select)", min_values=1, max_values=5, options=options)
         self.select.callback = self.select_callback
         self.add_item(self.select)
 
-        # Buttons
-        self.apply_button = discord.ui.Button(label="Apply", style=discord.ButtonStyle.success)
+        # Intensity controls (small buttons)
+        self.decrease_button = discord.ui.Button(label="-", style=discord.ButtonStyle.secondary, row=1)
+        self.decrease_button.callback = self.decrease_intensity
+        self.add_item(self.decrease_button)
+
+        self.intensity_label = discord.ui.Button(label=f"{self.session.intensity}%", style=discord.ButtonStyle.gray, disabled=True, row=1)
+        self.add_item(self.intensity_label)
+
+        self.increase_button = discord.ui.Button(label="+", style=discord.ButtonStyle.secondary, row=1)
+        self.increase_button.callback = self.increase_intensity
+        self.add_item(self.increase_button)
+
+        # Action buttons
+        self.apply_button = discord.ui.Button(label="Apply", style=discord.ButtonStyle.success, row=2)
         self.apply_button.callback = self.apply_callback
         self.add_item(self.apply_button)
 
-        self.undo_button = discord.ui.Button(label="Undo", style=discord.ButtonStyle.secondary)
+        self.undo_button = discord.ui.Button(label="Undo", style=discord.ButtonStyle.secondary, row=2)
         self.undo_button.callback = self.undo_callback
         self.add_item(self.undo_button)
 
-        self.finish_button = discord.ui.Button(label="Finish", style=discord.ButtonStyle.primary)
+        self.finish_button = discord.ui.Button(label="Finish", style=discord.ButtonStyle.primary, row=2)
         self.finish_button.callback = self.finish_callback
         self.add_item(self.finish_button)
 
-        self.cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
+        self.cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.danger, row=2)
         self.cancel_button.callback = self.cancel_callback
         self.add_item(self.cancel_button)
 
@@ -248,32 +308,38 @@ class GlintEditorView(discord.ui.View):
         self.selected_effects = list(self.select.values)
         await interaction.response.defer()
 
+    async def decrease_intensity(self, interaction: discord.Interaction):
+        # Decrease by 10%, min 10%
+        self.session.intensity = max(10, self.session.intensity - 10)
+        self.intensity_label.label = f"{self.session.intensity}%"
+        await self.session.update_message(self, f"Intensity set to {self.session.intensity}%")
+        await interaction.response.defer()
+
+    async def increase_intensity(self, interaction: discord.Interaction):
+        # Increase by 10%, max 300%
+        self.session.intensity = min(300, self.session.intensity + 10)
+        self.intensity_label.label = f"{self.session.intensity}%"
+        await self.session.update_message(self, f"Intensity set to {self.session.intensity}%")
+        await interaction.response.defer()
+
     async def apply_callback(self, interaction: discord.Interaction):
-        # Defer early to avoid "interaction not responded" errors while processing
         await interaction.response.defer(thinking=True)
         async with self.session.ctx.typing():
             if not self.selected_effects:
-                # ephemeral message to user
                 await interaction.followup.send("No effects selected. Use the dropdown to pick effects.", ephemeral=True)
                 return
-            # Apply selected effects
             await self.session.apply_effects(self.selected_effects)
-            # Update the message embed and show the current image
             await self.session.update_message(self, f"Applied: {', '.join(self.selected_effects)}")
-            # Clear the stored selection
+            # Clear stored selection and recreate select to clear UI
             self.selected_effects = []
-            # Reset the select UI by recreating options with default=False
-            new_options = _make_select_options()
-            # Replace the select item in the view
             try:
-                # remove old select and add a fresh one (keeps UI consistent across discord.py versions)
                 self.remove_item(self.select)
             except Exception:
                 pass
-            self.select = discord.ui.Select(placeholder="Choose effects (you can multi-select)", min_values=1, max_values=5, options=new_options)
+            self.select = discord.ui.Select(placeholder="Choose effects (multi-select)", min_values=1, max_values=5, options=_make_select_options())
             self.select.callback = self.select_callback
+            # Add the new select back into the view (discord.py will append; that's acceptable)
             self.add_item(self.select)
-            # Inform user briefly
             await interaction.followup.send("Effects applied.", ephemeral=True)
 
     async def undo_callback(self, interaction: discord.Interaction):
@@ -297,14 +363,14 @@ class GlintEditorView(discord.ui.View):
         self.stop()
 
 
-# ---------- Image effect implementations ----------
+# ---------- Image effect implementations (with intensity) ----------
 
-def apply_effect(img: Image.Image, effect: str) -> Image.Image:
+def apply_effect(img: Image.Image, effect: str, intensity: int = 100) -> Image.Image:
     try:
         if effect == "grayscale":
             return ImageOps.grayscale(img).convert("RGBA")
         if effect == "sepia":
-            return sepia(img)
+            return sepia(img, intensity)
         if effect == "invert":
             r, g, b, a = img.split()
             rgb = Image.merge("RGB", (r, g, b))
@@ -312,9 +378,11 @@ def apply_effect(img: Image.Image, effect: str) -> Image.Image:
             r2, g2, b2 = inverted.split()
             return Image.merge("RGBA", (r2, g2, b2, a))
         if effect == "blur":
-            return img.filter(ImageFilter.BoxBlur(2))
+            radius = max(1, int(1 + (intensity / 100.0) * 3))
+            return img.filter(ImageFilter.BoxBlur(radius))
         if effect == "gaussian_blur":
-            return img.filter(ImageFilter.GaussianBlur(radius=4))
+            radius = max(1, int((intensity / 100.0) * 6))
+            return img.filter(ImageFilter.GaussianBlur(radius=radius))
         if effect == "contour":
             return img.filter(ImageFilter.CONTOUR)
         if effect == "emboss":
@@ -324,52 +392,54 @@ def apply_effect(img: Image.Image, effect: str) -> Image.Image:
         if effect == "edge_enhance":
             return img.filter(ImageFilter.EDGE_ENHANCE)
         if effect == "posterize":
-            return ImageOps.posterize(img.convert("RGB"), bits=3).convert("RGBA")
+            bits = max(1, int(8 - (intensity / 100.0) * 5))
+            return ImageOps.posterize(img.convert("RGB"), bits=bits).convert("RGBA")
         if effect == "solarize":
-            return ImageOps.solarize(img.convert("RGB"), threshold=128).convert("RGBA")
+            threshold = int(128 * (200 / max(1, intensity)))
+            return ImageOps.solarize(img.convert("RGB"), threshold=threshold).convert("RGBA")
         if effect == "pixelate":
-            return pixelate(img, pixel_size=12)
+            pixel_size = max(2, int((intensity / 100.0) * 20))
+            return pixelate(img, pixel_size=pixel_size)
         if effect == "vignette":
-            return vignette(img)
+            return vignette(img, intensity=intensity)
         if effect == "contrast_up":
-            return ImageEnhance.Contrast(img).enhance(1.5)
+            factor = 1.0 + (intensity / 100.0) * 1.5
+            return ImageEnhance.Contrast(img).enhance(factor)
         if effect == "brightness_up":
-            return ImageEnhance.Brightness(img).enhance(1.3)
+            factor = 1.0 + (intensity / 100.0) * 1.2
+            return ImageEnhance.Brightness(img).enhance(factor)
         if effect == "color_boost":
-            return ImageEnhance.Color(img).enhance(1.6)
+            factor = 1.0 + (intensity / 100.0) * 1.8
+            return ImageEnhance.Color(img).enhance(factor)
         if effect == "warm_tone":
-            return color_tone(img, (30, 10, -10))
+            return color_tone(img, (int(30 * intensity / 100.0), int(10 * intensity / 100.0), int(-10 * intensity / 100.0)))
         if effect == "cool_tone":
-            return color_tone(img, (-10, -10, 30))
+            return color_tone(img, (int(-10 * intensity / 100.0), int(-10 * intensity / 100.0), int(30 * intensity / 100.0)))
         if effect == "old_film":
-            return old_film(img)
+            return old_film(img, intensity=intensity)
         if effect == "frame":
-            return add_frame(img)
+            border = max(10, int(30 * intensity / 100.0))
+            return add_frame(img, border=border)
         if effect == "hue_plus_30":
-            return shift_hue(img, 30)
+            deg = int(30 * (intensity / 100.0))
+            return shift_hue(img, deg)
         if effect == "hue_minus_30":
-            return shift_hue(img, -30)
+            deg = -int(30 * (intensity / 100.0))
+            return shift_hue(img, deg)
         if effect == "swap_rb":
             return swap_red_blue(img)
         if effect == "solar_glow":
-            return solar_glow(img)
+            return solar_glow(img, intensity=intensity)
     except Exception:
         return img
     return img
 
 
-def sepia(img: Image.Image) -> Image.Image:
-    img = img.convert("RGB")
-    width, height = img.size
-    pixels = img.load()
-    for py in range(height):
-        for px in range(width):
-            r, g, b = pixels[px, py]
-            tr = int(0.393 * r + 0.769 * g + 0.189 * b)
-            tg = int(0.349 * r + 0.686 * g + 0.168 * b)
-            tb = int(0.272 * r + 0.534 * g + 0.131 * b)
-            pixels[px, py] = (min(255, tr), min(255, tg), min(255, tb))
-    return img.convert("RGBA")
+def sepia(img: Image.Image, intensity: int = 100) -> Image.Image:
+    img_rgb = img.convert("RGB")
+    sep = Image.new("RGB", img_rgb.size, (112, 66, 20))
+    blended = Image.blend(img_rgb, sep, alpha=min(0.9, intensity / 300.0))
+    return blended.convert("RGBA")
 
 
 def pixelate(img: Image.Image, pixel_size: int = 10) -> Image.Image:
@@ -378,7 +448,7 @@ def pixelate(img: Image.Image, pixel_size: int = 10) -> Image.Image:
     return result.convert("RGBA")
 
 
-def vignette(img: Image.Image) -> Image.Image:
+def vignette(img: Image.Image, intensity: int = 100) -> Image.Image:
     width, height = img.size
     gradient = Image.new('L', (width, height), 0)
     draw = ImageDraw.Draw(gradient)
@@ -388,11 +458,13 @@ def vignette(img: Image.Image) -> Image.Image:
             dx = x - width / 2
             dy = y - height / 2
             d = math.hypot(dx, dy)
-            intensity = int(255 * (d / max_dist))
-            if intensity > 255:
-                intensity = 255
-            draw.point((x, y), fill=intensity)
-    alpha = gradient.filter(ImageFilter.GaussianBlur(radius=min(width, height) // 10))
+            t = (d / max_dist)
+            intensity_factor = min(1.0, (intensity / 100.0) * 1.5)
+            intensity_val = int(255 * (t ** (1 + intensity_factor)))
+            if intensity_val > 255:
+                intensity_val = 255
+            draw.point((x, y), fill=intensity_val)
+    alpha = gradient.filter(ImageFilter.GaussianBlur(radius=max(1, min(width, height) // 20)))
     black = Image.new('RGBA', (width, height), (0, 0, 0, 255))
     img_with_vignette = Image.composite(black, img.convert("RGBA"), alpha)
     return img_with_vignette
@@ -407,10 +479,11 @@ def color_tone(img: Image.Image, shifts=(0, 0, 0)) -> Image.Image:
     return Image.merge("RGBA", (r, g, b, a))
 
 
-def old_film(img: Image.Image) -> Image.Image:
-    sep = sepia(img)
-    noise = Image.effect_noise(img.size, 64).convert("L").point(lambda p: p // 3)
-    noise = Image.merge("RGBA", (noise, noise, noise, Image.new("L", img.size, 80)))
+def old_film(img: Image.Image, intensity: int = 100) -> Image.Image:
+    sep = sepia(img, intensity=intensity)
+    grain_strength = int(max(10, (intensity / 100.0) * 80))
+    noise = Image.effect_noise(img.size, grain_strength).convert("L").point(lambda p: p // 3)
+    noise = Image.merge("RGBA", (noise, noise, noise, Image.new("L", img.size, int(40 * intensity / 100.0))))
     combined = ImageChops.add(sep.convert("RGBA"), noise)
     return combined
 
@@ -441,9 +514,13 @@ def swap_red_blue(img: Image.Image) -> Image.Image:
     return Image.merge("RGBA", (b, g, r, a))
 
 
-def solar_glow(img: Image.Image) -> Image.Image:
+def solar_glow(img: Image.Image, intensity: int = 100) -> Image.Image:
     img = img.convert("RGBA")
-    glow = img.copy().filter(ImageFilter.GaussianBlur(radius=20))
+    radius = max(5, int((intensity / 100.0) * 30))
+    glow = img.copy().filter(ImageFilter.GaussianBlur(radius=radius))
     enhancer = ImageEnhance.Brightness(glow)
-    glow = enhancer.enhance(1.8)
-    return ImageChops.screen(img, glow)
+    glow = enhancer.enhance(1.0 + (intensity / 100.0) * 1.5)
+    try:
+        return ImageChops.screen(img, glow)
+    except Exception:
+        return img
