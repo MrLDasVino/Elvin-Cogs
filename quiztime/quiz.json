@@ -1,0 +1,46 @@
+{
+  "default_thumbnail": "",
+  "category_thumbnails": {
+    "Video Games": "",
+    "Music": "",
+    "History": "",
+    "Geography": "",
+    "Science": "",
+    "Nature & Animals": "",
+    "Food & Drink": "",
+    "Fantasy": "",
+    "Biology": "",
+    "Chemistry": "",
+    "Physics": "",
+    "Mathematics": "",
+    "Literature": "",
+    "Philosophy": "",
+    "Movies": "",
+    "TV Shows": "",
+    "Anime & Manga": "",
+    "Cartoons": "",
+    "Mythology": "",
+    "Memes": "",
+    "Riddles": ""
+  },
+  "questions": [
+    {
+      "category": "Video Games",
+      "question": "In the original Super Mario Bros., what is the name of Mario's brother?",
+      "correct": "Luigi",
+      "wrong": ["Wario", "Toad", "Yoshi"]
+    },
+    {
+      "category": "Riddles",
+      "question": "What has keys but can't open locks?",
+      "correct": "A piano",
+      "wrong": ["A map", "A clock", "A book"]
+    },
+    {
+      "category": "Geography",
+      "question": "Which is the largest ocean on Earth?",
+      "correct": "Pacific Ocean",
+      "wrong": ["Atlantic Ocean", "Indian Ocean", "Arctic Ocean"]
+    }
+  ]
+}
