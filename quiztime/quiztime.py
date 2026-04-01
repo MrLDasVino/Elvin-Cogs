@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import random
-from typing import Optional
+from typing import Optional, Dict
 
 import discord
 from discord import Embed
@@ -40,18 +40,45 @@ class QuizView(View):
         self.correct_answer_text = correct_answer_text
         self.answered = False
         self.message: Optional[discord.Message] = None
+        self._expired_handled = False
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return not interaction.user.bot
 
     async def on_timeout(self):
+        # Called when view times out. If nobody answered, mark expired and edit message.
+        if self._expired_handled:
+            return
+        self._expired_handled = True
+        # disable all buttons
         for child in self.children:
             child.disabled = True
         if self.message:
             try:
-                await self.message.edit(view=self)
+                # build expired embed revealing the correct answer
+                embed = self._expired_embed()
+                await self.message.edit(embed=embed, view=self)
             except Exception:
                 pass
+        # remove from active quizzes tracking
+        try:
+            channel_id = self.message.channel.id if self.message else None
+            if channel_id and channel_id in self.cog._active_quizzes:
+                stored = self.cog._active_quizzes.get(channel_id)
+                if stored is self:
+                    del self.cog._active_quizzes[channel_id]
+        except Exception:
+            pass
+
+    def _expired_embed(self) -> Embed:
+        color = discord.Color.dark_grey()
+        embed = Embed(
+            title="Quiz Expired",
+            description=f"**Time's up!** No one answered in time.\n\n**Answer:** {self.correct_answer_text}",
+            color=color
+        )
+        embed.set_footer(text="This question expired. A new quiz will be posted soon.")
+        return embed
 
     async def handle_click(self, interaction: discord.Interaction, button: QuizButton):
         if self.answered:
@@ -68,28 +95,44 @@ class QuizView(View):
             except Exception:
                 pass
 
+        # remove from active quizzes tracking
+        try:
+            channel_id = self.message.channel.id if self.message else None
+            if channel_id and channel_id in self.cog._active_quizzes:
+                stored = self.cog._active_quizzes.get(channel_id)
+                if stored is self:
+                    del self.cog._active_quizzes[channel_id]
+        except Exception:
+            pass
+
         if button.is_correct:
             amount = await self.cog._get_reward_amount()
             try:
                 await bank.deposit_credits(interaction.user, amount)
                 await self.cog._increment_leaderboard(interaction.user)
                 embed = Embed(
-                    title="Correct!",
+                    title="Correct Answer!",
                     description=f"{interaction.user.mention} answered correctly and won **{amount}** credits!",
                     color=discord.Color.green()
                 )
+                embed.add_field(name="Answer", value=f"**{button.answer_text}**", inline=False)
+                embed.set_footer(text="Well done! Keep an eye out for the next quiz.")
             except Exception:
                 embed = Embed(
-                    title="Correct!",
+                    title="Correct Answer!",
                     description=f"{interaction.user.mention} answered correctly but I couldn't award currency (bank error).",
                     color=discord.Color.green()
                 )
+                embed.add_field(name="Answer", value=f"**{button.answer_text}**", inline=False)
         else:
             embed = Embed(
                 title="Incorrect",
-                description=f"{interaction.user.mention} answered but that was incorrect. The correct answer was **{self.correct_answer_text}**.",
+                description=f"{interaction.user.mention} answered but that was incorrect.",
                 color=discord.Color.red()
             )
+            embed.add_field(name="Correct Answer", value=f"**{self.correct_answer_text}**", inline=False)
+            embed.set_footer(text="Better luck next time!")
+
         await interaction.response.send_message(embed=embed)
 
 
@@ -102,6 +145,8 @@ class QuizTime(commands.Cog):
         self.config.register_global(**DEFAULT_CONFIG)
         self._task: Optional[asyncio.Task] = None
         self._load_quiz_file()
+        # track active quiz view per channel so we can expire previous when posting a new one
+        self._active_quizzes: Dict[int, QuizView] = {}
         self._ensure_task_running()
 
     def cog_unload(self):
@@ -172,6 +217,45 @@ class QuizTime(commands.Cog):
     # -------------------------
     # Quiz posting and handling
     # -------------------------
+    async def _expire_previous_quiz_in_channel(self, channel: discord.abc.Messageable):
+        """If a previous quiz is active in this channel and unanswered, expire it immediately."""
+        try:
+            channel_id = channel.id
+        except Exception:
+            return
+        prev_view = self._active_quizzes.get(channel_id)
+        if not prev_view:
+            return
+        # If already answered or expired, nothing to do
+        if prev_view.answered or prev_view._expired_handled:
+            # cleanup
+            try:
+                del self._active_quizzes[channel_id]
+            except KeyError:
+                pass
+            return
+        # mark expired and edit message to show expired embed
+        prev_view._expired_handled = True
+        prev_view.answered = True  # prevent further answers
+        for child in prev_view.children:
+            child.disabled = True
+        if prev_view.message:
+            try:
+                embed = Embed(
+                    title="Quiz Expired",
+                    description=f"**This quiz was closed because a new quiz is being posted.**\n\n**Answer:** {prev_view.correct_answer_text}",
+                    color=discord.Color.dark_grey()
+                )
+                embed.set_footer(text="Expired — a new quiz has been posted.")
+                await prev_view.message.edit(embed=embed, view=prev_view)
+            except Exception:
+                pass
+        # remove from tracking
+        try:
+            del self._active_quizzes[channel_id]
+        except KeyError:
+            pass
+
     async def _post_random_quiz(self, channel: discord.abc.Messageable):
         self._load_quiz_file()
         questions = self.quiz_data.get("questions", [])
@@ -181,6 +265,9 @@ class QuizTime(commands.Cog):
             except Exception:
                 pass
             return
+
+        # expire previous quiz in this channel if present
+        await self._expire_previous_quiz_in_channel(channel)
 
         q = random.choice(questions)
         category = q.get("category", "General")
@@ -194,14 +281,28 @@ class QuizTime(commands.Cog):
         random.shuffle(answers)
         correct_text = correct
 
+        # build a nicer embed
         color = random.randint(0, 0xFFFFFF)
-        embed = Embed(title=f"Quiz — {category}", description=question_text, color=color)
-        answer_lines = []
+        embed = Embed(
+            title=f"📚 Quiz — {category}",
+            description=f"**{question_text}**",
+            color=color
+        )
+        # add choices as a field with emojis/labels
+        choice_lines = []
         for i, ans in enumerate(answers):
-            answer_lines.append(f"**{LABELS[i]}** — {ans}")
-        embed.add_field(name="Choices", value="\n".join(answer_lines), inline=False)
-        embed.set_footer(text="Be the first to click the correct button to win!")
+            choice_lines.append(f"**{LABELS[i]}** — {ans}")
+        embed.add_field(name="Choices", value="\n".join(choice_lines), inline=False)
 
+        # footer with reward range and time limit
+        cfg = await self.config.all()
+        rmin = cfg.get("reward_min", 50)
+        rmax = cfg.get("reward_max", 50)
+        time_limit = 60
+        embed.set_footer(text=f"Be the first to click the correct button to win ({rmin}–{rmax} credits). You have {time_limit} seconds.")
+        embed.timestamp = discord.utils.utcnow()
+
+        # thumbnail
         thumb = self.quiz_data.get("category_thumbnails", {}).get(category) or self.quiz_data.get("default_thumbnail") or None
         if thumb:
             try:
@@ -209,13 +310,13 @@ class QuizTime(commands.Cog):
             except Exception:
                 pass
 
-        view = QuizView(self, correct_answer_text=correct_text, timeout=60)
+        view = QuizView(self, correct_answer_text=correct_text, timeout=time_limit)
         # add buttons (labels A-D) with shuffled answers
         for i, ans in enumerate(answers):
             is_correct = (ans == correct)
             btn = QuizButton(label=LABELS[i], answer_text=ans, is_correct=is_correct)
 
-            # create callback closure
+            # create callback closure capturing btn
             def make_callback(b):
                 async def callback(interaction: discord.Interaction):
                     await view.handle_click(interaction, b)
@@ -227,6 +328,11 @@ class QuizTime(commands.Cog):
         try:
             msg = await channel.send(embed=embed, view=view)
             view.message = msg
+            # track active quiz for this channel
+            try:
+                self._active_quizzes[channel.id] = view
+            except Exception:
+                pass
         except Exception:
             try:
                 await channel.send(embed=embed)
@@ -267,7 +373,6 @@ class QuizTime(commands.Cog):
         """
         Set the quiz channel, how often a quiz gets posted (in minutes), and reward range.
         Example: [p]quiztime set #quiz 60 50 100
-        This sets interval to 60 minutes and reward to a random amount between 50 and 100.
         """
         await self.config.channel_id.set(channel.id)
         await self.config.interval_minutes.set(max(1, interval_minutes))
@@ -378,7 +483,7 @@ class QuizTime(commands.Cog):
         rmax = cfg.get("reward_max", 50)
         lb = cfg.get("leaderboard", {}) or {}
         qcount = len(self.quiz_data.get("questions", []))
-        embed = Embed(title="QuizTime Settings", color=random.randint(0, 0xFFFFFF))
+        embed = Embed(title="⚙️ QuizTime Settings", color=random.randint(0, 0xFFFFFF))
         embed.add_field(name="Channel", value=channel.mention if channel else "Not set", inline=False)
         embed.add_field(name="Enabled", value=str(enabled), inline=True)
         embed.add_field(name="Interval (minutes)", value=str(interval), inline=True)
@@ -413,7 +518,7 @@ class QuizTime(commands.Cog):
             await ctx.send("No leaderboard data yet.")
             return
         items = sorted(lb.items(), key=lambda kv: kv[1], reverse=True)[:top]
-        embed = Embed(title="Quiz Leaderboard", color=random.randint(0, 0xFFFFFF))
+        embed = Embed(title="🏆 Quiz Leaderboard", color=random.randint(0, 0xFFFFFF))
         desc_lines = []
         for user_id, score in items:
             member = ctx.guild.get_member(int(user_id)) if ctx.guild else None

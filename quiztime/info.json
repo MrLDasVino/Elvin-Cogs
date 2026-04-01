@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "short": "Periodic multiple-choice quiz with bank rewards and leaderboard",
   "description": "Posts periodic multiple-choice quiz questions to a configured channel. Uses Discord buttons for answers, awards Redbot bank currency to the first correct responder, and keeps a leaderboard. Questions and category thumbnails are stored in quiz.json.",
-  "install_msg": "QuizTime cog loaded. Use the admin commands to set settings via [p] quiztime set and enable via [p] quiztime enable",
+  "install_msg": "Thank you for installing QuizTime . Use the [p]quiztime command to see the help menu",
   "requirements": [],
   "tags": ["quiz", "trivia", "games", "bank", "leaderboard"]
 }
