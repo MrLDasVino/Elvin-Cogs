@@ -17,17 +17,21 @@ QUIZ_JSON_PATH = os.path.join(BASE_PATH, "quiz.json")
 DEFAULT_CONFIG = {
     "channel_id": None,
     "interval_minutes": 60,
-    "enabled": False,      # Disabled by default
+    "enabled": False,
     "reward_min": 50,
     "reward_max": 50,
-    "offset_min": 0,       # minutes
-    "offset_max": 0,       # minutes
+    "offset_min": 0,
+    "offset_max": 0,
     "leaderboard": {}
 }
 
 LABELS = ["A", "B", "C", "D"]
+PAGE_SIZE = 10  # questions per page for the paginated list
 
 
+# -------------------------
+# UI helpers
+# -------------------------
 class QuizButton(Button):
     def __init__(self, label: str, answer_text: str, is_correct: bool):
         super().__init__(style=discord.ButtonStyle.primary, label=label)
@@ -35,11 +39,89 @@ class QuizButton(Button):
         self.is_correct = is_correct
 
 
+class PaginatorView(View):
+    """Button-based paginator for long text lists. Only the original user may interact."""
+
+    def __init__(self, author_id: int, pages: List[str], timeout: int = 300):
+        super().__init__(timeout=timeout)
+        self.author_id = author_id
+        self.pages = pages
+        self.current = 0
+        self.message: Optional[discord.Message] = None
+
+        # Prev button
+        self.prev_button = Button(style=discord.ButtonStyle.secondary, label="◀ Prev")
+        self.prev_button.callback = self._prev
+        self.add_item(self.prev_button)
+
+        # Page indicator (disabled)
+        self.page_indicator = Button(style=discord.ButtonStyle.gray, label=self._label(), disabled=True)
+        self.add_item(self.page_indicator)
+
+        # Next button
+        self.next_button = Button(style=discord.ButtonStyle.secondary, label="Next ▶")
+        self.next_button.callback = self._next
+        self.add_item(self.next_button)
+
+        # Close button
+        self.close_button = Button(style=discord.ButtonStyle.danger, label="Close")
+        self.close_button.callback = self._close
+        self.add_item(self.close_button)
+
+        self._update_buttons()
+
+    def _label(self) -> str:
+        return f"Page {self.current + 1}/{len(self.pages)}"
+
+    def _update_buttons(self):
+        self.prev_button.disabled = self.current <= 0
+        self.next_button.disabled = self.current >= len(self.pages) - 1
+        self.page_indicator.label = self._label()
+
+    async def _prev(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("You didn't open this paginator.", ephemeral=True)
+            return
+        self.current = max(0, self.current - 1)
+        self._update_buttons()
+        await interaction.response.edit_message(content=None, embed=Embed(description=self.pages[self.current], color=0x2F3136), view=self)
+
+    async def _next(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("You didn't open this paginator.", ephemeral=True)
+            return
+        self.current = min(len(self.pages) - 1, self.current + 1)
+        self._update_buttons()
+        await interaction.response.edit_message(content=None, embed=Embed(description=self.pages[self.current], color=0x2F3136), view=self)
+
+    async def _close(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("You didn't open this paginator.", ephemeral=True)
+            return
+        # disable all buttons and edit
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            pass
+        self.stop()
+
+    async def on_timeout(self):
+        # disable buttons on timeout
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+
 class QuizView(View):
     """
     A View that stays active until explicitly expired by the cog when a new quiz is posted.
-    We set timeout=None so Discord won't auto-timeout the view; expiration is handled
-    by the cog when posting the next quiz in the same channel.
+    timeout=None so Discord won't auto-timeout the view; expiration is handled by the cog.
     """
 
     def __init__(self, cog, correct_answer_text: str):
@@ -53,13 +135,11 @@ class QuizView(View):
         return not interaction.user.bot
 
     async def handle_click(self, interaction: discord.Interaction, button: QuizButton):
-        # If already answered or expired, inform user
         if self.answered:
             await interaction.response.send_message("Someone already answered this question.", ephemeral=True)
             return
 
         self.answered = True
-        # disable all buttons visually
         for child in self.children:
             child.disabled = True
         if self.message:
@@ -68,7 +148,6 @@ class QuizView(View):
             except Exception:
                 pass
 
-        # remove from active quizzes tracking
         try:
             channel_id = self.message.channel.id if self.message else None
             if channel_id and channel_id in self.cog._active_quizzes:
@@ -78,7 +157,6 @@ class QuizView(View):
         except Exception:
             pass
 
-        # Build result embed with optional thumbnails for correct/incorrect
         if button.is_correct:
             amount = await self.cog._get_reward_amount()
 
@@ -102,7 +180,6 @@ class QuizView(View):
                 )
                 embed.add_field(name="Answer", value=f"**{button.answer_text}**", inline=False)
                 embed.set_footer(text="Well done! Keep an eye out for the next quiz.")
-                # correct thumbnail from quiz.json if set
                 thumb = self.cog.quiz_data.get("correct_thumbnail") or None
                 if thumb:
                     try:
@@ -124,7 +201,6 @@ class QuizView(View):
             )
             embed.add_field(name="Correct Answer", value=f"**{self.correct_answer_text}**", inline=False)
             embed.set_footer(text="Better luck next time!")
-            # incorrect thumbnail from quiz.json if set
             thumb = self.cog.quiz_data.get("incorrect_thumbnail") or None
             if thumb:
                 try:
@@ -135,6 +211,9 @@ class QuizView(View):
         await interaction.response.send_message(embed=embed)
 
 
+# -------------------------
+# Cog
+# -------------------------
 class QuizTime(commands.Cog):
     """Periodic multiple-choice quiz with bank rewards and leaderboard."""
 
@@ -145,9 +224,7 @@ class QuizTime(commands.Cog):
         self._task: Optional[asyncio.Task] = None
         self._task_lock = asyncio.Lock()
         self._load_quiz_file()
-        # track active quiz view per channel so we can expire previous when posting a new one
         self._active_quizzes: Dict[int, QuizView] = {}
-        # schedule a safe startup check (non-blocking)
         try:
             asyncio.create_task(self._startup_ensure())
         except Exception:
@@ -195,19 +272,16 @@ class QuizTime(commands.Cog):
             json.dump(self.quiz_data, f, indent=2, ensure_ascii=False)
 
     # -------------------------
-    # Background task management (single-task guarantee)
+    # Background task management
     # -------------------------
     async def _startup_ensure(self):
-        """Run once on cog load to start the background task if enabled."""
         await self.bot.wait_until_ready()
         cfg = await self.config.all()
         if cfg.get("enabled", False):
             await self._start_background_task()
 
     async def _start_background_task(self):
-        """Start the quiz loop, ensuring any previous task is cancelled first."""
         async with self._task_lock:
-            # If a task exists and is running, cancel it first to avoid duplicate posting
             if self._task and not self._task.done():
                 try:
                     self._task.cancel()
@@ -217,8 +291,6 @@ class QuizTime(commands.Cog):
                 except Exception:
                     pass
                 self._task = None
-
-            # Create a single background task
             try:
                 self._task = asyncio.create_task(self._quiz_loop())
             except Exception:
@@ -227,7 +299,6 @@ class QuizTime(commands.Cog):
                     self._task = loop.create_task(self._quiz_loop())
 
     async def _stop_background_task(self):
-        """Cancel the running background task if present."""
         async with self._task_lock:
             if self._task and not self._task.done():
                 self._task.cancel()
@@ -243,10 +314,6 @@ class QuizTime(commands.Cog):
     # Quiz loop
     # -------------------------
     async def _quiz_loop(self):
-        """
-        Single background loop that reads config each iteration.
-        Ensures wait_seconds is computed robustly and never falls below the base interval.
-        """
         await self.bot.wait_until_ready()
         while True:
             cfg = await self.config.all()
@@ -256,18 +323,15 @@ class QuizTime(commands.Cog):
             offset_min = cfg.get("offset_min", 0)
             offset_max = cfg.get("offset_max", 0)
 
-            # If disabled or no channel set, sleep and re-check
             if not enabled or not channel_id:
                 await asyncio.sleep(30)
                 continue
 
-            # compute base seconds (ensure non-negative)
             try:
                 base_seconds = max(0, int(base_minutes) * 60)
             except Exception:
                 base_seconds = 60
 
-            # compute offset seconds (if both zero => no offset)
             offset_seconds = 0
             try:
                 omn = int(offset_min)
@@ -281,13 +345,10 @@ class QuizTime(commands.Cog):
             except Exception:
                 offset_seconds = 0
 
-            # small jitter but never reduce below base_seconds
-            jitter = random.randint(-10, 10)  # +/- 10 seconds
+            jitter = random.randint(-10, 10)
             wait_seconds = base_seconds + offset_seconds + jitter
             if wait_seconds < base_seconds:
                 wait_seconds = base_seconds
-
-            # enforce a sensible minimum sleep to avoid rapid loops
             if wait_seconds < 5:
                 wait_seconds = max(5, base_seconds)
 
@@ -296,29 +357,24 @@ class QuizTime(commands.Cog):
             except asyncio.CancelledError:
                 return
 
-            # re-check enabled flag after sleep
             cfg = await self.config.all()
             if not cfg.get("enabled", False):
                 continue
 
-            # fetch channel and post
             channel = self.bot.get_channel(channel_id)
             if channel is None:
                 try:
                     channel = await self.bot.fetch_channel(channel_id)
                 except Exception:
-                    # if fetching fails, wait a bit before retrying to avoid tight loop
                     await asyncio.sleep(30)
                     continue
 
-            # Post quiz (this function is safe and idempotent)
             await self._post_random_quiz(channel)
 
     # -------------------------
     # Quiz posting and handling
     # -------------------------
     async def _expire_previous_quiz_in_channel(self, channel: discord.abc.Messageable):
-        """If a previous quiz is active in this channel and unanswered, expire it immediately."""
         try:
             channel_id = channel.id
         except Exception:
@@ -326,7 +382,6 @@ class QuizTime(commands.Cog):
         prev_view = self._active_quizzes.get(channel_id)
         if not prev_view:
             return
-        # If already answered or already handled, cleanup and return
         if prev_view.answered:
             try:
                 del self._active_quizzes[channel_id]
@@ -334,7 +389,6 @@ class QuizTime(commands.Cog):
                 pass
             return
 
-        # mark expired to prevent further answers
         prev_view.answered = True
         for child in prev_view.children:
             child.disabled = True
@@ -355,7 +409,6 @@ class QuizTime(commands.Cog):
                 await prev_view.message.edit(embed=embed, view=prev_view)
             except Exception:
                 pass
-        # remove from tracking
         try:
             del self._active_quizzes[channel_id]
         except KeyError:
@@ -371,7 +424,6 @@ class QuizTime(commands.Cog):
                 pass
             return
 
-        # expire previous quiz in this channel if present (only expire when posting a new quiz)
         await self._expire_previous_quiz_in_channel(channel)
 
         q = random.choice(questions)
@@ -386,24 +438,19 @@ class QuizTime(commands.Cog):
         random.shuffle(answers)
         correct_text = correct
 
-        # build a nicer embed
         color = random.randint(0, 0xFFFFFF)
         embed = Embed(
             title=f"📚 Quiz — {category}",
             description=f"**{question_text}**",
             color=color
         )
-        # add choices as a field
         choice_lines = []
         for i, ans in enumerate(answers):
             choice_lines.append(f"**{LABELS[i]}** — {ans}")
         embed.add_field(name="Choices", value="\n".join(choice_lines), inline=False)
-
-        # footer: only the requested short text
         embed.set_footer(text="Be the first to click the correct button to win")
         embed.timestamp = discord.utils.utcnow()
 
-        # thumbnail: category -> default fallback
         thumb = self.quiz_data.get("category_thumbnails", {}).get(category) or self.quiz_data.get("default_thumbnail") or None
         if thumb:
             try:
@@ -411,14 +458,11 @@ class QuizTime(commands.Cog):
             except Exception:
                 pass
 
-        # create a view that does NOT auto-timeout; it will be expired when the next quiz posts
         view = QuizView(self, correct_answer_text=correct_text)
-        # add buttons (labels A-D) with shuffled answers
         for i, ans in enumerate(answers):
             is_correct = (ans == correct)
             btn = QuizButton(label=LABELS[i], answer_text=ans, is_correct=is_correct)
 
-            # create callback closure capturing btn
             def make_callback(b):
                 async def callback(interaction: discord.Interaction):
                     await view.handle_click(interaction, b)
@@ -430,7 +474,6 @@ class QuizTime(commands.Cog):
         try:
             msg = await channel.send(embed=embed, view=view)
             view.message = msg
-            # track active quiz for this channel
             try:
                 self._active_quizzes[channel.id] = view
             except Exception:
@@ -460,42 +503,6 @@ class QuizTime(commands.Cog):
         return random.randint(int(rmin), int(rmax))
 
     # -------------------------
-    # Utility: safe long message sender
-    # -------------------------
-    async def _send_long_message(self, ctx: commands.Context, text: str, *, box_lang: Optional[str] = "text"):
-        """
-        Send `text` in chunks that fit Discord's message size limits.
-        Uses redbot.core.utils.chat_formatting.box for formatting each chunk.
-        """
-        if not text:
-            await ctx.send("")
-            return
-
-        # Discord message content limit is 2000 characters; be conservative and use 1900
-        limit = 1900
-        lines = text.splitlines(keepends=True)
-        chunks: List[str] = []
-        current = ""
-        for line in lines:
-            if len(current) + len(line) > limit:
-                chunks.append(current)
-                current = line
-            else:
-                current += line
-        if current:
-            chunks.append(current)
-
-        for chunk in chunks:
-            try:
-                await ctx.send(box(chunk, lang=box_lang))
-            except Exception:
-                # fallback: send plain chunk if box fails
-                try:
-                    await ctx.send(chunk[:1900])
-                except Exception:
-                    pass
-
-    # -------------------------
     # Commands
     # -------------------------
     @commands.group()
@@ -504,7 +511,6 @@ class QuizTime(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help()
 
-    # Admin-only commands
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
     async def set(self, ctx: commands.Context, channel: discord.TextChannel, interval_minutes: int = 60, reward_min: int = 50, reward_max: int = 50):
@@ -518,7 +524,6 @@ class QuizTime(commands.Cog):
         await self.config.reward_max.set(max(0, reward_max))
         await ctx.send(f"Quiz channel set to {channel.mention}. Interval set to {interval_minutes} minutes (plus configured offset). Reward range set to **{reward_min}–{reward_max}** credits.")
 
-        # If enabled, restart the background task so it picks up the new channel immediately.
         cfg = await self.config.all()
         if cfg.get("enabled", False):
             await self._start_background_task()
@@ -588,7 +593,7 @@ class QuizTime(commands.Cog):
     async def list(self, ctx: commands.Context):
         """
         List all questions with indexes so admins can delete by index.
-        This command will chunk output to avoid Discord message length limits.
+        This command is paginated to avoid long single messages.
         """
         self._load_quiz_file()
         questions = self.quiz_data.get("questions", [])
@@ -596,15 +601,28 @@ class QuizTime(commands.Cog):
             await ctx.send("No questions available.")
             return
 
+        # Build lines
         lines = []
         for i, q in enumerate(questions, start=1):
             cat = q.get('category', 'General')
             qtext = q.get('question', 'No question text')
             lines.append(f"{i}. [{cat}] {qtext}")
 
-        # Join with newlines and send in chunks using helper
-        full_text = "\n".join(lines)
-        await self._send_long_message(ctx, full_text, box_lang="text")
+        # Chunk into pages
+        pages: List[str] = []
+        for i in range(0, len(lines), PAGE_SIZE):
+            chunk = lines[i:i + PAGE_SIZE]
+            pages.append("\n".join(chunk))
+
+        # Create paginator view
+        paginator = PaginatorView(author_id=ctx.author.id, pages=pages)
+        embed = Embed(description=pages[0], color=0x2F3136)
+        try:
+            msg = await ctx.send(embed=embed, view=paginator)
+            paginator.message = msg
+        except Exception:
+            # fallback: send first page without view
+            await ctx.send(embed=embed)
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
@@ -691,7 +709,6 @@ class QuizTime(commands.Cog):
         embed.add_field(name="Reward range", value=f"{rmin} — {rmax}", inline=True)
         embed.add_field(name="Questions stored", value=str(qcount), inline=True)
         embed.add_field(name="Leaderboard entries", value=str(len(lb)), inline=True)
-        # show whether embed thumbnails are set
         correct_thumb = bool(self.quiz_data.get("correct_thumbnail"))
         incorrect_thumb = bool(self.quiz_data.get("incorrect_thumbnail"))
         embed.add_field(name="Correct embed thumbnail set", value=str(correct_thumb), inline=True)
@@ -714,7 +731,6 @@ class QuizTime(commands.Cog):
         await self._post_random_quiz(channel)
         await ctx.tick()
 
-    # Public commands
     @quiztime.command()
     async def leaderboard(self, ctx: commands.Context, top: int = 10):
         """Show the quiz leaderboard."""
