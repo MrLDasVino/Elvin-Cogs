@@ -34,59 +34,31 @@ class QuizButton(Button):
 
 
 class QuizView(View):
-    def __init__(self, cog, correct_answer_text: str, timeout: int = 60):
-        super().__init__(timeout=timeout)
+    """
+    A View that stays active until explicitly expired by the cog when a new quiz is posted.
+    We set timeout=None so Discord won't auto-timeout the view; expiration is handled
+    by the cog when posting the next quiz in the same channel.
+    """
+
+    def __init__(self, cog, correct_answer_text: str):
+        # timeout=None => view does not auto-expire
+        super().__init__(timeout=None)
         self.cog = cog
         self.correct_answer_text = correct_answer_text
         self.answered = False
         self.message: Optional[discord.Message] = None
-        self._expired_handled = False
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return not interaction.user.bot
 
-    async def on_timeout(self):
-        # Called when view times out. If nobody answered, mark expired and edit message.
-        if self._expired_handled:
-            return
-        self._expired_handled = True
-        # disable all buttons
-        for child in self.children:
-            child.disabled = True
-        if self.message:
-            try:
-                # build expired embed revealing the correct answer
-                embed = self._expired_embed()
-                await self.message.edit(embed=embed, view=self)
-            except Exception:
-                pass
-        # remove from active quizzes tracking
-        try:
-            channel_id = self.message.channel.id if self.message else None
-            if channel_id and channel_id in self.cog._active_quizzes:
-                stored = self.cog._active_quizzes.get(channel_id)
-                if stored is self:
-                    del self.cog._active_quizzes[channel_id]
-        except Exception:
-            pass
-
-    def _expired_embed(self) -> Embed:
-        color = discord.Color.dark_grey()
-        embed = Embed(
-            title="Quiz Expired",
-            description=f"**Time's up!** No one answered in time.\n\n**Answer:** {self.correct_answer_text}",
-            color=color
-        )
-        embed.set_footer(text="This question expired. A new quiz will be posted soon.")
-        return embed
-
     async def handle_click(self, interaction: discord.Interaction, button: QuizButton):
+        # If already answered or expired, inform user
         if self.answered:
             await interaction.response.send_message("Someone already answered this question.", ephemeral=True)
             return
 
         self.answered = True
-        # disable all buttons
+        # disable all buttons visually
         for child in self.children:
             child.disabled = True
         if self.message:
@@ -105,33 +77,48 @@ class QuizView(View):
         except Exception:
             pass
 
+        # Build result embed with optional thumbnails for correct/incorrect
         if button.is_correct:
             amount = await self.cog._get_reward_amount()
             try:
                 await bank.deposit_credits(interaction.user, amount)
                 await self.cog._increment_leaderboard(interaction.user)
                 embed = Embed(
-                    title="Correct Answer!",
+                    title="✅ Correct Answer!",
                     description=f"{interaction.user.mention} answered correctly and won **{amount}** credits!",
                     color=discord.Color.green()
                 )
                 embed.add_field(name="Answer", value=f"**{button.answer_text}**", inline=False)
                 embed.set_footer(text="Well done! Keep an eye out for the next quiz.")
+                # correct thumbnail from quiz.json if set
+                thumb = self.cog.quiz_data.get("correct_thumbnail") or None
+                if thumb:
+                    try:
+                        embed.set_thumbnail(url=thumb)
+                    except Exception:
+                        pass
             except Exception:
                 embed = Embed(
-                    title="Correct Answer!",
+                    title="✅ Correct Answer!",
                     description=f"{interaction.user.mention} answered correctly but I couldn't award currency (bank error).",
                     color=discord.Color.green()
                 )
                 embed.add_field(name="Answer", value=f"**{button.answer_text}**", inline=False)
         else:
             embed = Embed(
-                title="Incorrect",
+                title="❌ Incorrect",
                 description=f"{interaction.user.mention} answered but that was incorrect.",
                 color=discord.Color.red()
             )
             embed.add_field(name="Correct Answer", value=f"**{self.correct_answer_text}**", inline=False)
             embed.set_footer(text="Better luck next time!")
+            # incorrect thumbnail from quiz.json if set
+            thumb = self.cog.quiz_data.get("incorrect_thumbnail") or None
+            if thumb:
+                try:
+                    embed.set_thumbnail(url=thumb)
+                except Exception:
+                    pass
 
         await interaction.response.send_message(embed=embed)
 
@@ -162,13 +149,21 @@ class QuizTime(commands.Cog):
                 json.dump({
                     "default_thumbnail": "",
                     "category_thumbnails": {},
+                    "correct_thumbnail": "",
+                    "incorrect_thumbnail": "",
                     "questions": []
                 }, f, indent=2, ensure_ascii=False)
         with open(QUIZ_JSON_PATH, "r", encoding="utf-8") as f:
             try:
                 self.quiz_data = json.load(f)
             except Exception:
-                self.quiz_data = {"default_thumbnail": "", "category_thumbnails": {}, "questions": []}
+                self.quiz_data = {
+                    "default_thumbnail": "",
+                    "category_thumbnails": {},
+                    "correct_thumbnail": "",
+                    "incorrect_thumbnail": "",
+                    "questions": []
+                }
 
     def _save_quiz_file(self):
         with open(QUIZ_JSON_PATH, "w", encoding="utf-8") as f:
@@ -218,7 +213,9 @@ class QuizTime(commands.Cog):
     # Quiz posting and handling
     # -------------------------
     async def _expire_previous_quiz_in_channel(self, channel: discord.abc.Messageable):
-        """If a previous quiz is active in this channel and unanswered, expire it immediately."""
+        """If a previous quiz is active in this channel and unanswered, expire it immediately.
+        This is the only time a quiz is expired; views do not auto-timeout.
+        """
         try:
             channel_id = channel.id
         except Exception:
@@ -226,27 +223,33 @@ class QuizTime(commands.Cog):
         prev_view = self._active_quizzes.get(channel_id)
         if not prev_view:
             return
-        # If already answered or expired, nothing to do
-        if prev_view.answered or prev_view._expired_handled:
-            # cleanup
+        # If already answered or already handled, cleanup and return
+        if prev_view.answered:
             try:
                 del self._active_quizzes[channel_id]
             except KeyError:
                 pass
             return
-        # mark expired and edit message to show expired embed
-        prev_view._expired_handled = True
-        prev_view.answered = True  # prevent further answers
+
+        # mark expired to prevent further answers
+        prev_view.answered = True
         for child in prev_view.children:
             child.disabled = True
         if prev_view.message:
             try:
                 embed = Embed(
-                    title="Quiz Expired",
+                    title="⏸️ Quiz Closed",
                     description=f"**This quiz was closed because a new quiz is being posted.**\n\n**Answer:** {prev_view.correct_answer_text}",
                     color=discord.Color.dark_grey()
                 )
                 embed.set_footer(text="Expired — a new quiz has been posted.")
+                # use incorrect thumbnail for closed/expired display if available
+                thumb = self.quiz_data.get("incorrect_thumbnail") or self.quiz_data.get("default_thumbnail") or None
+                if thumb:
+                    try:
+                        embed.set_thumbnail(url=thumb)
+                    except Exception:
+                        pass
                 await prev_view.message.edit(embed=embed, view=prev_view)
             except Exception:
                 pass
@@ -266,7 +269,7 @@ class QuizTime(commands.Cog):
                 pass
             return
 
-        # expire previous quiz in this channel if present
+        # expire previous quiz in this channel if present (only expire when posting a new quiz)
         await self._expire_previous_quiz_in_channel(channel)
 
         q = random.choice(questions)
@@ -288,21 +291,17 @@ class QuizTime(commands.Cog):
             description=f"**{question_text}**",
             color=color
         )
-        # add choices as a field with emojis/labels
+        # add choices as a field
         choice_lines = []
         for i, ans in enumerate(answers):
             choice_lines.append(f"**{LABELS[i]}** — {ans}")
         embed.add_field(name="Choices", value="\n".join(choice_lines), inline=False)
 
-        # footer with reward range and time limit
-        cfg = await self.config.all()
-        rmin = cfg.get("reward_min", 50)
-        rmax = cfg.get("reward_max", 50)
-        time_limit = 60
-        embed.set_footer(text=f"Be the first to click the correct button to win ({rmin}–{rmax} credits). You have {time_limit} seconds.")
+        # footer: only the requested short text
+        embed.set_footer(text="Be the first to click the correct button to win")
         embed.timestamp = discord.utils.utcnow()
 
-        # thumbnail
+        # thumbnail: category -> default fallback
         thumb = self.quiz_data.get("category_thumbnails", {}).get(category) or self.quiz_data.get("default_thumbnail") or None
         if thumb:
             try:
@@ -310,7 +309,8 @@ class QuizTime(commands.Cog):
             except Exception:
                 pass
 
-        view = QuizView(self, correct_answer_text=correct_text, timeout=time_limit)
+        # create a view that does NOT auto-timeout; it will be expired when the next quiz posts
+        view = QuizView(self, correct_answer_text=correct_text)
         # add buttons (labels A-D) with shuffled answers
         for i, ans in enumerate(answers):
             is_correct = (ans == correct)
@@ -470,6 +470,28 @@ class QuizTime(commands.Cog):
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
+    async def setembedthumbs(self, ctx: commands.Context, which: str, url: str):
+        """
+        Set the thumbnail URL used for result embeds.
+        Usage: [p]quiztime setembedthumbs correct <url>
+               [p]quiztime setembedthumbs incorrect <url>
+        """
+        self._load_quiz_file()
+        key = which.lower()
+        if key not in ("correct", "incorrect"):
+            await ctx.send("Invalid option. Use 'correct' or 'incorrect'.")
+            return
+        if key == "correct":
+            self.quiz_data["correct_thumbnail"] = url
+            self._save_quiz_file()
+            await ctx.send("Correct-answer embed thumbnail set.")
+        else:
+            self.quiz_data["incorrect_thumbnail"] = url
+            self._save_quiz_file()
+            await ctx.send("Incorrect-answer embed thumbnail set.")
+
+    @quiztime.command()
+    @checks.admin_or_permissions(manage_guild=True)
     async def settings(self, ctx: commands.Context):
         """
         Show all current settings for the QuizTime cog.
@@ -490,6 +512,11 @@ class QuizTime(commands.Cog):
         embed.add_field(name="Reward range", value=f"{rmin} — {rmax}", inline=True)
         embed.add_field(name="Questions stored", value=str(qcount), inline=True)
         embed.add_field(name="Leaderboard entries", value=str(len(lb)), inline=True)
+        # show whether embed thumbnails are set
+        correct_thumb = bool(self.quiz_data.get("correct_thumbnail"))
+        incorrect_thumb = bool(self.quiz_data.get("incorrect_thumbnail"))
+        embed.add_field(name="Correct embed thumbnail set", value=str(correct_thumb), inline=True)
+        embed.add_field(name="Incorrect embed thumbnail set", value=str(incorrect_thumb), inline=True)
         thumb = self.quiz_data.get("default_thumbnail")
         if thumb:
             try:
