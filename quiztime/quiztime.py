@@ -18,10 +18,10 @@ DEFAULT_CONFIG = {
     "channel_id": None,
     "interval_minutes": 60,
     "enabled": False,      # Disabled by default
-    "reward_min": 20,
-    "reward_max": 120,
+    "reward_min": 50,
+    "reward_max": 50,
     "offset_min": 0,       # minutes
-    "offset_max": 0,      # minutes
+    "offset_max": 0,       # minutes
     "leaderboard": {}
 }
 
@@ -81,23 +81,17 @@ class QuizView(View):
         # Build result embed with optional thumbnails for correct/incorrect
         if button.is_correct:
             amount = await self.cog._get_reward_amount()
-            # try to get currency name from bank
+
+            # Get currency name from bank using the guild context (interaction.guild)
             currency_name = "credits"
             try:
-                # bank.get_currency_name may be coroutine or regular function depending on bank implementation
-                maybe = bank.get_currency_name
-                if asyncio.iscoroutinefunction(maybe):
-                    currency_name = await maybe()
-                else:
-                    # call and if it returns coroutine, await it
-                    res = maybe()
-                    if asyncio.iscoroutine(res):
-                        currency_name = await res
-                    else:
-                        currency_name = res
-                if not currency_name:
-                    currency_name = "credits"
+                # bank.get_currency_name is awaited with the guild object
+                if interaction.guild is not None:
+                    maybe_currency = await bank.get_currency_name(interaction.guild)
+                    if maybe_currency:
+                        currency_name = maybe_currency
             except Exception:
+                # fallback to "credits"
                 currency_name = "credits"
 
             try:
@@ -155,17 +149,18 @@ class QuizTime(commands.Cog):
         self._load_quiz_file()
         # track active quiz view per channel so we can expire previous when posting a new one
         self._active_quizzes: Dict[int, QuizView] = {}
-        # schedule the task manager without blocking __init__
+        # Do not start multiple tasks; ensure single manager task if enabled
+        # Schedule a safe startup check (non-blocking)
         try:
-            asyncio.create_task(self._ensure_task_running())
+            asyncio.create_task(self._startup_ensure())
         except Exception:
             loop = getattr(self.bot, "loop", None)
             if loop:
-                loop.create_task(self._ensure_task_running())
+                loop.create_task(self._startup_ensure())
 
     def cog_unload(self):
         try:
-            asyncio.create_task(self._cancel_task())
+            asyncio.create_task(self._stop_background_task())
         except Exception:
             if self._task:
                 try:
@@ -203,19 +198,39 @@ class QuizTime(commands.Cog):
             json.dump(self.quiz_data, f, indent=2, ensure_ascii=False)
 
     # -------------------------
-    # Async background task management
+    # Background task management (single-task guarantee)
     # -------------------------
-    async def _ensure_task_running(self):
-        async with self._task_lock:
-            if self._task is None or self._task.done():
-                try:
-                    self._task = asyncio.create_task(self._quiz_loop())
-                except Exception:
-                    loop = getattr(self.bot, "loop", None)
-                    if loop:
-                        self._task = loop.create_task(self._quiz_loop())
+    async def _startup_ensure(self):
+        """Run once on cog load to start the background task if enabled."""
+        await self.bot.wait_until_ready()
+        cfg = await self.config.all()
+        if cfg.get("enabled", False):
+            await self._start_background_task()
 
-    async def _cancel_task(self):
+    async def _start_background_task(self):
+        """Start the quiz loop, ensuring any previous task is cancelled first."""
+        async with self._task_lock:
+            # If a task exists and is running, cancel it first to avoid duplicate posting
+            if self._task and not self._task.done():
+                try:
+                    self._task.cancel()
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    pass
+                self._task = None
+
+            # Create a single background task
+            try:
+                self._task = asyncio.create_task(self._quiz_loop())
+            except Exception:
+                loop = getattr(self.bot, "loop", None)
+                if loop:
+                    self._task = loop.create_task(self._quiz_loop())
+
+    async def _stop_background_task(self):
+        """Cancel the running background task if present."""
         async with self._task_lock:
             if self._task and not self._task.done():
                 self._task.cancel()
@@ -227,7 +242,14 @@ class QuizTime(commands.Cog):
                     pass
                 self._task = None
 
+    # -------------------------
+    # Quiz loop
+    # -------------------------
     async def _quiz_loop(self):
+        """
+        Single background loop that reads config each iteration.
+        Ensures wait_seconds is computed robustly and never falls below the base interval.
+        """
         await self.bot.wait_until_ready()
         while True:
             cfg = await self.config.all()
@@ -242,8 +264,11 @@ class QuizTime(commands.Cog):
                 await asyncio.sleep(30)
                 continue
 
-            # compute base seconds
-            base_seconds = max(0, int(base_minutes) * 60)
+            # compute base seconds (ensure non-negative)
+            try:
+                base_seconds = max(0, int(base_minutes) * 60)
+            except Exception:
+                base_seconds = 60
 
             # compute offset seconds (if both zero => no offset)
             offset_seconds = 0
@@ -288,6 +313,8 @@ class QuizTime(commands.Cog):
                     # if fetching fails, wait a bit before retrying to avoid tight loop
                     await asyncio.sleep(30)
                     continue
+
+            # Post quiz (this function is safe and idempotent)
             await self._post_random_quiz(channel)
 
     # -------------------------
@@ -457,9 +484,12 @@ class QuizTime(commands.Cog):
         await self.config.reward_min.set(max(0, reward_min))
         await self.config.reward_max.set(max(0, reward_max))
         await ctx.send(f"Quiz channel set to {channel.mention}. Interval set to {interval_minutes} minutes (plus configured offset). Reward range set to **{reward_min}–{reward_max}** credits.")
+
+        # If enabled, restart the background task so it picks up the new channel immediately.
         cfg = await self.config.all()
         if cfg.get("enabled", False):
-            await self._ensure_task_running()
+            # Restart background task to ensure only one task is running and it uses the new channel
+            await self._start_background_task()
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
@@ -479,9 +509,9 @@ class QuizTime(commands.Cog):
         await self.config.enabled.set(new_state)
         await ctx.send(f"Quizzes {'enabled' if new_state else 'disabled'}.")
         if new_state:
-            await self._ensure_task_running()
+            await self._start_background_task()
         else:
-            await self._cancel_task()
+            await self._stop_background_task()
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
