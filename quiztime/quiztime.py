@@ -17,9 +17,11 @@ QUIZ_JSON_PATH = os.path.join(BASE_PATH, "quiz.json")
 DEFAULT_CONFIG = {
     "channel_id": None,
     "interval_minutes": 60,
-    "enabled": True,
-    "reward_min": 50,
-    "reward_max": 50,
+    "enabled": False,
+    "reward_min": 20,
+    "reward_max": 120,
+    "offset_min": 0,
+    "offset_max": 0,
     "leaderboard": {}
 }
 
@@ -41,7 +43,6 @@ class QuizView(View):
     """
 
     def __init__(self, cog, correct_answer_text: str):
-        # timeout=None => view does not auto-expire
         super().__init__(timeout=None)
         self.cog = cog
         self.correct_answer_text = correct_answer_text
@@ -52,13 +53,11 @@ class QuizView(View):
         return not interaction.user.bot
 
     async def handle_click(self, interaction: discord.Interaction, button: QuizButton):
-        # If already answered or expired, inform user
         if self.answered:
             await interaction.response.send_message("Someone already answered this question.", ephemeral=True)
             return
 
         self.answered = True
-        # disable all buttons visually
         for child in self.children:
             child.disabled = True
         if self.message:
@@ -67,7 +66,6 @@ class QuizView(View):
             except Exception:
                 pass
 
-        # remove from active quizzes tracking
         try:
             channel_id = self.message.channel.id if self.message else None
             if channel_id and channel_id in self.cog._active_quizzes:
@@ -77,7 +75,6 @@ class QuizView(View):
         except Exception:
             pass
 
-        # Build result embed with optional thumbnails for correct/incorrect
         if button.is_correct:
             amount = await self.cog._get_reward_amount()
             try:
@@ -90,7 +87,6 @@ class QuizView(View):
                 )
                 embed.add_field(name="Answer", value=f"**{button.answer_text}**", inline=False)
                 embed.set_footer(text="Well done! Keep an eye out for the next quiz.")
-                # correct thumbnail from quiz.json if set
                 thumb = self.cog.quiz_data.get("correct_thumbnail") or None
                 if thumb:
                     try:
@@ -112,7 +108,6 @@ class QuizView(View):
             )
             embed.add_field(name="Correct Answer", value=f"**{self.correct_answer_text}**", inline=False)
             embed.set_footer(text="Better luck next time!")
-            # incorrect thumbnail from quiz.json if set
             thumb = self.cog.quiz_data.get("incorrect_thumbnail") or None
             if thumb:
                 try:
@@ -131,14 +126,27 @@ class QuizTime(commands.Cog):
         self.config = Config.get_conf(self, identifier=0xA1B2C3D4E5F60709, force_registration=True)
         self.config.register_global(**DEFAULT_CONFIG)
         self._task: Optional[asyncio.Task] = None
+        self._task_lock = asyncio.Lock()
         self._load_quiz_file()
-        # track active quiz view per channel so we can expire previous when posting a new one
         self._active_quizzes: Dict[int, QuizView] = {}
-        self._ensure_task_running()
+        # schedule the async task manager without blocking __init__
+        try:
+            asyncio.create_task(self._ensure_task_running())
+        except Exception:
+            # fallback if create_task fails for some reason
+            loop = getattr(self.bot, "loop", None)
+            if loop:
+                loop.create_task(self._ensure_task_running())
 
     def cog_unload(self):
-        if self._task:
-            self._task.cancel()
+        try:
+            asyncio.create_task(self._cancel_task())
+        except Exception:
+            if self._task:
+                try:
+                    self._task.cancel()
+                except Exception:
+                    pass
 
     # -------------------------
     # Quiz JSON handling
@@ -170,35 +178,62 @@ class QuizTime(commands.Cog):
             json.dump(self.quiz_data, f, indent=2, ensure_ascii=False)
 
     # -------------------------
-    # Background task
+    # Async background task management
     # -------------------------
-    def _ensure_task_running(self):
-        if self._task is None or self._task.done():
-            self._task = self.bot.loop.create_task(self._quiz_loop())
+    async def _ensure_task_running(self):
+        async with self._task_lock:
+            if self._task is None or self._task.done():
+                try:
+                    self._task = asyncio.create_task(self._quiz_loop())
+                except Exception:
+                    loop = getattr(self.bot, "loop", None)
+                    if loop:
+                        self._task = loop.create_task(self._quiz_loop())
+
+    async def _cancel_task(self):
+        async with self._task_lock:
+            if self._task and not self._task.done():
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    pass
+                self._task = None
 
     async def _quiz_loop(self):
         await self.bot.wait_until_ready()
         while True:
             cfg = await self.config.all()
-            enabled = cfg.get("enabled", True)
+            enabled = cfg.get("enabled", False)
             channel_id = cfg.get("channel_id")
             base_minutes = cfg.get("interval_minutes", 60)
+            offset_min = cfg.get("offset_min", 5)
+            offset_max = cfg.get("offset_max", 10)
+
             if not enabled or not channel_id:
                 await asyncio.sleep(30)
                 continue
 
-            # Wait base interval then add a random offset between 5 and 10 minutes
-            offset = random.randint(5 * 60, 10 * 60)
-            wait_seconds = base_minutes * 60 + offset
+            if offset_min <= 0 and offset_max <= 0:
+                offset_seconds = 0
+            else:
+                if offset_min > offset_max:
+                    offset_min, offset_max = offset_max, offset_min
+                offset_seconds = random.randint(int(offset_min * 60), int(offset_max * 60))
+
+            wait_seconds = int(base_minutes * 60) + offset_seconds
             jitter = random.randint(-60, 60)
             wait_seconds = max(30, wait_seconds + jitter)
+
             try:
                 await asyncio.sleep(wait_seconds)
             except asyncio.CancelledError:
                 return
 
             cfg = await self.config.all()
-            if not cfg.get("enabled", True):
+            if not cfg.get("enabled", False):
                 continue
 
             channel = self.bot.get_channel(channel_id)
@@ -213,9 +248,6 @@ class QuizTime(commands.Cog):
     # Quiz posting and handling
     # -------------------------
     async def _expire_previous_quiz_in_channel(self, channel: discord.abc.Messageable):
-        """If a previous quiz is active in this channel and unanswered, expire it immediately.
-        This is the only time a quiz is expired; views do not auto-timeout.
-        """
         try:
             channel_id = channel.id
         except Exception:
@@ -223,7 +255,6 @@ class QuizTime(commands.Cog):
         prev_view = self._active_quizzes.get(channel_id)
         if not prev_view:
             return
-        # If already answered or already handled, cleanup and return
         if prev_view.answered:
             try:
                 del self._active_quizzes[channel_id]
@@ -231,7 +262,6 @@ class QuizTime(commands.Cog):
                 pass
             return
 
-        # mark expired to prevent further answers
         prev_view.answered = True
         for child in prev_view.children:
             child.disabled = True
@@ -243,7 +273,6 @@ class QuizTime(commands.Cog):
                     color=discord.Color.dark_grey()
                 )
                 embed.set_footer(text="Expired — a new quiz has been posted.")
-                # use incorrect thumbnail for closed/expired display if available
                 thumb = self.quiz_data.get("incorrect_thumbnail") or self.quiz_data.get("default_thumbnail") or None
                 if thumb:
                     try:
@@ -253,7 +282,6 @@ class QuizTime(commands.Cog):
                 await prev_view.message.edit(embed=embed, view=prev_view)
             except Exception:
                 pass
-        # remove from tracking
         try:
             del self._active_quizzes[channel_id]
         except KeyError:
@@ -269,7 +297,6 @@ class QuizTime(commands.Cog):
                 pass
             return
 
-        # expire previous quiz in this channel if present (only expire when posting a new quiz)
         await self._expire_previous_quiz_in_channel(channel)
 
         q = random.choice(questions)
@@ -284,24 +311,19 @@ class QuizTime(commands.Cog):
         random.shuffle(answers)
         correct_text = correct
 
-        # build a nicer embed
         color = random.randint(0, 0xFFFFFF)
         embed = Embed(
             title=f"📚 Quiz — {category}",
             description=f"**{question_text}**",
             color=color
         )
-        # add choices as a field
         choice_lines = []
         for i, ans in enumerate(answers):
             choice_lines.append(f"**{LABELS[i]}** — {ans}")
         embed.add_field(name="Choices", value="\n".join(choice_lines), inline=False)
-
-        # footer: only the requested short text
         embed.set_footer(text="Be the first to click the correct button to win")
         embed.timestamp = discord.utils.utcnow()
 
-        # thumbnail: category -> default fallback
         thumb = self.quiz_data.get("category_thumbnails", {}).get(category) or self.quiz_data.get("default_thumbnail") or None
         if thumb:
             try:
@@ -309,14 +331,11 @@ class QuizTime(commands.Cog):
             except Exception:
                 pass
 
-        # create a view that does NOT auto-timeout; it will be expired when the next quiz posts
         view = QuizView(self, correct_answer_text=correct_text)
-        # add buttons (labels A-D) with shuffled answers
         for i, ans in enumerate(answers):
             is_correct = (ans == correct)
             btn = QuizButton(label=LABELS[i], answer_text=ans, is_correct=is_correct)
 
-            # create callback closure capturing btn
             def make_callback(b):
                 async def callback(interaction: discord.Interaction):
                     await view.handle_click(interaction, b)
@@ -328,7 +347,6 @@ class QuizTime(commands.Cog):
         try:
             msg = await channel.send(embed=embed, view=view)
             view.message = msg
-            # track active quiz for this channel
             try:
                 self._active_quizzes[channel.id] = view
             except Exception:
@@ -366,7 +384,6 @@ class QuizTime(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help()
 
-    # Admin-only commands
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
     async def set(self, ctx: commands.Context, channel: discord.TextChannel, interval_minutes: int = 60, reward_min: int = 50, reward_max: int = 50):
@@ -378,17 +395,32 @@ class QuizTime(commands.Cog):
         await self.config.interval_minutes.set(max(1, interval_minutes))
         await self.config.reward_min.set(max(0, reward_min))
         await self.config.reward_max.set(max(0, reward_max))
-        await ctx.send(f"Quiz channel set to {channel.mention}. Interval set to {interval_minutes} minutes (random offset 5–10 minutes). Reward range set to **{reward_min}–{reward_max}** credits.")
-        self._ensure_task_running()
+        await ctx.send(f"Quiz channel set to {channel.mention}. Interval set to {interval_minutes} minutes (plus configured offset). Reward range set to **{reward_min}–{reward_max}** credits.")
+        cfg = await self.config.all()
+        if cfg.get("enabled", False):
+            await self._ensure_task_running()
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
-    async def enable(self, ctx: commands.Context, toggle: Optional[bool] = True):
-        """Enable or disable automatic quizzes. Use `false` to disable."""
-        await self.config.enabled.set(bool(toggle))
-        await ctx.send(f"Quizzes {'enabled' if toggle else 'disabled'}.")
-        if toggle:
-            self._ensure_task_running()
+    async def enable(self, ctx: commands.Context, toggle: Optional[bool] = None):
+        """
+        Enable or disable automatic quizzes.
+        Usage:
+          [p]quiztime enable        -> toggles current state
+          [p]quiztime enable true   -> enable
+          [p]quiztime enable false  -> disable
+        """
+        current = (await self.config.enabled())
+        if toggle is None:
+            new_state = not current
+        else:
+            new_state = bool(toggle)
+        await self.config.enabled.set(new_state)
+        await ctx.send(f"Quizzes {'enabled' if new_state else 'disabled'}.")
+        if new_state:
+            await self._ensure_task_running()
+        else:
+            await self._cancel_task()
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
@@ -492,6 +524,21 @@ class QuizTime(commands.Cog):
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
+    async def offset(self, ctx: commands.Context, min_minutes: int, max_minutes: int):
+        """
+        Set the random offset range (in minutes) added to the base interval.
+        Use `0 0` to disable any offset.
+        Example: [p]quiztime offset 1 5
+        """
+        if min_minutes < 0 or max_minutes < 0:
+            await ctx.send("Offset values must be zero or positive integers.")
+            return
+        await self.config.offset_min.set(min_minutes)
+        await self.config.offset_max.set(max_minutes)
+        await ctx.send(f"Offset range set to **{min_minutes}–{max_minutes}** minutes. (Use `0 0` for no offset.)")
+
+    @quiztime.command()
+    @checks.admin_or_permissions(manage_guild=True)
     async def settings(self, ctx: commands.Context):
         """
         Show all current settings for the QuizTime cog.
@@ -499,20 +546,22 @@ class QuizTime(commands.Cog):
         cfg = await self.config.all()
         channel_id = cfg.get("channel_id")
         channel = self.bot.get_channel(channel_id) if channel_id else None
-        enabled = cfg.get("enabled", True)
+        enabled = cfg.get("enabled", False)
         interval = cfg.get("interval_minutes", 60)
         rmin = cfg.get("reward_min", 50)
         rmax = cfg.get("reward_max", 50)
+        offset_min = cfg.get("offset_min", 5)
+        offset_max = cfg.get("offset_max", 10)
         lb = cfg.get("leaderboard", {}) or {}
         qcount = len(self.quiz_data.get("questions", []))
         embed = Embed(title="⚙️ QuizTime Settings", color=random.randint(0, 0xFFFFFF))
         embed.add_field(name="Channel", value=channel.mention if channel else "Not set", inline=False)
         embed.add_field(name="Enabled", value=str(enabled), inline=True)
         embed.add_field(name="Interval (minutes)", value=str(interval), inline=True)
+        embed.add_field(name="Offset range (minutes)", value=f"{offset_min} — {offset_max}", inline=True)
         embed.add_field(name="Reward range", value=f"{rmin} — {rmax}", inline=True)
         embed.add_field(name="Questions stored", value=str(qcount), inline=True)
         embed.add_field(name="Leaderboard entries", value=str(len(lb)), inline=True)
-        # show whether embed thumbnails are set
         correct_thumb = bool(self.quiz_data.get("correct_thumbnail"))
         incorrect_thumb = bool(self.quiz_data.get("incorrect_thumbnail"))
         embed.add_field(name="Correct embed thumbnail set", value=str(correct_thumb), inline=True)
@@ -535,7 +584,6 @@ class QuizTime(commands.Cog):
         await self._post_random_quiz(channel)
         await ctx.tick()
 
-    # Public commands
     @quiztime.command()
     async def leaderboard(self, ctx: commands.Context, top: int = 10):
         """Show the quiz leaderboard."""
