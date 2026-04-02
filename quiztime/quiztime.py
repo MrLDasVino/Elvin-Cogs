@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import random
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 import discord
 from discord import Embed
@@ -85,13 +85,11 @@ class QuizView(View):
             # Get currency name from bank using the guild context (interaction.guild)
             currency_name = "credits"
             try:
-                # bank.get_currency_name is awaited with the guild object
                 if interaction.guild is not None:
                     maybe_currency = await bank.get_currency_name(interaction.guild)
                     if maybe_currency:
                         currency_name = maybe_currency
             except Exception:
-                # fallback to "credits"
                 currency_name = "credits"
 
             try:
@@ -149,8 +147,7 @@ class QuizTime(commands.Cog):
         self._load_quiz_file()
         # track active quiz view per channel so we can expire previous when posting a new one
         self._active_quizzes: Dict[int, QuizView] = {}
-        # Do not start multiple tasks; ensure single manager task if enabled
-        # Schedule a safe startup check (non-blocking)
+        # schedule a safe startup check (non-blocking)
         try:
             asyncio.create_task(self._startup_ensure())
         except Exception:
@@ -463,6 +460,42 @@ class QuizTime(commands.Cog):
         return random.randint(int(rmin), int(rmax))
 
     # -------------------------
+    # Utility: safe long message sender
+    # -------------------------
+    async def _send_long_message(self, ctx: commands.Context, text: str, *, box_lang: Optional[str] = "text"):
+        """
+        Send `text` in chunks that fit Discord's message size limits.
+        Uses redbot.core.utils.chat_formatting.box for formatting each chunk.
+        """
+        if not text:
+            await ctx.send("")
+            return
+
+        # Discord message content limit is 2000 characters; be conservative and use 1900
+        limit = 1900
+        lines = text.splitlines(keepends=True)
+        chunks: List[str] = []
+        current = ""
+        for line in lines:
+            if len(current) + len(line) > limit:
+                chunks.append(current)
+                current = line
+            else:
+                current += line
+        if current:
+            chunks.append(current)
+
+        for chunk in chunks:
+            try:
+                await ctx.send(box(chunk, lang=box_lang))
+            except Exception:
+                # fallback: send plain chunk if box fails
+                try:
+                    await ctx.send(chunk[:1900])
+                except Exception:
+                    pass
+
+    # -------------------------
     # Commands
     # -------------------------
     @commands.group()
@@ -488,7 +521,6 @@ class QuizTime(commands.Cog):
         # If enabled, restart the background task so it picks up the new channel immediately.
         cfg = await self.config.all()
         if cfg.get("enabled", False):
-            # Restart background task to ensure only one task is running and it uses the new channel
             await self._start_background_task()
 
     @quiztime.command()
@@ -556,17 +588,23 @@ class QuizTime(commands.Cog):
     async def list(self, ctx: commands.Context):
         """
         List all questions with indexes so admins can delete by index.
+        This command will chunk output to avoid Discord message length limits.
         """
         self._load_quiz_file()
         questions = self.quiz_data.get("questions", [])
         if not questions:
             await ctx.send("No questions available.")
             return
+
         lines = []
         for i, q in enumerate(questions, start=1):
-            lines.append(f"{i}. [{q.get('category')}] {q.get('question')}")
-        msg = box("\n".join(lines), lang="text")
-        await ctx.send(msg)
+            cat = q.get('category', 'General')
+            qtext = q.get('question', 'No question text')
+            lines.append(f"{i}. [{cat}] {qtext}")
+
+        # Join with newlines and send in chunks using helper
+        full_text = "\n".join(lines)
+        await self._send_long_message(ctx, full_text, box_lang="text")
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
