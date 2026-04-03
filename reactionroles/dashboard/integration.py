@@ -29,6 +29,11 @@ def dashboard_page(*args: t.Any, **kwargs: t.Any) -> t.Callable[[t.Any], t.Any]:
     return decorator
 
 
+def _notif(message: str, category: str = "error") -> t.Dict[str, str]:
+    """Normalize notification shape expected by reddash (message + category)."""
+    return {"message": message, "category": category}
+
+
 class DashboardIntegration(MixinMeta):
     """
     Mixin that registers this cog as a third party with the dashboard when the dashboard cog is added.
@@ -75,7 +80,7 @@ class DashboardIntegration(MixinMeta):
     @dashboard_page(name="list", description="List reaction role messages for the guild.")
     async def list_page(self, user: discord.User, guild: discord.Guild, **kwargs) -> t.Dict[str, t.Any]:
         if guild is None:
-            return {"notifications": [{"type": "error", "message": "Guild context missing."}]}
+            return {"notifications": [_notif("Guild context missing.", "error")]}
         try:
             cog = self  # type: ignore
             guild_data = await cog.config.reaction_messages()
@@ -96,7 +101,7 @@ class DashboardIntegration(MixinMeta):
             return {"web_content": {"source": page_html, "expanded": False, "fullscreen": False}}
         except Exception as e:
             log.exception("Error building list_page")
-            return {"notifications": [{"type": "error", "message": f"Failed to load reaction messages: {e}"}]}
+            return {"notifications": [_notif(f"Failed to load reaction messages: {e}", "error")]}
 
     @dashboard_page(name="create", description="Create a reaction role message.", methods=("GET", "POST"))
     async def create_page(self, user: discord.User, guild: discord.Guild, method: str = "GET", form_data: dict = None, **kwargs) -> t.Dict[str, t.Any]:
@@ -107,39 +112,49 @@ class DashboardIntegration(MixinMeta):
             return {"web_content": {"source": page_html, "expanded": False, "fullscreen": False}}
         except Exception as e:
             log.exception("Error building create_page")
-            return {"notifications": [{"type": "error", "message": f"Failed to render create page: {e}"}]}
+            return {"notifications": [_notif(f"Failed to render create page: {e}", "error")]}
 
     @dashboard_page(name="edit", description="Edit a reaction role message.", methods=("GET", "POST"))
     async def edit_page(self, user: discord.User, guild: discord.Guild, message_id: int = None, method: str = "GET", form_data: dict = None, **kwargs) -> t.Dict[str, t.Any]:
         form_data = form_data or {}
         if guild is None or message_id is None:
-            return {"notifications": [{"type": "error", "message": "Missing guild or message_id parameter."}]}
+            return {"notifications": [_notif("Missing guild or message_id parameter.", "error")]}
         try:
             cog = self  # type: ignore
             guild_data = await cog.config.reaction_messages()
             entry = guild_data.get(str(guild.id), {}).get(str(message_id))
             if not entry:
-                return {"notifications": [{"type": "error", "message": "Reaction role message not found."}]}
+                return {"notifications": [_notif("Reaction role message not found.", "error")]}
             source = self._build_page("edit.html")
             page_html = source.replace("/*__INITIAL_DATA__*/", json.dumps({"message": entry, "message_id": int(message_id)}))
             return {"web_content": {"source": page_html, "expanded": False, "fullscreen": False}}
         except Exception as e:
             log.exception("Error building edit_page")
-            return {"notifications": [{"type": "error", "message": f"Failed to render edit page: {e}"}]}
+            return {"notifications": [_notif(f"Failed to render edit page: {e}", "error")]}
 
     @dashboard_page(name="preview", description="Preview a reaction role message.")
     async def preview_page(self, user: discord.User, guild: discord.Guild, message_id: int = None, **kwargs) -> t.Dict[str, t.Any]:
         if guild is None or message_id is None:
-            return {"notifications": [{"type": "error", "message": "Missing guild or message_id parameter."}]}
+            return {"notifications": [_notif("Missing guild or message_id parameter.", "error")]}
         try:
             cog = self  # type: ignore
             guild_data = await cog.config.reaction_messages()
             entry = guild_data.get(str(guild.id), {}).get(str(message_id))
             if not entry:
-                return {"notifications": [{"type": "error", "message": "Message not found."}]}
+                return {"notifications": [_notif("Message not found.", "error")]}
             source = self._build_page("preview.html")
-            page_html = source.replace("/*__INITIAL_DATA__*/", json.dumps({"preview": {"content": entry.get("content", ""), "mappings": [{"emoji": e, "role_id": r} for e, r in entry.get("mapping", {}).items()]}}))
+            page_html = source.replace(
+                "/*__INITIAL_DATA__*/",
+                json.dumps(
+                    {
+                        "preview": {
+                            "content": entry.get("content", ""),
+                            "mappings": [{"emoji": e, "role_id": r} for e, r in entry.get("mapping", {}).items()],
+                        }
+                    }
+                ),
+            )
             return {"web_content": {"source": page_html, "expanded": False, "fullscreen": False}}
         except Exception as e:
             log.exception("Error in preview_page")
-            return {"notifications": [{"type": "error", "message": f"Failed to build preview: {e}"}]}
+            return {"notifications": [_notif(f"Failed to build preview: {e}", "error")]}
