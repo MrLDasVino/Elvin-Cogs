@@ -1,0 +1,24 @@
+<!-- create.html -->
+<div class="rr-container">
+  <h2>Create Reaction Role Message</h2>
+  <form id="rr-create-form">
+    <label>Channel (ID)
+      <input name="channel_id" id="channel_id" placeholder="Channel ID" required />
+    </label>
+    <label>Message content
+      <textarea name="content" id="content" placeholder="Write the message users will react to" required></textarea>
+    </label>
+    <label>Emoji -> Role mappings (JSON)
+      <textarea name="mappings" id="mappings" placeholder='[{"emoji":"✅","role_id":123456789}]'></textarea>
+      <small>Provide a JSON array of {emoji, role_id} objects.</small>
+    </label>
+    <div class="rr-form-actions">
+      <button type="submit" class="rr-button">Create Reaction Role Message</button>
+    </div>
+  </form>
+  <div id="rr-create-result" class="rr-result"></div>
+</div>
+
+<script>
+/*__INITIAL_DATA__*/
+</script>

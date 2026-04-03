@@ -1,3 +1,4 @@
+# reactionroles.py
 from typing import Optional, Dict, Any, List
 import discord
 
@@ -5,13 +6,11 @@ from redbot.core import commands, Config, checks
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import pagify
 
-# Import the dashboard mixin from the dashboard package (relative import).
-# The mixin is optional: if the dashboard package is missing, the import will still succeed
-# because dashboard/__init__.py can be empty. If you prefer defensive import, you can wrap it.
+# Try to import the DashboardIntegration mixin from the dashboard package.
+# If it's not present, fall back to a no-op mixin so the cog still works standalone.
 try:
     from .dashboard.integration import DashboardIntegration  # type: ignore
 except Exception:
-    # Fallback: define a no-op mixin so the cog still works without the dashboard package.
     class DashboardIntegration:
         pass
 
@@ -68,10 +67,8 @@ class ReactionRoles(DashboardIntegration, commands.Cog):
         if guild_id not in guild_data or str(message_id) not in guild_data[guild_id]:
             await ctx.send("That message is not managed by reactionroles.")
             return
-        # Add mapping
         guild_data[guild_id][str(message_id)]["mapping"][emoji] = role.id
         await self.config.reaction_messages.set(guild_data)
-        # Add reaction to message if possible
         try:
             channel_id = guild_data[guild_id][str(message_id)]["channel_id"]
             channel = ctx.guild.get_channel(channel_id)
@@ -134,7 +131,6 @@ class ReactionRoles(DashboardIntegration, commands.Cog):
     # -----------------------
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        # Only handle guilds
         if payload.guild_id is None:
             return
         guild_id = str(payload.guild_id)
@@ -161,7 +157,6 @@ class ReactionRoles(DashboardIntegration, commands.Cog):
         try:
             await member.add_roles(role, reason="Reaction role assigned via ReactionRoles cog")
         except Exception:
-            # ignore permission errors
             pass
 
     @commands.Cog.listener()
@@ -199,8 +194,7 @@ class ReactionRoles(DashboardIntegration, commands.Cog):
     # -----------------------
     async def cog_load(self):
         """
-        If the DashboardIntegration mixin is present, its on_dashboard_cog_add listener
-        will handle registration when the dashboard cog is added. Nothing else required here.
+        DashboardIntegration mixin listens for the dashboard cog and registers pages.
+        Nothing else required here.
         """
-        # Nothing required here; DashboardIntegration handles registration via event listener.
         return
