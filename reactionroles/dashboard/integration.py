@@ -3,6 +3,8 @@ import logging
 import typing as t
 from pathlib import Path
 import json
+import re
+from urllib.parse import urlparse, parse_qs
 
 import discord
 from redbot.core import commands
@@ -89,19 +91,100 @@ class DashboardIntegration(MixinMeta):
                 role_id = int(entry.get("role_id"))
                 mapping[emoji] = role_id
         except Exception:
-            # return empty mapping on parse error
             return {}
         return mapping
+
+    # --- new: extract guild id from request_url or request_args if dashboard didn't pass guild object
+    def _extract_guild_id_from_kwargs(self, kwargs: dict) -> t.Optional[int]:
+        """
+        Try multiple places the dashboard might include a guild id:
+        - kwargs.get('request_url') or 'request_url_full' (parse path /dashboard/<guild_id>/...)
+        - kwargs.get('request_args') or kwargs.get('request_query') (query string dict)
+        - kwargs.get('params') (sometimes used)
+        """
+        # 1) request_url or request_url_full
+        for key in ("request_url", "request_url_full", "request_uri"):
+            url = kwargs.get(key)
+            if not url:
+                continue
+            try:
+                parsed = urlparse(url)
+                # try path pattern /dashboard/<guild_id>/...
+                m = re.search(r"/dashboard/(\d+)(?:/|$)", parsed.path)
+                if m:
+                    return int(m.group(1))
+                # try query string
+                qs = parse_qs(parsed.query)
+                for qk in ("guild_id", "guildId", "guild"):
+                    if qk in qs and qs[qk]:
+                        try:
+                            return int(qs[qk][0])
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+
+        # 2) request_args / request_query / params
+        for key in ("request_args", "request_query", "params", "query", "request_params"):
+            val = kwargs.get(key)
+            if not val:
+                continue
+            # val might be a dict or a string
+            if isinstance(val, dict):
+                for qk in ("guild_id", "guildId", "guild"):
+                    if qk in val and val[qk]:
+                        try:
+                            return int(val[qk])
+                        except Exception:
+                            continue
+            else:
+                # try parse as query string
+                try:
+                    qs = parse_qs(str(val))
+                    for qk in ("guild_id", "guildId", "guild"):
+                        if qk in qs and qs[qk]:
+                            try:
+                                return int(qs[qk][0])
+                            except Exception:
+                                continue
+                except Exception:
+                    continue
+
+        # 3) direct keys
+        for key in ("guild_id", "guildId", "guild"):
+            v = kwargs.get(key)
+            if v:
+                try:
+                    return int(v)
+                except Exception:
+                    continue
+
+        return None
+
+    # resolve guild object from either provided guild or extracted id
+    def _resolve_guild(self, guild: discord.Guild, kwargs: dict) -> t.Optional[discord.Guild]:
+        if guild:
+            return guild
+        gid = self._extract_guild_id_from_kwargs(kwargs)
+        if gid is None:
+            # log for debugging so you can paste the exact shape the dashboard sends
+            try:
+                log.debug("dashboard kwargs keys: %s", list(kwargs.keys()))
+            except Exception:
+                pass
+            return None
+        bot = getattr(self, "bot", None)
+        if bot:
+            return bot.get_guild(gid)
+        return None
 
     # -----------------------
     # Pages
     # -----------------------
     @dashboard_page(name="list", description="List reaction role messages for the guild.")
     async def list_page(self, user: discord.User = None, guild: discord.Guild = None, **kwargs) -> t.Dict[str, t.Any]:
-        """
-        Return a rendered page listing reaction role messages.
-        Signature matches other cogs: accepts user and guild objects when called from a guild view.
-        """
+        if guild is None:
+            guild = self._resolve_guild(guild, kwargs)
         if guild is None:
             return {"status": 0, "notifications": [_notif("Guild context missing. Open this page from the guild view in the dashboard.", "error")]}
 
@@ -134,11 +217,8 @@ class DashboardIntegration(MixinMeta):
         form_data: dict = None,
         **kwargs,
     ) -> t.Dict[str, t.Any]:
-        """
-        Render create page on GET. On POST, expect form_data dict with keys:
-        channel_id, content, mappings (JSON string or list).
-        Returns notifications and redirect_url on success to let the dashboard refresh.
-        """
+        if guild is None:
+            guild = self._resolve_guild(guild, kwargs)
         if guild is None:
             return {"status": 0, "notifications": [_notif("Guild context missing. Open this page from the guild view in the dashboard.", "error")]}
 
@@ -204,21 +284,22 @@ class DashboardIntegration(MixinMeta):
         form_data: dict = None,
         **kwargs,
     ) -> t.Dict[str, t.Any]:
-        """
-        Edit an existing reaction role message. On POST expects form_data with content and mappings.
-        """
         if guild is None:
-            return {"status": 0, "notifications": [_notif("Guild context missing. Open this page from the guild view in the dashboard.", "error")]}
+            guild = self._resolve_guild(guild, kwargs)
 
-        form_data = form_data or {}
-        mid = message_id or form_data.get("message_id") or kwargs.get("message_id")
+        # message id: try direct param, form_data, kwargs, or request_url
+        mid = message_id
+        if mid is None and form_data:
+            mid = form_data.get("message_id")
+        if mid is None:
+            mid = kwargs.get("message_id") or kwargs.get("id")
         try:
             mid_int = int(mid) if mid is not None else None
         except Exception:
             mid_int = None
 
-        if mid_int is None:
-            return {"status": 0, "notifications": [_notif("Missing message_id parameter.", "error")]}
+        if guild is None or mid_int is None:
+            return {"status": 0, "notifications": [_notif("Missing guild or message_id parameter. Open the page from the guild view and include message_id in the query.", "error")]}
 
         try:
             cog = self  # type: ignore
@@ -264,20 +345,17 @@ class DashboardIntegration(MixinMeta):
 
     @dashboard_page(name="preview", description="Preview a reaction role message.")
     async def preview_page(self, user: discord.User = None, guild: discord.Guild = None, message_id: int = None, **kwargs) -> t.Dict[str, t.Any]:
-        """
-        Return a preview page for a managed reaction role message.
-        """
         if guild is None:
-            return {"status": 0, "notifications": [_notif("Guild context missing. Open this page from the guild view in the dashboard.", "error")]}
+            guild = self._resolve_guild(guild, kwargs)
 
+        mid = message_id or kwargs.get("message_id")
         try:
-            mid = message_id or kwargs.get("message_id")
             mid_int = int(mid) if mid is not None else None
         except Exception:
             mid_int = None
 
-        if mid_int is None:
-            return {"status": 0, "notifications": [_notif("Missing message_id parameter.", "error")]}
+        if guild is None or mid_int is None:
+            return {"status": 0, "notifications": [_notif("Missing guild or message_id parameter. Open the page from the guild view and include message_id in the query.", "error")]}
 
         try:
             cog = self  # type: ignore
@@ -295,3 +373,4 @@ class DashboardIntegration(MixinMeta):
         except Exception as e:
             log.exception("Error in preview_page")
             return {"status": 0, "notifications": [_notif(f"Failed to build preview: {e}", "error")]}
+
