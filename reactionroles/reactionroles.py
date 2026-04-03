@@ -5,14 +5,24 @@ from redbot.core import commands, Config, checks
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import pagify
 
+# Import the dashboard mixin from the dashboard package (relative import).
+# The mixin is optional: if the dashboard package is missing, the import will still succeed
+# because dashboard/__init__.py can be empty. If you prefer defensive import, you can wrap it.
+try:
+    from .dashboard.integration import DashboardIntegration  # type: ignore
+except Exception:
+    # Fallback: define a no-op mixin so the cog still works without the dashboard package.
+    class DashboardIntegration:
+        pass
+
 
 DEFAULTS = {
     "reaction_messages": {}  # guild_id -> {message_id: {channel_id, mapping: {emoji: role_id}, author_id, content}}
 }
 
 
-class ReactionRoles(commands.Cog):
-    """Reaction Roles manager with optional Red-Web-Dashboard integration."""
+class ReactionRoles(DashboardIntegration, commands.Cog):
+    """Reaction Roles manager with Red-Web-Dashboard integration (via DashboardIntegration mixin)."""
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -189,27 +199,8 @@ class ReactionRoles(commands.Cog):
     # -----------------------
     async def cog_load(self):
         """
-        Called when the cog is loaded. Attempt to register dashboard pages by importing
-        the dashboard integration module and calling its register function.
+        If the DashboardIntegration mixin is present, its on_dashboard_cog_add listener
+        will handle registration when the dashboard cog is added. Nothing else required here.
         """
-        try:
-            # Import the integration module from the dashboard package inside the cog folder
-            # and call its register function with the bot and this cog instance.
-            from .dashboard import integration  # type: ignore
-            await integration.register(self.bot, self)
-        except Exception:
-            # If integration is not present or registration fails, ignore silently.
-            # Logging is optional; avoid raising to prevent load failure.
-            try:
-                self.bot.log.warning("ReactionRoles: dashboard integration registration failed or not present.")
-            except Exception:
-                pass
-
-    async def cog_unload(self):
-        # If the integration module exposes an unregister function, call it.
-        try:
-            from .dashboard import integration  # type: ignore
-            if hasattr(integration, "unregister"):
-                await integration.unregister(self.bot)
-        except Exception:
-            pass
+        # Nothing required here; DashboardIntegration handles registration via event listener.
+        return
