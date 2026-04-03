@@ -80,7 +80,6 @@ class DashboardIntegration(MixinMeta):
             cog = self  # type: ignore
             guild_data = await cog.config.reaction_messages()
             guild_map = guild_data.get(str(guild.id), {})
-            # Build a small JSON payload for client-side rendering
             items = []
             for mid, info in guild_map.items():
                 items.append({
@@ -91,9 +90,9 @@ class DashboardIntegration(MixinMeta):
                     "mappings": [{"emoji": e, "role_id": r} for e, r in info.get("mapping", {}).items()]
                 })
             source = self._build_page("list.html")
-            # Inject initial data as JSON into the page
             web = source.replace("/*__INITIAL_DATA__*/", json.dumps({"reaction_messages": items}))
-            return {"web_content": web}
+            # Return web_content as a dict so reddash can iterate .items()
+            return {"web_content": {"html": web}}
         except Exception as e:
             log.exception("Error building list_page")
             return {"notifications": [{"type": "error", "message": f"Failed to load reaction messages: {e}"}]}
@@ -103,9 +102,8 @@ class DashboardIntegration(MixinMeta):
         form_data = form_data or {}
         try:
             source = self._build_page("create.html")
-            # The page's JS will POST back to the dashboard RPC; we provide no server-side form handling here
             web = source.replace("/*__INITIAL_DATA__*/", json.dumps({}))
-            return {"web_content": web}
+            return {"web_content": {"html": web}}
         except Exception as e:
             log.exception("Error building create_page")
             return {"notifications": [{"type": "error", "message": f"Failed to render create page: {e}"}]}
@@ -123,7 +121,7 @@ class DashboardIntegration(MixinMeta):
                 return {"notifications": [{"type": "error", "message": "Reaction role message not found."}]}
             source = self._build_page("edit.html")
             web = source.replace("/*__INITIAL_DATA__*/", json.dumps({"message": entry, "message_id": int(message_id)}))
-            return {"web_content": web}
+            return {"web_content": {"html": web}}
         except Exception as e:
             log.exception("Error building edit_page")
             return {"notifications": [{"type": "error", "message": f"Failed to render edit page: {e}"}]}
@@ -140,7 +138,7 @@ class DashboardIntegration(MixinMeta):
                 return {"notifications": [{"type": "error", "message": "Message not found."}]}
             source = self._build_page("preview.html")
             web = source.replace("/*__INITIAL_DATA__*/", json.dumps({"preview": {"content": entry.get("content", ""), "mappings": [{"emoji": e, "role_id": r} for e, r in entry.get("mapping", {}).items()]}}))
-            return {"web_content": web}
+            return {"web_content": {"html": web}}
         except Exception as e:
-            log.exception("Error building preview_page")
+            log.exception("Error in preview_page")
             return {"notifications": [{"type": "error", "message": f"Failed to build preview: {e}"}]}
