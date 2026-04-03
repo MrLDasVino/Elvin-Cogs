@@ -1,13 +1,12 @@
-// reactionroles.js
+// dashboard/static/js/reactionroles.js
 (function () {
-  // Utility: parse initial data injected by integration
-  function initialData() {
+  function parseInitialData() {
     try {
-      // The integration replaces /*__INITIAL_DATA__*/ with a JSON literal
       const scripts = document.getElementsByTagName('script');
       for (let i = 0; i < scripts.length; i++) {
         const t = scripts[i].textContent.trim();
-        if (t && t.startsWith('{') && t.includes('reaction_messages') || t.includes('preview') || t.includes('message')) {
+        if (!t) continue;
+        if (t.startsWith('{') && (t.includes('reaction_messages') || t.includes('preview') || t.includes('message'))) {
           return JSON.parse(t);
         }
       }
@@ -17,7 +16,34 @@
     return {};
   }
 
-  // Render list page
+  function currentGuildId() {
+    // Try to extract guild id from hash like #/dashboard/<guild_id>/...
+    try {
+      const hash = window.location.hash || '';
+      const parts = hash.split('/');
+      const idx = parts.indexOf('dashboard');
+      if (idx !== -1 && parts.length > idx + 1) {
+        const gid = parts[idx + 1];
+        if (/^\d+$/.test(gid)) return gid;
+      }
+    } catch (e) {}
+    // Fallback: try initial data (some integrations inject guild)
+    const init = parseInitialData();
+    if (init && init.guild && init.guild.id) return String(init.guild.id);
+    if (init && init.reaction_messages && init.reaction_messages.length) {
+      // no guild in data, but try to infer from first item channel id -> not reliable
+    }
+    return null;
+  }
+
+  function buildGuildLink(path) {
+    const gid = currentGuildId();
+    if (gid) {
+      return `#/dashboard/${gid}/third-party/reaction_roles/${path}`;
+    }
+    return `#/third-party/reaction_roles/${path}`;
+  }
+
   function renderList(data) {
     const container = document.getElementById('rr-list');
     if (!container) return;
@@ -30,12 +56,8 @@
     items.forEach(it => {
       const div = document.createElement('div');
       div.className = 'rr-list-item';
-      const header = document.createElement('div');
-      header.innerHTML = `<strong>Message ${it.message_id}</strong> in channel ${it.channel_id}`;
-      div.appendChild(header);
-      const content = document.createElement('div');
-      content.textContent = it.content || '';
-      div.appendChild(content);
+      div.innerHTML = `<div><strong>Message ${it.message_id}</strong> in channel ${it.channel_id}</div>
+                       <div>${(it.content||'')}</div>`;
       const mappings = document.createElement('div');
       (it.mappings || []).forEach(m => {
         const span = document.createElement('span');
@@ -46,37 +68,39 @@
       div.appendChild(mappings);
       const actions = document.createElement('div');
       actions.style.marginTop = '8px';
-      actions.innerHTML = `<a class="rr-button" href="#/third-party/reaction_roles/preview?message_id=${it.message_id}">Preview</a> <a class="rr-button" href="#/third-party/reaction_roles/edit?message_id=${it.message_id}">Edit</a>`;
+      actions.innerHTML = `<a class="rr-button" href="${buildGuildLink('preview?message_id=' + it.message_id)}">Preview</a>
+                           <a class="rr-button" href="${buildGuildLink('edit?message_id=' + it.message_id)}">Edit</a>`;
       div.appendChild(actions);
       container.appendChild(div);
     });
   }
 
-  // Handle create form submission by calling dashboard RPC via form POST (dashboard will forward)
+  function postFormToParent(payload) {
+    // include guild id so dashboard forwards it
+    const gid = currentGuildId();
+    if (gid) payload.guild_id = gid;
+    if (window.parent && window.parent.postMessage) {
+      window.parent.postMessage({ type: 'third_party_form_submit', payload: payload }, '*');
+    } else {
+      console.warn('RR: parent postMessage not available; copy payload manually', payload);
+    }
+  }
+
   function handleCreate() {
     const form = document.getElementById('rr-create-form');
     if (!form) return;
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
-      const channel_id = document.getElementById('channel_id').value.trim();
-      const content = document.getElementById('content').value.trim();
-      const mappings = document.getElementById('mappings').value.trim();
       const payload = {
-        channel_id: channel_id,
-        content: content,
-        mappings: mappings
+        channel_id: document.getElementById('channel_id').value.trim(),
+        content: document.getElementById('content').value.trim(),
+        mappings: document.getElementById('mappings').value.trim()
       };
-      // The dashboard RPC will POST form_data to the integration; the dashboard UI handles this.
-      // We simulate by calling the parent window if available, otherwise show JSON for manual copy.
-      if (window.parent && window.parent.postMessage) {
-        window.parent.postMessage({ type: 'third_party_form_submit', payload: payload }, '*');
-      }
-      const res = document.getElementById('rr-create-result');
-      res.textContent = 'Submitted. If the dashboard supports form POST, the server will create the message.';
+      postFormToParent(payload);
+      document.getElementById('rr-create-result').textContent = 'Submitted.';
     });
   }
 
-  // Handle edit form: prefill and submit
   function handleEdit(initial) {
     const form = document.getElementById('rr-edit-form');
     if (!form) return;
@@ -84,31 +108,26 @@
     const mappingsEl = document.getElementById('mappings');
     if (initial && initial.message) {
       contentEl.value = initial.message.content || '';
-      mappingsEl.value = JSON.stringify((initial.message.mapping ? Object.entries(initial.message.mapping).map(([e,r]) => ({emoji:e, role_id:r})) : []), null, 2);
+      const arr = initial.message.mapping ? Object.entries(initial.message.mapping).map(([e,r])=>({emoji:e,role_id:r})) : [];
+      mappingsEl.value = JSON.stringify(arr, null, 2);
     }
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
-      const content = contentEl.value.trim();
-      const mappings = mappingsEl.value.trim();
       const payload = {
-        content: content,
-        mappings: mappings,
+        content: contentEl.value.trim(),
+        mappings: mappingsEl.value.trim(),
         message_id: initial.message_id
       };
-      if (window.parent && window.parent.postMessage) {
-        window.parent.postMessage({ type: 'third_party_form_submit', payload: payload }, '*');
-      }
-      const res = document.getElementById('rr-edit-result');
-      res.textContent = 'Submitted. If the dashboard supports form POST, the server will update the message.';
+      postFormToParent(payload);
+      document.getElementById('rr-edit-result').textContent = 'Submitted.';
     });
   }
 
-  // Render preview
   function renderPreview(initial) {
     const container = document.getElementById('rr-preview');
     if (!container) return;
-    const preview = initial.preview || {};
     container.innerHTML = '';
+    const preview = initial.preview || {};
     const content = document.createElement('div');
     content.textContent = preview.content || '';
     container.appendChild(content);
@@ -122,20 +141,11 @@
     container.appendChild(mappings);
   }
 
-  // Auto-run based on which elements exist
   document.addEventListener('DOMContentLoaded', function () {
-    const data = initialData();
-    if (document.getElementById('rr-list')) {
-      renderList(data);
-    }
-    if (document.getElementById('rr-create-form')) {
-      handleCreate();
-    }
-    if (document.getElementById('rr-edit-form')) {
-      handleEdit(data);
-    }
-    if (document.getElementById('rr-preview')) {
-      renderPreview(data);
-    }
+    const data = parseInitialData();
+    if (document.getElementById('rr-list')) renderList(data);
+    if (document.getElementById('rr-create-form')) handleCreate();
+    if (document.getElementById('rr-edit-form')) handleEdit(data);
+    if (document.getElementById('rr-preview')) renderPreview(data);
   });
 })();
