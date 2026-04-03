@@ -8,7 +8,6 @@ import discord
 from redbot.core import commands
 from redbot.core.i18n import Translator
 
-# MixinMeta is used in many Red cogs; if your project provides it elsewhere, adjust import.
 try:
     from ..abc import MixinMeta  # type: ignore
 except Exception:
@@ -30,16 +29,10 @@ def dashboard_page(*args: t.Any, **kwargs: t.Any) -> t.Callable[[t.Any], t.Any]:
 
 
 def _notif(message: str, category: str = "error") -> t.Dict[str, str]:
-    """Normalize notification shape expected by reddash (message + category)."""
     return {"message": message, "category": category}
 
 
 class DashboardIntegration(MixinMeta):
-    """
-    Mixin that registers this cog as a third party with the dashboard when the dashboard cog is added.
-    It also exposes page methods decorated with @dashboard_page that the dashboard will call.
-    """
-
     @commands.Cog.listener()
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
         try:
@@ -49,9 +42,6 @@ class DashboardIntegration(MixinMeta):
         except Exception:
             log.exception("Failed to register ReactionRoles as a dashboard third party.")
 
-    # -----------------------
-    # Helpers to build web content
-    # -----------------------
     def _read_template(self, name: str) -> str:
         path = templates / name
         try:
@@ -74,18 +64,17 @@ class DashboardIntegration(MixinMeta):
         tpl = self._read_template(template_name)
         return f"<style>\n{css}\n</style>\n\n{tpl}\n\n<script>\n{js}\n</script>"
 
-    # -----------------------
-    # Parameter resolution helpers
-    # -----------------------
+    # --- robust resolution + logging ---
     def _resolve_guild(self, guild: discord.Guild, kwargs: dict) -> t.Optional[discord.Guild]:
-        """
-        Dashboard sometimes passes a guild object, sometimes a guild_id int/str.
-        Try to resolve a discord.Guild object from available inputs.
-        """
         if guild:
             return guild
+        # log incoming kwargs for debugging
+        try:
+            log.debug("dashboard kwargs: %s", kwargs)
+        except Exception:
+            pass
         # common alternate keys
-        for key in ("guild_id", "guildId", "guildIdStr", "guildid"):
+        for key in ("guild", "guild_id", "guildId", "guildIdStr", "guildid"):
             gid = kwargs.get(key)
             if gid:
                 try:
@@ -100,9 +89,6 @@ class DashboardIntegration(MixinMeta):
         return None
 
     def _resolve_message_id(self, message_id: t.Optional[int], kwargs: dict) -> t.Optional[int]:
-        """
-        Accept message_id under several possible parameter names.
-        """
         if message_id:
             try:
                 return int(message_id)
@@ -118,18 +104,14 @@ class DashboardIntegration(MixinMeta):
                 continue
         return None
 
-    # -----------------------
-    # Dashboard pages
-    # -----------------------
+    # --- pages now use resolution helpers and return clear notifications ---
     @dashboard_page(name="list", description="List reaction role messages for the guild.")
-    async def list_page(self, user: discord.User, guild: discord.Guild, **kwargs) -> t.Dict[str, t.Any]:
+    async def list_page(self, user: discord.User, guild: discord.Guild = None, **kwargs) -> t.Dict[str, t.Any]:
+        guild = self._resolve_guild(guild, kwargs)
         if guild is None:
-            # try to resolve from kwargs
-            guild = self._resolve_guild(guild, kwargs)
-        if guild is None:
-            return {"notifications": [_notif("Guild context missing.", "error")]}
+            return {"notifications": [_notif("Guild context missing. Open this page from a guild view in the dashboard.", "error")]}
         try:
-            cog = self  # type: ignore
+            cog = self
             guild_data = await cog.config.reaction_messages()
             guild_map = guild_data.get(str(guild.id), {})
             items = []
@@ -142,21 +124,17 @@ class DashboardIntegration(MixinMeta):
                     "mappings": [{"emoji": e, "role_id": r} for e, r in info.get("mapping", {}).items()]
                 })
             source = self._build_page("list.html")
-            # Inject initial data as JSON into the page template placeholder
             page_html = source.replace("/*__INITIAL_DATA__*/", json.dumps({"reaction_messages": items}))
-            # Return web_content as a dict with 'source' key (reddash expects this)
             return {"web_content": {"source": page_html, "expanded": False, "fullscreen": False}}
         except Exception as e:
             log.exception("Error building list_page")
             return {"notifications": [_notif(f"Failed to load reaction messages: {e}", "error")]}
 
     @dashboard_page(name="create", description="Create a reaction role message.", methods=("GET", "POST"))
-    async def create_page(self, user: discord.User, guild: discord.Guild, method: str = "GET", form_data: dict = None, **kwargs) -> t.Dict[str, t.Any]:
-        form_data = form_data or {}
+    async def create_page(self, user: discord.User, guild: discord.Guild = None, method: str = "GET", form_data: dict = None, **kwargs) -> t.Dict[str, t.Any]:
+        guild = self._resolve_guild(guild, kwargs)
         if guild is None:
-            guild = self._resolve_guild(guild, kwargs)
-        if guild is None:
-            return {"notifications": [_notif("Guild context missing.", "error")]}
+            return {"notifications": [_notif("Guild context missing. Open this page from a guild view in the dashboard.", "error")]}
         try:
             source = self._build_page("create.html")
             page_html = source.replace("/*__INITIAL_DATA__*/", json.dumps({}))
@@ -166,16 +144,13 @@ class DashboardIntegration(MixinMeta):
             return {"notifications": [_notif(f"Failed to render create page: {e}", "error")]}
 
     @dashboard_page(name="edit", description="Edit a reaction role message.", methods=("GET", "POST"))
-    async def edit_page(self, user: discord.User, guild: discord.Guild, message_id: int = None, method: str = "GET", form_data: dict = None, **kwargs) -> t.Dict[str, t.Any]:
-        form_data = form_data or {}
-        # Resolve guild and message_id from multiple possible sources
-        if guild is None:
-            guild = self._resolve_guild(guild, kwargs)
+    async def edit_page(self, user: discord.User, guild: discord.Guild = None, message_id: int = None, method: str = "GET", form_data: dict = None, **kwargs) -> t.Dict[str, t.Any]:
+        guild = self._resolve_guild(guild, kwargs)
         resolved_mid = self._resolve_message_id(message_id, kwargs)
         if guild is None or resolved_mid is None:
-            return {"notifications": [_notif("Missing guild or message_id parameter.", "error")]}
+            return {"notifications": [_notif("Missing guild or message_id parameter. Open the page from the guild view and include message_id in the query.", "error")]}
         try:
-            cog = self  # type: ignore
+            cog = self
             guild_data = await cog.config.reaction_messages()
             entry = guild_data.get(str(guild.id), {}).get(str(resolved_mid))
             if not entry:
@@ -188,15 +163,13 @@ class DashboardIntegration(MixinMeta):
             return {"notifications": [_notif(f"Failed to render edit page: {e}", "error")]}
 
     @dashboard_page(name="preview", description="Preview a reaction role message.")
-    async def preview_page(self, user: discord.User, guild: discord.Guild, message_id: int = None, **kwargs) -> t.Dict[str, t.Any]:
-        # Resolve guild and message_id from multiple possible sources
-        if guild is None:
-            guild = self._resolve_guild(guild, kwargs)
+    async def preview_page(self, user: discord.User, guild: discord.Guild = None, message_id: int = None, **kwargs) -> t.Dict[str, t.Any]:
+        guild = self._resolve_guild(guild, kwargs)
         resolved_mid = self._resolve_message_id(message_id, kwargs)
         if guild is None or resolved_mid is None:
-            return {"notifications": [_notif("Missing guild or message_id parameter.", "error")]}
+            return {"notifications": [_notif("Missing guild or message_id parameter. Open the page from the guild view and include message_id in the query.", "error")]}
         try:
-            cog = self  # type: ignore
+            cog = self
             guild_data = await cog.config.reaction_messages()
             entry = guild_data.get(str(guild.id), {}).get(str(resolved_mid))
             if not entry:
@@ -204,14 +177,7 @@ class DashboardIntegration(MixinMeta):
             source = self._build_page("preview.html")
             page_html = source.replace(
                 "/*__INITIAL_DATA__*/",
-                json.dumps(
-                    {
-                        "preview": {
-                            "content": entry.get("content", ""),
-                            "mappings": [{"emoji": e, "role_id": r} for e, r in entry.get("mapping", {}).items()],
-                        }
-                    }
-                ),
+                json.dumps({"preview": {"content": entry.get("content", ""), "mappings": [{"emoji": e, "role_id": r} for e, r in entry.get("mapping", {}).items()]}}),
             )
             return {"web_content": {"source": page_html, "expanded": False, "fullscreen": False}}
         except Exception as e:
