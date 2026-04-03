@@ -33,6 +33,15 @@ def _notif(message: str, category: str = "error") -> t.Dict[str, str]:
 
 
 class DashboardIntegration(MixinMeta):
+    """
+    Dashboard integration for ReactionRoles.
+
+    This implementation follows the pattern used by other cogs: page callables accept
+    (user: discord.User, guild: discord.Guild, **kwargs) and return a dict with
+    'status', optional 'notifications', and 'web_content' containing a 'source' HTML string.
+    It also supports POST handling when the dashboard forwards form submissions as form_data.
+    """
+
     @commands.Cog.listener()
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
         try:
@@ -42,6 +51,7 @@ class DashboardIntegration(MixinMeta):
         except Exception:
             log.exception("Failed to register ReactionRoles as a dashboard third party.")
 
+    # helpers
     def _read_template(self, name: str) -> str:
         path = templates / name
         try:
@@ -64,54 +74,39 @@ class DashboardIntegration(MixinMeta):
         tpl = self._read_template(template_name)
         return f"<style>\n{css}\n</style>\n\n{tpl}\n\n<script>\n{js}\n</script>"
 
-    # --- robust resolution + logging ---
-    def _resolve_guild(self, guild: discord.Guild, kwargs: dict) -> t.Optional[discord.Guild]:
-        if guild:
-            return guild
-        # log incoming kwargs for debugging
+    # utility to parse mappings JSON safely
+    def _parse_mappings(self, raw: t.Union[str, t.List[dict]]) -> t.Dict[str, int]:
+        mapping: t.Dict[str, int] = {}
+        if raw is None:
+            return mapping
         try:
-            log.debug("dashboard kwargs: %s", kwargs)
+            if isinstance(raw, str):
+                parsed = json.loads(raw) if raw.strip() else []
+            else:
+                parsed = raw
+            for entry in parsed:
+                emoji = str(entry.get("emoji"))
+                role_id = int(entry.get("role_id"))
+                mapping[emoji] = role_id
         except Exception:
-            pass
-        # common alternate keys
-        for key in ("guild", "guild_id", "guildId", "guildIdStr", "guildid"):
-            gid = kwargs.get(key)
-            if gid:
-                try:
-                    gid_int = int(gid)
-                except Exception:
-                    continue
-                bot = getattr(self, "bot", None)
-                if bot:
-                    g = bot.get_guild(gid_int)
-                    if g:
-                        return g
-        return None
+            # return empty mapping on parse error
+            return {}
+        return mapping
 
-    def _resolve_message_id(self, message_id: t.Optional[int], kwargs: dict) -> t.Optional[int]:
-        if message_id:
-            try:
-                return int(message_id)
-            except Exception:
-                return None
-        for key in ("message_id", "messageId", "id", "msg_id", "messageid"):
-            val = kwargs.get(key)
-            if val is None:
-                continue
-            try:
-                return int(val)
-            except Exception:
-                continue
-        return None
-
-    # --- pages now use resolution helpers and return clear notifications ---
+    # -----------------------
+    # Pages
+    # -----------------------
     @dashboard_page(name="list", description="List reaction role messages for the guild.")
-    async def list_page(self, user: discord.User, guild: discord.Guild = None, **kwargs) -> t.Dict[str, t.Any]:
-        guild = self._resolve_guild(guild, kwargs)
+    async def list_page(self, user: discord.User = None, guild: discord.Guild = None, **kwargs) -> t.Dict[str, t.Any]:
+        """
+        Return a rendered page listing reaction role messages.
+        Signature matches other cogs: accepts user and guild objects when called from a guild view.
+        """
         if guild is None:
-            return {"notifications": [_notif("Guild context missing. Open this page from a guild view in the dashboard.", "error")]}
+            return {"status": 0, "notifications": [_notif("Guild context missing. Open this page from the guild view in the dashboard.", "error")]}
+
         try:
-            cog = self
+            cog = self  # type: ignore
             guild_data = await cog.config.reaction_messages()
             guild_map = guild_data.get(str(guild.id), {})
             items = []
@@ -125,61 +120,178 @@ class DashboardIntegration(MixinMeta):
                 })
             source = self._build_page("list.html")
             page_html = source.replace("/*__INITIAL_DATA__*/", json.dumps({"reaction_messages": items}))
-            return {"web_content": {"source": page_html, "expanded": False, "fullscreen": False}}
+            return {"status": 0, "web_content": {"source": page_html, "standalone": True}}
         except Exception as e:
             log.exception("Error building list_page")
-            return {"notifications": [_notif(f"Failed to load reaction messages: {e}", "error")]}
+            return {"status": 0, "notifications": [_notif(f"Failed to load reaction messages: {e}", "error")]}
 
     @dashboard_page(name="create", description="Create a reaction role message.", methods=("GET", "POST"))
-    async def create_page(self, user: discord.User, guild: discord.Guild = None, method: str = "GET", form_data: dict = None, **kwargs) -> t.Dict[str, t.Any]:
-        guild = self._resolve_guild(guild, kwargs)
+    async def create_page(
+        self,
+        user: discord.User = None,
+        guild: discord.Guild = None,
+        method: str = "GET",
+        form_data: dict = None,
+        **kwargs,
+    ) -> t.Dict[str, t.Any]:
+        """
+        Render create page on GET. On POST, expect form_data dict with keys:
+        channel_id, content, mappings (JSON string or list).
+        Returns notifications and redirect_url on success to let the dashboard refresh.
+        """
         if guild is None:
-            return {"notifications": [_notif("Guild context missing. Open this page from a guild view in the dashboard.", "error")]}
+            return {"status": 0, "notifications": [_notif("Guild context missing. Open this page from the guild view in the dashboard.", "error")]}
+
+        form_data = form_data or {}
+        if str(method).upper() == "POST" and form_data:
+            channel_id = form_data.get("channel_id")
+            content = (form_data.get("content") or "").strip()
+            mappings_raw = form_data.get("mappings", "[]")
+            mapping = self._parse_mappings(mappings_raw)
+            if not channel_id or not content:
+                return {"status": 0, "notifications": [_notif("channel_id and content are required.", "error")]}
+
+            try:
+                channel = guild.get_channel(int(channel_id))
+                if not channel:
+                    return {"status": 0, "notifications": [_notif("Channel not found.", "error")]}
+
+                if not channel.permissions_for(guild.me).send_messages:
+                    return {"status": 0, "notifications": [_notif("Bot cannot send messages in that channel.", "error")]}
+
+                msg = await channel.send(content)
+                for emoji in mapping.keys():
+                    try:
+                        await msg.add_reaction(emoji)
+                    except Exception:
+                        pass
+
+                # persist
+                cog = self  # type: ignore
+                guild_data = await cog.config.reaction_messages()
+                guild_map = guild_data.setdefault(str(guild.id), {})
+                guild_map[str(msg.id)] = {
+                    "channel_id": channel.id,
+                    "mapping": mapping,
+                    "author_id": user.id if user else None,
+                    "content": content,
+                }
+                await cog.config.reaction_messages.set(guild_data)
+
+                notifications = [{"message": "Reaction role message created.", "category": "success"}]
+                redirect = kwargs.get("request_url") or kwargs.get("request_url_full") or ""
+                return {"status": 0, "notifications": notifications, "redirect_url": redirect}
+            except Exception as e:
+                log.exception("Failed to create message via dashboard")
+                return {"status": 0, "notifications": [_notif(f"Failed to create message: {e}", "error")]}
+
+        # GET: render page
         try:
             source = self._build_page("create.html")
             page_html = source.replace("/*__INITIAL_DATA__*/", json.dumps({}))
-            return {"web_content": {"source": page_html, "expanded": False, "fullscreen": False}}
+            return {"status": 0, "web_content": {"source": page_html, "standalone": True}}
         except Exception as e:
             log.exception("Error building create_page")
-            return {"notifications": [_notif(f"Failed to render create page: {e}", "error")]}
+            return {"status": 0, "notifications": [_notif(f"Failed to render create page: {e}", "error")]}
 
     @dashboard_page(name="edit", description="Edit a reaction role message.", methods=("GET", "POST"))
-    async def edit_page(self, user: discord.User, guild: discord.Guild = None, message_id: int = None, method: str = "GET", form_data: dict = None, **kwargs) -> t.Dict[str, t.Any]:
-        guild = self._resolve_guild(guild, kwargs)
-        resolved_mid = self._resolve_message_id(message_id, kwargs)
-        if guild is None or resolved_mid is None:
-            return {"notifications": [_notif("Missing guild or message_id parameter. Open the page from the guild view and include message_id in the query.", "error")]}
+    async def edit_page(
+        self,
+        user: discord.User = None,
+        guild: discord.Guild = None,
+        message_id: int = None,
+        method: str = "GET",
+        form_data: dict = None,
+        **kwargs,
+    ) -> t.Dict[str, t.Any]:
+        """
+        Edit an existing reaction role message. On POST expects form_data with content and mappings.
+        """
+        if guild is None:
+            return {"status": 0, "notifications": [_notif("Guild context missing. Open this page from the guild view in the dashboard.", "error")]}
+
+        form_data = form_data or {}
+        mid = message_id or form_data.get("message_id") or kwargs.get("message_id")
         try:
-            cog = self
+            mid_int = int(mid) if mid is not None else None
+        except Exception:
+            mid_int = None
+
+        if mid_int is None:
+            return {"status": 0, "notifications": [_notif("Missing message_id parameter.", "error")]}
+
+        try:
+            cog = self  # type: ignore
             guild_data = await cog.config.reaction_messages()
-            entry = guild_data.get(str(guild.id), {}).get(str(resolved_mid))
+            entry = guild_data.get(str(guild.id), {}).get(str(mid_int))
             if not entry:
-                return {"notifications": [_notif("Reaction role message not found.", "error")]}
+                return {"status": 0, "notifications": [_notif("Reaction role message not found.", "error")]}
+
+            if str(method).upper() == "POST" and form_data:
+                content = form_data.get("content", entry.get("content", ""))
+                mappings_raw = form_data.get("mappings", "[]")
+                mapping = self._parse_mappings(mappings_raw)
+                guild_map = guild_data.setdefault(str(guild.id), {})
+                guild_map[str(mid_int)]["mapping"] = mapping
+                guild_map[str(mid_int)]["content"] = content
+                await cog.config.reaction_messages.set(guild_data)
+
+                # try to update message in discord
+                try:
+                    channel = guild.get_channel(entry["channel_id"])
+                    if channel:
+                        msg = await channel.fetch_message(int(mid_int))
+                        await msg.edit(content=content)
+                        for emoji in mapping.keys():
+                            try:
+                                await msg.add_reaction(emoji)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                notifications = [{"message": "Reaction role message updated.", "category": "success"}]
+                redirect = kwargs.get("request_url") or ""
+                return {"status": 0, "notifications": notifications, "redirect_url": redirect}
+
+            # GET: render edit page with initial data
             source = self._build_page("edit.html")
-            page_html = source.replace("/*__INITIAL_DATA__*/", json.dumps({"message": entry, "message_id": int(resolved_mid)}))
-            return {"web_content": {"source": page_html, "expanded": False, "fullscreen": False}}
+            page_html = source.replace("/*__INITIAL_DATA__*/", json.dumps({"message": entry, "message_id": mid_int}))
+            return {"status": 0, "web_content": {"source": page_html, "standalone": True}}
         except Exception as e:
-            log.exception("Error building edit_page")
-            return {"notifications": [_notif(f"Failed to render edit page: {e}", "error")]}
+            log.exception("Error in edit_page")
+            return {"status": 0, "notifications": [_notif(f"Failed to render/edit message: {e}", "error")]}
 
     @dashboard_page(name="preview", description="Preview a reaction role message.")
-    async def preview_page(self, user: discord.User, guild: discord.Guild = None, message_id: int = None, **kwargs) -> t.Dict[str, t.Any]:
-        guild = self._resolve_guild(guild, kwargs)
-        resolved_mid = self._resolve_message_id(message_id, kwargs)
-        if guild is None or resolved_mid is None:
-            return {"notifications": [_notif("Missing guild or message_id parameter. Open the page from the guild view and include message_id in the query.", "error")]}
+    async def preview_page(self, user: discord.User = None, guild: discord.Guild = None, message_id: int = None, **kwargs) -> t.Dict[str, t.Any]:
+        """
+        Return a preview page for a managed reaction role message.
+        """
+        if guild is None:
+            return {"status": 0, "notifications": [_notif("Guild context missing. Open this page from the guild view in the dashboard.", "error")]}
+
         try:
-            cog = self
+            mid = message_id or kwargs.get("message_id")
+            mid_int = int(mid) if mid is not None else None
+        except Exception:
+            mid_int = None
+
+        if mid_int is None:
+            return {"status": 0, "notifications": [_notif("Missing message_id parameter.", "error")]}
+
+        try:
+            cog = self  # type: ignore
             guild_data = await cog.config.reaction_messages()
-            entry = guild_data.get(str(guild.id), {}).get(str(resolved_mid))
+            entry = guild_data.get(str(guild.id), {}).get(str(mid_int))
             if not entry:
-                return {"notifications": [_notif("Message not found.", "error")]}
+                return {"status": 0, "notifications": [_notif("Message not found.", "error")]}
+
             source = self._build_page("preview.html")
             page_html = source.replace(
                 "/*__INITIAL_DATA__*/",
                 json.dumps({"preview": {"content": entry.get("content", ""), "mappings": [{"emoji": e, "role_id": r} for e, r in entry.get("mapping", {}).items()]}}),
             )
-            return {"web_content": {"source": page_html, "expanded": False, "fullscreen": False}}
+            return {"status": 0, "web_content": {"source": page_html, "standalone": True}}
         except Exception as e:
             log.exception("Error in preview_page")
-            return {"notifications": [_notif(f"Failed to build preview: {e}", "error")]}
+            return {"status": 0, "notifications": [_notif(f"Failed to build preview: {e}", "error")]}
