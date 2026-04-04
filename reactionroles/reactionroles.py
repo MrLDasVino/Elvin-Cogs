@@ -54,7 +54,6 @@ class ReactionRoles(commands.Cog):
         except Exception:
             self.logger.exception("ReactionRoles: failed to register dashboard integration via event")
 
-    # --- status command for debugging dashboard registration ---
     @commands.command(name="reactionroles-dashboardstatus")
     @checks.admin_or_permissions(manage_guild=True)
     async def dashboard_status(self, ctx: commands.Context):
@@ -65,42 +64,105 @@ class ReactionRoles(commands.Cog):
         if not dashboard_cog:
             await ctx.send("\n".join(lines))
             return
+
         handler = getattr(dashboard_cog.rpc, "third_parties_handler", None)
         lines.append(f"third_parties_handler present: {bool(handler)}")
         if not handler:
             await ctx.send("\n".join(lines))
             return
-        # try to inspect registered third parties (handler internals vary by version)
+
+        # Try to obtain registered items from common handler internals
+        registered = None
         try:
-            registered = getattr(handler, "third_parties", None) or getattr(handler, "_third_parties", None)
+            registered = getattr(handler, "third_parties", None)
             if registered is None:
-                # try list method
-                registered = getattr(handler, "list_third_parties", lambda: [])()
-            # check for our instance
-            inst = self.dashboard
-            present = False
-            for item in (registered or []):
-                if item is inst:
-                    present = True
-                    break
-            lines.append(f"our integration instance registered: {present}")
-            # list decorated pages on our instance
-            pages = []
+                registered = getattr(handler, "_third_parties", None)
+            if registered is None and hasattr(handler, "list_third_parties"):
+                try:
+                    registered = handler.list_third_parties()
+                except Exception:
+                    registered = None
+        except Exception as e:
+            lines.append(f"error accessing handler internals: {e}")
+
+        # Normalize registered into a list of objects to inspect
+        objs = []
+        if registered:
+            # handler may store dicts, tuples, or objects
+            if isinstance(registered, dict):
+                # dict mapping name -> obj
+                for k, v in registered.items():
+                    if isinstance(v, dict) and "object" in v:
+                        objs.append(v["object"])
+                    else:
+                        objs.append(v)
+            elif isinstance(registered, (list, tuple, set)):
+                for item in registered:
+                    if isinstance(item, dict) and "object" in item:
+                        objs.append(item["object"])
+                    else:
+                        objs.append(item)
+            else:
+                objs.append(registered)
+        else:
+            # fallback: try common attribute names on handler
+            for attr in ("_third_parties", "third_parties", "registered"):
+                val = getattr(handler, attr, None)
+                if val:
+                    if isinstance(val, (list, tuple, set)):
+                        objs.extend(val)
+                    else:
+                        objs.append(val)
+
+        # Helper to detect a dashboard integration by decorated pages
+        def is_integration_candidate(o):
+            try:
+                for attr in dir(o):
+                    obj = getattr(o, attr, None)
+                    if hasattr(obj, "__dashboard_decorator_params__"):
+                        return True
+            except Exception:
+                return False
+            return False
+
+        # Check if our exact instance is present (identity)
+        inst = self.dashboard
+        present_identity = False
+        for o in objs:
+            if o is inst:
+                present_identity = True
+                break
+
+        # Check if any registered object looks like our integration (has decorated pages)
+        present_candidate = False
+        candidate_names = []
+        for o in objs:
+            if is_integration_candidate(o):
+                present_candidate = True
+                candidate_names.append(getattr(o, "name", getattr(o, "__class__", type(o)).__name__))
+
+        lines.append(f"our integration instance registered (identity): {present_identity}")
+        lines.append(f"any integration-like object registered (decorated pages): {present_candidate}")
+        lines.append(f"integration-like registered names (sample up to 10): {candidate_names[:10]}")
+
+        # Also list decorated pages on our instance for comparison
+        pages = []
+        try:
             for attr in dir(inst):
                 obj = getattr(inst, attr)
                 if hasattr(obj, "__dashboard_decorator_params__"):
                     pages.append(f"{attr}: {getattr(obj,'__dashboard_decorator_params__')}")
-            lines.append(f"decorated pages found: {len(pages)}")
-            lines.extend(pages[:20])
         except Exception as e:
-            lines.append(f"error inspecting handler: {e}")
+            pages.append(f"error enumerating pages: {e}")
+
+        lines.append(f"decorated pages found on our instance: {len(pages)}")
+        lines.extend(pages[:20])
+
         await ctx.send("\n".join(lines))
 
-    # --- rest of commands/events omitted for brevity; keep your existing commands here ---
-    # For brevity in this snippet, assume all previously provided commands (send/add/remove/list/clear/delete)
-    # remain unchanged and present below in your actual file.
-    # (When you replace the file, include the full command implementations as before.)
-    pass
+    # --- rest of commands/events should be present below (send/add/remove/list/clear/delete) ---
+    # For brevity in this snippet the full command implementations are omitted.
+    # When you replace the file, ensure all command implementations you previously had are included here.
 
     @property
     def dashboard(self) -> DashboardIntegration:
