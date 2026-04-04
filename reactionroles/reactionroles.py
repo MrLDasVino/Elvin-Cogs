@@ -10,6 +10,7 @@ from redbot.core.utils.chat_formatting import pagify
 from .dashboard import DashboardIntegration  # type: ignore
 
 _ = Translator("ReactionRoles", __file__)
+log = logging.getLogger("red.reactionroles")
 
 
 def emoji_to_key(emoji: typing.Union[discord.PartialEmoji, discord.Emoji, str]) -> str:
@@ -22,31 +23,39 @@ def emoji_to_key(emoji: typing.Union[discord.PartialEmoji, discord.Emoji, str]) 
 
 
 class ReactionRoles(commands.Cog):
-    """Manage reaction role messages (send or attach to existing message). Admin commands only."""
+    """
+    ReactionRoles cog
+
+    Commands (admin only):
+    - reactionroles send <channel> <content> : Send a new message and register it for reaction roles.
+    - reactionroles add <message_id> <emoji> <role> : Add a reaction-role mapping (auto-registers message if needed).
+    - reactionroles remove <message_id> <emoji> : Remove a mapping and the bot's reaction.
+    - reactionroles list [message_id] : List registered messages or mappings for a message.
+    - reactionroles clear <message_id> : Clear all mappings and remove reactions.
+    - reactionroles delete <message_id> : Unregister a message from reaction-role management.
+    """
 
     def __init__(self, bot: Red):
         self.bot = bot
-        self.logger = logging.getLogger("red.reactionroles")
-        self.config = Config.get_conf(self, identifier=0xA1B2C3D4E6, force_registration=True)
-        default_guild = {"messages": {}}
+        self.logger = log
+        self.config = Config.get_conf(self, identifier=0xA1B2C3D4E7, force_registration=True)
+        default_guild = {"messages": {}}  # message_id -> {"channel": channel_id, "mappings": {emoji_key: role_id}}
         self.config.register_guild(**default_guild)
-        # keep a single dashboard integration instance so the same object is registered
         self._dashboard_integration: typing.Optional[DashboardIntegration] = None
 
     # ---------- Dashboard registration ----------
     @commands.Cog.listener()
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
         """
-        Called when the dashboard cog is added. Register our dashboard integration instance
-        with the dashboard third_parties handler so the integration appears under Third Parties.
+        Register the dashboard integration instance with the dashboard's third_parties_handler.
+        The dashboard expects the same object instance to be registered.
         """
         try:
             inst = self.dashboard
-            # ensure the integration has a reference to the bot and the cog
             inst.bot = self.bot
             inst.cog = self
-            # register with the dashboard
             dashboard_cog.rpc.third_parties_handler.add_third_party(inst)
+            self.logger.debug("ReactionRoles dashboard integration registered.")
         except Exception:
             self.logger.exception("Failed to register ReactionRoles dashboard integration")
 
@@ -121,97 +130,117 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_send(self, ctx: commands.Context, channel: discord.TextChannel, *, content: str):
+        """
+        Send a new message to a channel and register it for reaction roles.
+
+        Description: Sends a message in the specified channel and registers it so you can add reaction-role mappings.
+        """
         if not channel.permissions_for(ctx.guild.me).send_messages:
-            await ctx.send(_("I cannot send messages in that channel."))
+            await ctx.send("I cannot send messages in that channel.")
             return
         try:
             msg = await channel.send(content)
         except Exception as e:
-            await ctx.send(_("Failed to send message: {err}").format(err=str(e)))
+            await ctx.send(f"Failed to send message: {e}")
             return
         async with self.config.guild(ctx.guild).all() as guild_conf:
             messages = guild_conf.get("messages", {})
             messages[str(msg.id)] = {"channel": channel.id, "mappings": {}}
             guild_conf["messages"] = messages
-        await ctx.send(_("Message sent and registered for reaction roles: {id}").format(id=msg.id))
-
-    @reactionroles.command(name="attach")
-    @checks.admin_or_permissions(manage_guild=True)
-    @commands.guild_only()
-    async def rr_attach(self, ctx: commands.Context, channel: discord.TextChannel, message_id: int):
-        try:
-            msg = await channel.fetch_message(message_id)
-        except Exception as e:
-            await ctx.send(_("Could not fetch message: {err}").format(err=str(e)))
-            return
-        async with self.config.guild(ctx.guild).all() as guild_conf:
-            messages = guild_conf.get("messages", {})
-            if str(msg.id) in messages:
-                await ctx.send(_("That message is already registered."))
-                return
-            messages[str(msg.id)] = {"channel": channel.id, "mappings": {}}
-            guild_conf["messages"] = messages
-        await ctx.send(_("Message attached for reaction roles: {id}").format(id=msg.id))
+        await ctx.send(f"Message sent and registered for reaction roles: {msg.id}")
 
     @reactionroles.command(name="add")
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_add(self, ctx: commands.Context, message_id: int, emoji: str, role: discord.Role):
+        """
+        Add a reaction-role mapping to a message.
+
+        Description: Adds the reaction to the message and maps it to the provided role.
+        If the message is not registered yet the cog will register it automatically.
+        """
+        # fetch message and channel
+        # try to find channel from stored config first, otherwise search guild channels
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
+
+        # try to fetch message from any channel in guild if not registered
         msg_conf = messages.get(str(message_id))
-        if not msg_conf:
-            await ctx.send(_("Message ID not registered. Use reactionroles send or attach first."))
+        message = None
+        if msg_conf:
+            channel = ctx.guild.get_channel(msg_conf["channel"])
+            if channel:
+                try:
+                    message = await channel.fetch_message(message_id)
+                except Exception:
+                    message = None
+        if message is None:
+            # attempt to find message by searching text channels (requires read permissions)
+            for ch in ctx.guild.text_channels:
+                if ch.permissions_for(ctx.guild.me).read_messages and ch.permissions_for(ctx.guild.me).read_message_history:
+                    try:
+                        message = await ch.fetch_message(message_id)
+                        # register it
+                        async with self.config.guild(ctx.guild).all() as guild_conf:
+                            messages = guild_conf.get("messages", {})
+                            messages[str(message.id)] = {"channel": ch.id, "mappings": {}}
+                            guild_conf["messages"] = messages
+                        break
+                    except Exception:
+                        continue
+        if message is None:
+            await ctx.send("Could not find that message in this guild.")
             return
 
-        current_mappings = msg_conf.get("mappings", {})
-        if len(current_mappings) >= 20:
-            await ctx.send(_("A message can have no more than 20 reaction-role mappings."))
-            return
+        # enforce max mappings
+        async with self.config.guild(ctx.guild).all() as guild_conf:
+            messages = guild_conf.get("messages", {})
+            msg_conf = messages.get(str(message.id), {"channel": message.channel.id, "mappings": {}})
+            current_mappings = msg_conf.get("mappings", {})
+            if len(current_mappings) >= 20:
+                await ctx.send("A message can have no more than 20 reaction-role mappings.")
+                return
 
+        # parse emoji
         try:
             parsed = discord.PartialEmoji.from_str(emoji)
         except Exception:
             parsed = emoji
 
         emoji_key = emoji_to_key(parsed)
-
         if emoji_key in current_mappings:
-            await ctx.send(_("That emoji is already mapped to a role for this message."))
+            await ctx.send("That emoji is already mapped to a role for this message.")
             return
 
-        channel = ctx.guild.get_channel(msg_conf["channel"])
-        if not channel:
-            await ctx.send(_("I cannot find the channel for that message."))
-            return
-        try:
-            message = await channel.fetch_message(message_id)
-        except Exception as e:
-            await ctx.send(_("Could not fetch message: {err}").format(err=str(e)))
-            return
-
+        # try to add reaction
         try:
             await message.add_reaction(parsed)
         except Exception as e:
-            await ctx.send(_("Failed to add reaction to message: {err}").format(err=str(e)))
+            await ctx.send(f"Failed to add reaction to message: {e}")
             return
 
+        # save mapping
         async with self.config.guild(ctx.guild).all() as guild_conf:
             messages = guild_conf.get("messages", {})
-            messages[str(message_id)]["mappings"][emoji_key] = role.id
+            messages[str(message.id)]["mappings"][emoji_key] = role.id
             guild_conf["messages"] = messages
 
-        await ctx.send(_("Mapping added: {emoji} -> {role}").format(emoji=emoji_key, role=role.mention))
+        await ctx.send(f"Mapping added: {emoji_key} -> {role.mention}")
 
     @reactionroles.command(name="remove")
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_remove(self, ctx: commands.Context, message_id: int, emoji: str):
+        """
+        Remove a reaction-role mapping.
+
+        Description: Removes the mapping and clears the bot's reaction from the message.
+        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
         msg_conf = messages.get(str(message_id))
         if not msg_conf:
-            await ctx.send(_("Message ID not registered."))
+            await ctx.send("Message ID not registered.")
             return
 
         try:
@@ -221,7 +250,7 @@ class ReactionRoles(commands.Cog):
         emoji_key = emoji_to_key(parsed)
 
         if emoji_key not in msg_conf.get("mappings", {}):
-            await ctx.send(_("That emoji is not mapped for this message."))
+            await ctx.send("That emoji is not mapped for this message.")
             return
 
         channel = ctx.guild.get_channel(msg_conf["channel"])
@@ -243,18 +272,23 @@ class ReactionRoles(commands.Cog):
             messages[str(message_id)]["mappings"].pop(emoji_key, None)
             guild_conf["messages"] = messages
 
-        await ctx.send(_("Mapping removed: {emoji}").format(emoji=emoji_key))
+        await ctx.send(f"Mapping removed: {emoji_key}")
 
     @reactionroles.command(name="list")
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_list(self, ctx: commands.Context, message_id: int = None):
+        """
+        List reaction-role registrations or mappings.
+
+        Description: Without arguments lists registered messages. With a message_id lists mappings for that message.
+        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
 
         if message_id is None:
             if not messages:
-                await ctx.send(_("No reaction-role messages registered in this guild."))
+                await ctx.send("No reaction-role messages registered in this guild.")
                 return
             lines = []
             for mid, info in messages.items():
@@ -266,11 +300,11 @@ class ReactionRoles(commands.Cog):
 
         msg_conf = messages.get(str(message_id))
         if not msg_conf:
-            await ctx.send(_("Message ID not registered."))
+            await ctx.send("Message ID not registered.")
             return
         mappings = msg_conf.get("mappings", {})
         if not mappings:
-            await ctx.send(_("No mappings for that message."))
+            await ctx.send("No mappings for that message.")
             return
         lines = []
         for emoji_key, role_id in mappings.items():
@@ -283,11 +317,16 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_clear(self, ctx: commands.Context, message_id: int):
+        """
+        Clear all mappings for a message.
+
+        Description: Removes all mappings and attempts to clear reactions from the message.
+        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
         msg_conf = messages.get(str(message_id))
         if not msg_conf:
-            await ctx.send(_("Message ID not registered."))
+            await ctx.send("Message ID not registered.")
             return
 
         channel = ctx.guild.get_channel(msg_conf["channel"])
@@ -310,27 +349,32 @@ class ReactionRoles(commands.Cog):
             messages[str(message_id)]["mappings"] = {}
             guild_conf["messages"] = messages
 
-        await ctx.send(_("All mappings cleared for message {id}").format(id=message_id))
+        await ctx.send(f"All mappings cleared for message {message_id}")
 
     @reactionroles.command(name="delete")
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_delete(self, ctx: commands.Context, message_id: int):
+        """
+        Unregister a message from reaction-role management.
+
+        Description: Removes the message from the cog's registry. Does not delete the message itself.
+        """
         async with self.config.guild(ctx.guild).all() as guild_conf:
             messages = guild_conf.get("messages", {})
             if str(message_id) not in messages:
-                await ctx.send(_("Message ID not registered."))
+                await ctx.send("Message ID not registered.")
                 return
             messages.pop(str(message_id), None)
             guild_conf["messages"] = messages
-        await ctx.send(_("Message {id} removed from reaction-role management.").format(id=message_id))
+        await ctx.send(f"Message {message_id} removed from reaction-role management.")
 
     # ---------- Dashboard integration exposure ----------
     @property
     def dashboard(self) -> DashboardIntegration:
         """
         Return a single DashboardIntegration instance (create if needed).
-        The dashboard cog expects the same object to be registered as a third party.
+        The dashboard expects the same object instance to be registered.
         """
         if self._dashboard_integration is None:
             inst = DashboardIntegration()
