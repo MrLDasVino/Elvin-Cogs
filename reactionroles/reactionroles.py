@@ -1,13 +1,14 @@
 # reactionroles/reactionroles.py
-from redbot.core import commands, checks, Config
+import logging
+import os
+import typing
+
+import discord
+from redbot.core import checks, commands, Config
 from redbot.core.bot import Red
 from redbot.core.i18n import Translator
-import discord
-import typing
-import os
 from redbot.core.utils.chat_formatting import pagify
 
-# Import the dashboard integration class from the separate module
 from .dashboard import DashboardIntegration  # type: ignore
 
 _ = Translator("ReactionRoles", __file__)
@@ -27,11 +28,12 @@ class ReactionRoles(commands.Cog):
 
     def __init__(self, bot: Red):
         self.bot = bot
+        # Use a module-specific logger instead of assuming bot.logger exists
+        self.logger = logging.getLogger("red.reactionroles")
         # Unique identifier for Config; change if you have collisions with other cogs
         self.config = Config.get_conf(self, identifier=0xA1B2C3D4E6, force_registration=True)
         default_guild = {"messages": {}}  # message_id -> {"channel": channel_id, "mappings": {emoji_key: role_id}}
         self.config.register_guild(**default_guild)
-        self.logger = bot.logger
 
     # ---------- Events ----------
     @commands.Cog.listener()

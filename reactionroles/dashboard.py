@@ -1,10 +1,11 @@
 # reactionroles/dashboard.py
-from redbot.core.i18n import Translator
-from redbot.core.bot import Red
-from redbot.core import commands
-import discord
-import typing
 import os
+import typing
+
+import discord
+from redbot.core import commands
+from redbot.core.bot import Red
+from redbot.core.i18n import Translator
 
 _ = Translator("ReactionRoles", __file__)
 
@@ -43,7 +44,7 @@ class DashboardIntegration:
 
     @property
     def logger(self):
-        return self.bot.logger
+        return self.bot.logger if hasattr(self.bot, "logger") else None
 
     async def _get_hook(self, channel: discord.TextChannel) -> typing.Optional[discord.Webhook]:
         """
@@ -192,7 +193,7 @@ class DashboardIntegration:
 
                 async with cog.config.guild(guild).all() as guild_conf:
                     messages = guild_conf.get("messages", {})
-                    messages[str(message.id)]["mappings"][emoji_to_key(parsed)] = role_id
+                    messages[str(message.id)]["mappings"][emoji if isinstance(parsed, str) else f"<:{getattr(parsed,'name',parsed)}:{getattr(parsed,'id', '')}>"] = role_id
                     guild_conf["messages"] = messages
 
                 notifications.append({"message": _("Success."), "category": "success"})
