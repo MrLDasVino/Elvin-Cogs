@@ -1,8 +1,6 @@
 # reactionroles/reactionroles.py
 import logging
-import os
 import typing
-
 import discord
 from redbot.core import checks, commands, Config
 from redbot.core.bot import Red
@@ -29,15 +27,32 @@ class ReactionRoles(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
         self.logger = logging.getLogger("red.reactionroles")
-        # Unique identifier for Config; change if you have collisions with other cogs
         self.config = Config.get_conf(self, identifier=0xA1B2C3D4E6, force_registration=True)
-        default_guild = {"messages": {}}  # message_id -> {"channel": channel_id, "mappings": {emoji_key: role_id}}
+        default_guild = {"messages": {}}
         self.config.register_guild(**default_guild)
+        # keep a single dashboard integration instance so the same object is registered
+        self._dashboard_integration: typing.Optional[DashboardIntegration] = None
+
+    # ---------- Dashboard registration ----------
+    @commands.Cog.listener()
+    async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
+        """
+        Called when the dashboard cog is added. Register our dashboard integration instance
+        with the dashboard third_parties handler so the integration appears under Third Parties.
+        """
+        try:
+            inst = self.dashboard
+            # ensure the integration has a reference to the bot and the cog
+            inst.bot = self.bot
+            inst.cog = self
+            # register with the dashboard
+            dashboard_cog.rpc.third_parties_handler.add_third_party(inst)
+        except Exception:
+            self.logger.exception("Failed to register ReactionRoles dashboard integration")
 
     # ---------- Events ----------
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        # Ignore bot reactions
         if payload.user_id == self.bot.user.id:
             return
         guild = self.bot.get_guild(payload.guild_id) if payload.guild_id else None
@@ -106,11 +121,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_send(self, ctx: commands.Context, channel: discord.TextChannel, *, content: str):
-        """
-        Send a new message to a channel and register it for reaction roles.
-
-        Example: [p]reactionroles send #roles React below to get roles!
-        """
         if not channel.permissions_for(ctx.guild.me).send_messages:
             await ctx.send(_("I cannot send messages in that channel."))
             return
@@ -129,11 +139,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_attach(self, ctx: commands.Context, channel: discord.TextChannel, message_id: int):
-        """
-        Attach to an existing message by ID in the provided channel.
-
-        Example: [p]reactionroles attach #roles 123456789012345678
-        """
         try:
             msg = await channel.fetch_message(message_id)
         except Exception as e:
@@ -152,12 +157,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_add(self, ctx: commands.Context, message_id: int, emoji: str, role: discord.Role):
-        """
-        Add a reaction-role mapping to a registered message.
-
-        emoji can be a unicode emoji or a custom emoji like <:name:id>.
-        Example: [p]reactionroles add 123456789012345678 👍 @MemberRole
-        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
         msg_conf = messages.get(str(message_id))
@@ -208,11 +207,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_remove(self, ctx: commands.Context, message_id: int, emoji: str):
-        """
-        Remove a reaction-role mapping from a registered message.
-
-        Example: [p]reactionroles remove 123456789012345678 👍
-        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
         msg_conf = messages.get(str(message_id))
@@ -255,11 +249,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_list(self, ctx: commands.Context, message_id: int = None):
-        """
-        List reaction-role mappings.
-
-        If message_id is omitted, lists all registered messages in the guild.
-        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
 
@@ -294,11 +283,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_clear(self, ctx: commands.Context, message_id: int):
-        """
-        Clear all mappings for a registered message and remove the bot's reactions.
-
-        Example: [p]reactionroles clear 123456789012345678
-        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
         msg_conf = messages.get(str(message_id))
@@ -332,11 +316,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_delete(self, ctx: commands.Context, message_id: int):
-        """
-        Remove a message from reaction-role management (does not delete the message).
-
-        Example: [p]reactionroles delete 123456789012345678
-        """
         async with self.config.guild(ctx.guild).all() as guild_conf:
             messages = guild_conf.get("messages", {})
             if str(message_id) not in messages:
@@ -348,12 +327,14 @@ class ReactionRoles(commands.Cog):
 
     # ---------- Dashboard integration exposure ----------
     @property
-    def dashboard(self):
+    def dashboard(self) -> DashboardIntegration:
         """
-        Return an instance of the dashboard integration helper.
-        The DashboardIntegration class is defined in dashboard.py and uses module-level decorators.
+        Return a single DashboardIntegration instance (create if needed).
+        The dashboard cog expects the same object to be registered as a third party.
         """
-        inst = DashboardIntegration()
-        inst.bot = self.bot
-        inst.cog = self
-        return inst
+        if self._dashboard_integration is None:
+            inst = DashboardIntegration()
+            inst.bot = self.bot
+            inst.cog = self
+            self._dashboard_integration = inst
+        return self._dashboard_integration

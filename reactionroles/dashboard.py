@@ -21,30 +21,22 @@ class DashboardIntegration:
     """
     Dashboard integration for the Red web dashboard.
 
-    This class follows the example in the official docs:
-    - It exposes methods decorated with @dashboard_page
-    - It registers itself with the dashboard's third_parties_handler when the dashboard cog is added
+    This class follows the official example and exposes decorated methods.
+    The ReactionRoles cog will register a single instance of this class with the dashboard
+    third_parties handler when the dashboard cog is added.
     """
 
     bot: Red
-    # `cog` will be set by the ReactionRoles cog when exposing the integration instance
     cog: typing.Any
 
     @commands.Cog.listener()
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
         """
-        Called by the dashboard cog when it is added. Register this integration instance
-        with the dashboard third_parties handler so it appears under Third Parties.
+        This method mirrors the example. It will be called if this object is ever added
+        as a cog; the ReactionRoles cog registers the instance directly with the dashboard,
+        so this method is kept for compatibility.
         """
-        try:
-            dashboard_cog.rpc.third_parties_handler.add_third_party(self)
-        except Exception:
-            # avoid raising during load; the cog's logger will capture issues
-            if hasattr(self.bot, "logger"):
-                try:
-                    self.bot.logger.exception("Failed to register ReactionRoles dashboard integration")
-                except Exception:
-                    pass
+        dashboard_cog.rpc.third_parties_handler.add_third_party(self)
 
     @staticmethod
     def _read_file(name: str) -> str:
@@ -105,7 +97,6 @@ class DashboardIntegration:
                 _("Data"),
                 validators=[
                     wtforms.validators.DataRequired(),
-                    # keep converter usage optional; dashboard will provide DpyObjectConverter in kwargs
                     kwargs["DpyObjectConverter"](typing.Any),
                 ],
             )
@@ -129,11 +120,9 @@ class DashboardIntegration:
             </form>
         """
 
-        # validate_dpy_converters is provided by the dashboard; check both conditions like the example
         if send_form.validate_on_submit() and await send_form.validate_dpy_converters():
             notifications = []
             for channel in send_form.channels.data:
-                # Use the same logic as the example to send via webhook or normal send
                 if send_form.username.data or send_form.avatar.data:
                     if not channel.permissions_for(guild.me).manage_webhooks:
                         notifications.append(
@@ -152,7 +141,6 @@ class DashboardIntegration:
                         )
                         continue
                     try:
-                        # create or get a webhook owned by the bot
                         webhooks = await channel.webhooks()
                         hook = None
                         for wh in webhooks:
@@ -186,7 +174,6 @@ class DashboardIntegration:
                             }
                         )
             s = "s" if len(send_form.channels.data) > 1 else ""
-            # try to log via bot logger if available
             if hasattr(self.bot, "logger"):
                 try:
                     self.bot.logger.trace(
