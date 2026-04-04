@@ -1,10 +1,14 @@
+# reactionroles/reactionroles.py
 from redbot.core import commands, checks, Config
 from redbot.core.bot import Red
 from redbot.core.i18n import Translator
 import discord
 import typing
 import os
-from redbot.core.utils.chat_formatting import pagify, humanize_list
+from redbot.core.utils.chat_formatting import pagify
+
+# Import the dashboard integration class from the separate module
+from .dashboard import DashboardIntegration  # type: ignore
 
 _ = Translator("ReactionRoles", __file__)
 
@@ -23,6 +27,7 @@ class ReactionRoles(commands.Cog):
 
     def __init__(self, bot: Red):
         self.bot = bot
+        # Unique identifier for Config; change if you have collisions with other cogs
         self.config = Config.get_conf(self, identifier=0xA1B2C3D4E6, force_registration=True)
         default_guild = {"messages": {}}  # message_id -> {"channel": channel_id, "mappings": {emoji_key: role_id}}
         self.config.register_guild(**default_guild)
@@ -340,187 +345,14 @@ class ReactionRoles(commands.Cog):
             guild_conf["messages"] = messages
         await ctx.send(_("Message {id} removed from reaction-role management.").format(id=message_id))
 
-    # ---------- Dashboard integration ----------
-    def dashboard_page(self, *args, **kwargs):
-        def decorator(func: typing.Callable):
-            func.__dashboard_decorator_params__ = (args, kwargs)
-            return func
-        return decorator
-
-    class DashboardIntegration:
-        bot: Red
-
-        @commands.Cog.listener()
-        async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
-            dashboard_cog.rpc.third_parties_handler.add_third_party(self)
-
-        @staticmethod
-        def _read_file(name: str) -> str:
-            file_path = os.path.join(os.path.dirname(__file__), name)
-            with open(file_path, "rt", encoding="utf-8") as f:
-                return f.read()
-
-        @property
-        def logger(self):
-            return self.bot.logger
-
-        async def _get_hook(self, channel: discord.TextChannel) -> typing.Optional[discord.Webhook]:
-            """
-            Try to find an existing webhook the bot can use in the channel, or create one.
-            Returns a discord.Webhook object or None if not possible.
-            """
-            try:
-                webhooks = await channel.webhooks()
-                for wh in webhooks:
-                    if wh.user and wh.user.id == self.bot.user.id:
-                        return wh
-                # create a webhook if we have permission
-                if channel.permissions_for(channel.guild.me).manage_webhooks:
-                    return await channel.create_webhook(name=f"{channel.guild.me.display_name}-rr")
-            except Exception:
-                return None
-            return None
-
-        @ReactionRoles.dashboard_page(name=None, description="Reaction Roles editor")
-        async def dashboard_editor(self, **kwargs) -> None:
-            source = self._read_file("editor.html")
-            return {"status": 0, "web_content": {"source": source, "standalone": True}}
-
-        @ReactionRoles.dashboard_page(
-            name="guild",
-            description="Create or manage reaction roles for a guild",
-            methods=("GET", "POST"),
-        )
-        async def dashboard_guild(self, user: discord.User, guild: discord.Guild, **kwargs) -> None:
-            is_owner = user.id in self.bot.owner_ids
-            member = guild.get_member(user.id)
-            if not is_owner and not await self.bot.is_mod(member):
-                return {
-                    "status": 0,
-                    "error_code": 403,
-                    "message": _("You don't have permissions to access this page."),
-                }
-            channels = kwargs["get_sorted_channels"](guild)
-            if not channels:
-                return {
-                    "status": 0,
-                    "error_code": 403,
-                    "message": _(
-                        "I or you don't have permissions to send messages or embeds in any channel in this guild."
-                    ),
-                }
-
-            source = self._read_file("editor.html")
-
-            import wtforms
-
-            class SendForm(kwargs["Form"]):
-                def __init__(self) -> None:
-                    super().__init__(prefix="send_form_")
-
-                channel: wtforms.SelectField = wtforms.SelectField(
-                    _("Channel:"),
-                    choices=[],
-                    validators=[wtforms.validators.DataRequired()],
-                )
-                message_id: wtforms.StringField = wtforms.StringField(
-                    _("Message ID (optional to attach)"),
-                    validators=[wtforms.validators.Optional()],
-                )
-                content: wtforms.TextAreaField = wtforms.TextAreaField(
-                    _("Message content (if sending new message)"),
-                    validators=[wtforms.validators.Optional()],
-                )
-                emoji: wtforms.StringField = wtforms.StringField(
-                    _("Emoji"),
-                    validators=[wtforms.validators.DataRequired(), wtforms.validators.Length(max=64)],
-                )
-                role: wtforms.SelectField = wtforms.SelectField(
-                    _("Role"),
-                    choices=[],
-                    validators=[wtforms.validators.DataRequired()],
-                )
-                submit = wtforms.SubmitField(_("Submit"))
-
-            send_form: SendForm = SendForm()
-            send_form.channel.choices = channels
-            roles_choices = [(str(r.id), r.name) for r in guild.roles if not r.is_default()]
-            send_form.role.choices = roles_choices
-
-            send_form_string = f"""
-                <form action="" method="POST" role="form" enctype="multipart/form-data">
-                    {send_form.hidden_tag()}
-                    <label>Channel</label>
-                    {send_form.channel()}
-                    <label>Message ID (leave empty to send new message)</label>
-                    {send_form.message_id()}
-                    <label>Message content (if sending new message)</label>
-                    {send_form.content()}
-                    <label>Emoji (unicode or custom like &lt;:name:id&gt;)</label>
-                    {send_form.emoji()}
-                    <label>Role</label>
-                    {send_form.role()}
-                    {send_form.submit()}
-                </form>
-            """
-
-            if send_form.validate_on_submit():
-                channel_id = int(send_form.channel.data)
-                channel = guild.get_channel(channel_id)
-                if not channel:
-                    return {"status": 0, "error_code": 400, "message": _("Invalid channel.")}
-
-                message_id = send_form.message_id.data.strip()
-                content = send_form.content.data.strip()
-                emoji = send_form.emoji.data.strip()
-                role_id = int(send_form.role.data)
-
-                notifications = []
-                try:
-                    if message_id:
-                        try:
-                            message = await channel.fetch_message(int(message_id))
-                        except Exception as e:
-                            notifications.append({"message": str(e), "category": "danger"})
-                            return {"status": 0, "notifications": notifications}
-                        async with self.bot.get_cog("ReactionRoles").config.guild(guild).all() as guild_conf:
-                            messages = guild_conf.get("messages", {})
-                            messages[str(message.id)] = {"channel": channel.id, "mappings": {}}
-                            guild_conf["messages"] = messages
-                    else:
-                        if not content:
-                            notifications.append({"message": _("No content provided."), "category": "danger"})
-                            return {"status": 0, "notifications": notifications}
-                        message = await channel.send(content)
-                        async with self.bot.get_cog("ReactionRoles").config.guild(guild).all() as guild_conf:
-                            messages = guild_conf.get("messages", {})
-                            messages[str(message.id)] = {"channel": channel.id, "mappings": {}}
-                            guild_conf["messages"] = messages
-
-                    # add reaction and mapping
-                    try:
-                        parsed = discord.PartialEmoji.from_str(emoji)
-                    except Exception:
-                        parsed = emoji
-                    await message.add_reaction(parsed)
-
-                    async with self.bot.get_cog("ReactionRoles").config.guild(guild).all() as guild_conf:
-                        messages = guild_conf.get("messages", {})
-                        messages[str(message.id)]["mappings"][emoji_to_key(parsed)] = role_id
-                        guild_conf["messages"] = messages
-
-                    notifications.append({"message": _("Success."), "category": "success"})
-                except Exception as e:
-                    notifications.append({"message": str(e), "category": "danger"})
-                return {"status": 0, "notifications": notifications, "redirect_url": kwargs["request_url"]}
-
-            return {
-                "status": 0,
-                "web_content": {"source": source, "standalone": True, "send_form": send_form_string},
-            }
-
+    # ---------- Dashboard integration exposure ----------
     @property
     def dashboard(self):
-        inst = ReactionRoles.DashboardIntegration()
+        """
+        Return an instance of the dashboard integration helper.
+        The DashboardIntegration class is defined in dashboard.py and uses module-level decorators.
+        """
+        inst = DashboardIntegration()
         inst.bot = self.bot
+        inst.cog = self
         return inst
