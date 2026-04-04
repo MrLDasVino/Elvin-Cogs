@@ -34,20 +34,6 @@ class ReactionRoles(commands.Cog):
         default_guild = {"messages": {}}  # message_id -> {"channel": channel_id, "mappings": {emoji_key: role_id}}
         self.config.register_guild(**default_guild)
 
-    # Register the dashboard third party when the dashboard cog is added
-    @commands.Cog.listener()
-    async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
-        """
-        The dashboard cog emits an event when it is added. Register our dashboard integration
-        instance with the dashboard's third_parties_handler here so the integration shows up
-        under Third Parties in the web UI.
-        """
-        try:
-            dashboard_cog.rpc.third_parties_handler.add_third_party(self.dashboard)
-        except Exception:
-            # avoid raising during cog load; log for debugging
-            self.logger.exception("Failed to register ReactionRoles dashboard integration")
-
     # ---------- Events ----------
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):

@@ -1,48 +1,50 @@
 # reactionroles/dashboard.py
+from redbot.core import commands  # isort:skip
+from redbot.core.bot import Red  # isort:skip
+from redbot.core.i18n import Translator  # isort:skip
+import discord  # isort:skip
+import typing  # isort:skip
 import os
-import typing
-
-import discord
-from redbot.core import commands
-from redbot.core.bot import Red
-from redbot.core.i18n import Translator
 
 _ = Translator("ReactionRoles", __file__)
 
 
 def dashboard_page(*args, **kwargs):
-    """
-    Module-level decorator used by the Red dashboard integration.
-    Attaches decorator params to the function so the dashboard cog can discover pages.
-    """
     def decorator(func: typing.Callable):
         func.__dashboard_decorator_params__ = (args, kwargs)
         return func
+
     return decorator
 
 
 class DashboardIntegration:
     """
     Dashboard integration for the Red web dashboard.
-    Methods are decorated with the module-level @dashboard_page decorator so the dashboard can discover them.
-    The integration uses the cog via bot.get_cog("ReactionRoles") when needed.
+
+    This class follows the example in the official docs:
+    - It exposes methods decorated with @dashboard_page
+    - It registers itself with the dashboard's third_parties_handler when the dashboard cog is added
     """
 
     bot: Red
-    cog: typing.Any  # will be set by the cog when exposing the integration
+    # `cog` will be set by the ReactionRoles cog when exposing the integration instance
+    cog: typing.Any
 
-    # NOTE: Do NOT use @commands.Cog.listener here. The dashboard cog will call
-    # on_dashboard_cog_add on all loaded cogs; instead we register the third party
-    # from the ReactionRoles cog's on_dashboard_cog_add listener (see reactionroles.py).
+    @commands.Cog.listener()
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
-        # This method is kept for compatibility but is not decorated as a listener.
-        # The actual registration is performed by the ReactionRoles cog to ensure
-        # the dashboard integration instance is the one registered.
+        """
+        Called by the dashboard cog when it is added. Register this integration instance
+        with the dashboard third_parties handler so it appears under Third Parties.
+        """
         try:
             dashboard_cog.rpc.third_parties_handler.add_third_party(self)
         except Exception:
-            # avoid raising; the cog's logger will capture issues
-            return
+            # avoid raising during load; the cog's logger will capture issues
+            if hasattr(self.bot, "logger"):
+                try:
+                    self.bot.logger.exception("Failed to register ReactionRoles dashboard integration")
+                except Exception:
+                    pass
 
     @staticmethod
     def _read_file(name: str) -> str:
@@ -50,30 +52,11 @@ class DashboardIntegration:
         with open(file_path, "rt", encoding="utf-8") as f:
             return f.read()
 
-    @property
-    def logger(self):
-        return getattr(self.bot, "logger", None)
-
-    async def _get_hook(self, channel: discord.TextChannel) -> typing.Optional[discord.Webhook]:
-        """
-        Try to find an existing webhook the bot can use in the channel, or create one.
-        Returns a discord.Webhook object or None if not possible.
-        """
-        try:
-            webhooks = await channel.webhooks()
-            for wh in webhooks:
-                if wh.user and wh.user.id == self.bot.user.id:
-                    return wh
-            # create a webhook if we have permission
-            if channel.permissions_for(channel.guild.me).manage_webhooks:
-                return await channel.create_webhook(name=f"{channel.guild.me.display_name}-rr")
-        except Exception:
-            return None
-        return None
-
     @dashboard_page(name=None, description="Reaction Roles editor")
     async def dashboard_editor(self, **kwargs) -> None:
-        source = self._read_file("editor.html")
+        file_path = os.path.join(os.path.dirname(__file__), "editor.html")
+        with open(file_path, "rt", encoding="utf-8") as f:
+            source = f.read()
         return {"status": 0, "web_content": {"source": source, "standalone": True}}
 
     @dashboard_page(
@@ -100,7 +83,9 @@ class DashboardIntegration:
                 ),
             }
 
-        source = self._read_file("editor.html")
+        file_path = os.path.join(os.path.dirname(__file__), "editor.html")
+        with open(file_path, "rt", encoding="utf-8") as f:
+            source = f.read()
 
         import wtforms
 
@@ -108,106 +93,119 @@ class DashboardIntegration:
             def __init__(self) -> None:
                 super().__init__(prefix="send_form_")
 
-            channel: wtforms.SelectField = wtforms.SelectField(
-                _("Channel:"),
+            username: wtforms.HiddenField = wtforms.HiddenField(
+                _("Username:"),
+                validators=[wtforms.validators.Optional(), wtforms.validators.Length(max=80)],
+            )
+            avatar: wtforms.HiddenField = wtforms.HiddenField(
+                _("Avatar URL:"),
+                validators=[wtforms.validators.Optional(), wtforms.validators.URL()],
+            )
+            data: wtforms.HiddenField = wtforms.HiddenField(
+                _("Data"),
+                validators=[
+                    wtforms.validators.DataRequired(),
+                    # keep converter usage optional; dashboard will provide DpyObjectConverter in kwargs
+                    kwargs["DpyObjectConverter"](typing.Any),
+                ],
+            )
+            channels: wtforms.SelectMultipleField = wtforms.SelectMultipleField(
+                _("Channels:"),
                 choices=[],
-                validators=[wtforms.validators.DataRequired()],
+                validators=[
+                    wtforms.validators.DataRequired(),
+                    kwargs["DpyObjectConverter"](typing.Union[discord.TextChannel, discord.VoiceChannel]),
+                ],
             )
-            message_id: wtforms.StringField = wtforms.StringField(
-                _("Message ID (optional to attach)"),
-                validators=[wtforms.validators.Optional()],
-            )
-            content: wtforms.TextAreaField = wtforms.TextAreaField(
-                _("Message content (if sending new message)"),
-                validators=[wtforms.validators.Optional()],
-            )
-            emoji: wtforms.StringField = wtforms.StringField(
-                _("Emoji"),
-                validators=[wtforms.validators.DataRequired(), wtforms.validators.Length(max=64)],
-            )
-            role: wtforms.SelectField = wtforms.SelectField(
-                _("Role"),
-                choices=[],
-                validators=[wtforms.validators.DataRequired()],
-            )
-            submit = wtforms.SubmitField(_("Submit"))
+            submit = wtforms.SubmitField(_("Send Message(s)"))
 
         send_form: SendForm = SendForm()
-        send_form.channel.choices = channels
-        roles_choices = [(str(r.id), r.name) for r in guild.roles if not r.is_default()]
-        send_form.role.choices = roles_choices
-
+        send_form.channels.choices = channels
         send_form_string = f"""
             <form action="" method="POST" role="form" enctype="multipart/form-data">
                 {send_form.hidden_tag()}
-                <label>Channel</label>
-                {send_form.channel()}
-                <label>Message ID (leave empty to send new message)</label>
-                {send_form.message_id()}
-                <label>Message content (if sending new message)</label>
-                {send_form.content()}
-                <label>Emoji (unicode or custom like &lt;:name:id&gt;)</label>
-                {send_form.emoji()}
-                <label>Role</label>
-                {send_form.role()}
-                {send_form.submit()}
+                {send_form.channels() }
+                {send_form.submit(onclick='this.parentElement.querySelector("#send_form_username").value = document.querySelector(".editSenderUsername").value; this.parentElement.querySelector("#send_form_avatar").value = document.querySelector(".editSenderAvatar").value; this.parentElement.querySelector("#send_form_data").value = (JSON.stringify(typeof jsonCode === "object" ? jsonCode : json));', style="cursor: pointer; margin-left: 105px;") }
             </form>
         """
 
-        if send_form.validate_on_submit():
-            channel_id = int(send_form.channel.data)
-            channel = guild.get_channel(channel_id)
-            if not channel:
-                return {"status": 0, "error_code": 400, "message": _("Invalid channel.")}
-
-            message_id = send_form.message_id.data.strip()
-            content = send_form.content.data.strip()
-            emoji = send_form.emoji.data.strip()
-            role_id = int(send_form.role.data)
-
+        # validate_dpy_converters is provided by the dashboard; check both conditions like the example
+        if send_form.validate_on_submit() and await send_form.validate_dpy_converters():
             notifications = []
-            try:
-                cog = self.bot.get_cog("ReactionRoles")
-                if not cog:
-                    notifications.append({"message": _("ReactionRoles cog not loaded."), "category": "danger"})
-                    return {"status": 0, "notifications": notifications}
-
-                if message_id:
+            for channel in send_form.channels.data:
+                # Use the same logic as the example to send via webhook or normal send
+                if send_form.username.data or send_form.avatar.data:
+                    if not channel.permissions_for(guild.me).manage_webhooks:
+                        notifications.append(
+                            {
+                                "message": f"{channel.name} ({channel.id}): I don't have permissions to manage webhooks in this channel.",
+                                "category": "danger",
+                            }
+                        )
+                        continue
+                    if not is_owner and not channel.permissions_for(member).manage_webhooks:
+                        notifications.append(
+                            {
+                                "message": f"{channel.name} ({channel.id}): You don't have permissions to manage webhooks in this channel.",
+                                "category": "danger",
+                            }
+                        )
+                        continue
                     try:
-                        message = await channel.fetch_message(int(message_id))
-                    except Exception as e:
-                        notifications.append({"message": str(e), "category": "danger"})
-                        return {"status": 0, "notifications": notifications}
-                    async with cog.config.guild(guild).all() as guild_conf:
-                        messages = guild_conf.get("messages", {})
-                        messages[str(message.id)] = {"channel": channel.id, "mappings": {}}
-                        guild_conf["messages"] = messages
+                        # create or get a webhook owned by the bot
+                        webhooks = await channel.webhooks()
+                        hook = None
+                        for wh in webhooks:
+                            if wh.user and wh.user.id == self.bot.user.id:
+                                hook = wh
+                                break
+                        if not hook and channel.permissions_for(guild.me).manage_webhooks:
+                            hook = await channel.create_webhook(name=f"{guild.me.display_name}-dashboard")
+                        if hook:
+                            await hook.send(
+                                **send_form.data.data,
+                                username=send_form.username.data or guild.me.display_name,
+                                avatar_url=send_form.avatar.data or guild.me.display_avatar,
+                                wait=True,
+                            )
+                    except Exception as error:
+                        notifications.append(
+                            {
+                                "message": f"{channel.name} ({channel.id}): {str(error)}",
+                                "category": "danger",
+                            }
+                        )
                 else:
-                    if not content:
-                        notifications.append({"message": _("No content provided."), "category": "danger"})
-                        return {"status": 0, "notifications": notifications}
-                    message = await channel.send(content)
-                    async with cog.config.guild(guild).all() as guild_conf:
-                        messages = guild_conf.get("messages", {})
-                        messages[str(message.id)] = {"channel": channel.id, "mappings": {}}
-                        guild_conf["messages"] = messages
-
-                # add reaction and mapping
+                    try:
+                        await channel.send(**send_form.data.data)
+                    except Exception as e:
+                        notifications.append(
+                            {
+                                "message": f"{channel.name} ({channel.id}): {str(e)}",
+                                "category": "danger",
+                            }
+                        )
+            s = "s" if len(send_form.channels.data) > 1 else ""
+            # try to log via bot logger if available
+            if hasattr(self.bot, "logger"):
                 try:
-                    parsed = discord.PartialEmoji.from_str(emoji)
+                    self.bot.logger.trace(
+                        f"{len(send_form.channels.data)} message{s} sent in {guild.name} ({guild.id}), from the Dashboard by {user.display_name} ({user.id})."
+                    )
                 except Exception:
-                    parsed = emoji
-                await message.add_reaction(parsed)
-
-                async with cog.config.guild(guild).all() as guild_conf:
-                    messages = guild_conf.get("messages", {})
-                    messages[str(message.id)]["mappings"][emoji if isinstance(parsed, str) else f"<:{getattr(parsed,'name',parsed)}:{getattr(parsed,'id', '')}>"] = role_id
-                    guild_conf["messages"] = messages
-
-                notifications.append({"message": _("Success."), "category": "success"})
-            except Exception as e:
-                notifications.append({"message": str(e), "category": "danger"})
-            return {"status": 0, "notifications": notifications, "redirect_url": kwargs["request_url"]}
+                    pass
+            if not notifications:
+                notifications.append(
+                    {
+                        "message": _("Message{s} sent successfully!").format(s=s),
+                        "category": "success",
+                    }
+                )
+            return {
+                "status": 0,
+                "notifications": notifications,
+                "redirect_url": kwargs["request_url"],
+            }
 
         return {
             "status": 0,
