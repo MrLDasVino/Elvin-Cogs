@@ -1,0 +1,9 @@
+{
+  "name": "ReactionRoles",
+  "author": ["Elvin"],
+  "description": "Create reaction role messages or attach to existing messages. Admin-only commands.",
+  "install_msg": "ReactionRoles loaded. Use [p]reactionroles to manage reaction-role messages.",
+  "short": "Reaction role manager",
+  "requirements": [],
+  "tags": ["roles", "reaction", "dashboard", "admin"]
+}

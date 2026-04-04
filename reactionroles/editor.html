@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Reaction Roles Editor</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --bg:#0f1720; --card:#0b1220; --accent:#4f46e5; --muted:#9aa4b2; --text:#e6eef6;
+      font-family: Inter, Roboto, "Segoe UI", Arial, sans-serif;
+    }
+    body{background:linear-gradient(180deg,#071024 0%, #071a2a 100%); color:var(--text); margin:0; padding:24px;}
+    .container{max-width:980px;margin:0 auto;}
+    .card{background:var(--card); border-radius:12px; padding:18px; box-shadow:0 6px 18px rgba(2,6,23,0.6);}
+    h1{margin:0 0 8px 0; font-size:20px;}
+    p.lead{color:var(--muted); margin-top:0;}
+    label{display:block; font-size:13px; color:var(--muted); margin-top:12px;}
+    input[type="text"], textarea, select{width:100%; padding:10px; margin-top:6px; border-radius:8px; border:1px solid rgba(255,255,255,0.04); background:rgba(255,255,255,0.02); color:var(--text);}
+    textarea{min-height:100px; resize:vertical;}
+    .row{display:flex; gap:12px;}
+    .col{flex:1;}
+    .btn{display:inline-block; margin-top:12px; padding:10px 14px; border-radius:8px; background:var(--accent); color:white; border:none; cursor:pointer;}
+    .muted{color:var(--muted); font-size:13px;}
+    .small{font-size:13px;}
+    .note{background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; margin-top:12px; color:var(--muted);}
+    .mapping-preview{margin-top:12px; padding:10px; border-radius:8px; background:rgba(255,255,255,0.01); color:var(--muted);}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Reaction Roles Editor</h1>
+      <p class="lead">Create a new reaction-role message or attach to an existing message. This page is designed for server admins.</p>
+
+      <form id="rr-form">
+        <label>Channel (paste channel ID)</label>
+        <input id="channel" type="text" placeholder="Channel ID (e.g. 123456789012345678)" />
+
+        <label>Message ID (optional — leave empty to send a new message)</label>
+        <input id="message_id" type="text" placeholder="Existing message ID to attach to" />
+
+        <label>Message content (if sending new message)</label>
+        <textarea id="content" placeholder="Message content to send if not attaching"></textarea>
+
+        <div class="row">
+          <div class="col">
+            <label>Emoji</label>
+            <input id="emoji" type="text" placeholder="Unicode emoji or custom like &lt;:name:id&gt;" />
+          </div>
+          <div class="col">
+            <label>Role (paste role ID)</label>
+            <input id="role" type="text" placeholder="Role ID (e.g. 987654321098765432)" />
+          </div>
+        </div>
+
+        <button type="button" class="btn" onclick="submitForm()">Submit</button>
+
+        <div class="note">
+          <strong class="small">How it works</strong>
+          <div class="muted small">If you provide a Message ID the bot will attach to that message and add the reaction. If you leave it empty the bot will send a new message in the selected channel and add the reaction. The bot must have permission to send messages, add reactions and manage roles.</div>
+        </div>
+
+        <div id="preview" class="mapping-preview" style="display:none;"></div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    async function submitForm(){
+      const channel = document.getElementById("channel").value.trim();
+      const message_id = document.getElementById("message_id").value.trim();
+      const content = document.getElementById("content").value.trim();
+      const emoji = document.getElementById("emoji").value.trim();
+      const role = document.getElementById("role").value.trim();
+
+      if(!channel){
+        alert("Please provide a channel ID.");
+        return;
+      }
+      if(!emoji || !role){
+        alert("Please provide an emoji and a role ID.");
+        return;
+      }
+
+      // Build a payload for the dashboard backend. The dashboard will call the cog's endpoint.
+      // This page is a simple helper UI; the actual POST is handled by the dashboard integration.
+      const payload = {
+        channel: channel,
+        message_id: message_id,
+        content: content,
+        emoji: emoji,
+        role: role
+      };
+
+      // Show preview
+      const preview = document.getElementById("preview");
+      preview.style.display = "block";
+      preview.innerHTML = `<strong>Preview</strong><div class="muted small">Channel: ${channel}<br>Message ID: ${message_id || "(send new)"}<br>Emoji: ${emoji}<br>Role ID: ${role}</div>`;
+
+      // The dashboard will wire the form to the server. Here we just show the preview.
+      // If you want to auto-submit from the dashboard, the dashboard's SendForm will handle it.
+    }
+  </script>
+</body>
+</html>
