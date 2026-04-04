@@ -28,12 +28,25 @@ class ReactionRoles(commands.Cog):
 
     def __init__(self, bot: Red):
         self.bot = bot
-        # Use a module-specific logger instead of assuming bot.logger exists
         self.logger = logging.getLogger("red.reactionroles")
         # Unique identifier for Config; change if you have collisions with other cogs
         self.config = Config.get_conf(self, identifier=0xA1B2C3D4E6, force_registration=True)
         default_guild = {"messages": {}}  # message_id -> {"channel": channel_id, "mappings": {emoji_key: role_id}}
         self.config.register_guild(**default_guild)
+
+    # Register the dashboard third party when the dashboard cog is added
+    @commands.Cog.listener()
+    async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
+        """
+        The dashboard cog emits an event when it is added. Register our dashboard integration
+        instance with the dashboard's third_parties_handler here so the integration shows up
+        under Third Parties in the web UI.
+        """
+        try:
+            dashboard_cog.rpc.third_parties_handler.add_third_party(self.dashboard)
+        except Exception:
+            # avoid raising during cog load; log for debugging
+            self.logger.exception("Failed to register ReactionRoles dashboard integration")
 
     # ---------- Events ----------
     @commands.Cog.listener()

@@ -31,10 +31,18 @@ class DashboardIntegration:
     bot: Red
     cog: typing.Any  # will be set by the cog when exposing the integration
 
-    @commands.Cog.listener()
+    # NOTE: Do NOT use @commands.Cog.listener here. The dashboard cog will call
+    # on_dashboard_cog_add on all loaded cogs; instead we register the third party
+    # from the ReactionRoles cog's on_dashboard_cog_add listener (see reactionroles.py).
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
-        # Register this third party with the dashboard's handler
-        dashboard_cog.rpc.third_parties_handler.add_third_party(self)
+        # This method is kept for compatibility but is not decorated as a listener.
+        # The actual registration is performed by the ReactionRoles cog to ensure
+        # the dashboard integration instance is the one registered.
+        try:
+            dashboard_cog.rpc.third_parties_handler.add_third_party(self)
+        except Exception:
+            # avoid raising; the cog's logger will capture issues
+            return
 
     @staticmethod
     def _read_file(name: str) -> str:
@@ -44,7 +52,7 @@ class DashboardIntegration:
 
     @property
     def logger(self):
-        return self.bot.logger if hasattr(self.bot, "logger") else None
+        return getattr(self.bot, "logger", None)
 
     async def _get_hook(self, channel: discord.TextChannel) -> typing.Optional[discord.Webhook]:
         """
