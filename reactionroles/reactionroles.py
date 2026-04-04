@@ -45,9 +45,7 @@ class ReactionRoles(commands.Cog):
 
     async def cog_load(self) -> None:
         """
-        Called by Red when the cog is loaded. If the dashboard cog is already loaded,
-        register our dashboard integration immediately so it appears under Third Parties.
-        If the dashboard cog is added later, our on_dashboard_cog_add listener will handle it.
+        Called when the cog is loaded. If the Dashboard cog is already present, register our integration.
         """
         try:
             dashboard_cog = self.bot.get_cog("Dashboard")
@@ -55,27 +53,25 @@ class ReactionRoles(commands.Cog):
                 inst = self.dashboard
                 inst.bot = self.bot
                 inst.cog = self
-                # register the same instance the dashboard expects
-                dashboard_cog.rpc.third_parties_handler.add_third_party(inst)
-                self.logger.debug("Registered ReactionRoles dashboard integration during cog_load.")
+                try:
+                    dashboard_cog.rpc.third_parties_handler.add_third_party(inst)
+                    self.logger.info("ReactionRoles: dashboard integration registered during cog_load.")
+                except Exception:
+                    self.logger.debug("ReactionRoles: failed to register integration during cog_load (will retry on event).")
         except Exception:
-            self.logger.exception("Failed to register ReactionRoles dashboard integration in cog_load")
+            self.logger.exception("ReactionRoles: unexpected error in cog_load while registering dashboard integration.")
 
-    # ---------- Dashboard registration ----------
+    # Register when dashboard cog is added later
     @commands.Cog.listener()
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
-        """
-        Called when the dashboard cog is added. Register our dashboard integration instance
-        with the dashboard third_parties handler so the integration appears under Third Parties.
-        """
         try:
             inst = self.dashboard
             inst.bot = self.bot
             inst.cog = self
             dashboard_cog.rpc.third_parties_handler.add_third_party(inst)
-            self.logger.debug("ReactionRoles dashboard integration registered via on_dashboard_cog_add.")
+            self.logger.info("ReactionRoles: dashboard integration registered via on_dashboard_cog_add.")
         except Exception:
-            self.logger.exception("Failed to register ReactionRoles dashboard integration via event")
+            self.logger.exception("ReactionRoles: failed to register dashboard integration via on_dashboard_cog_add.")
 
     # ---------- Events ----------
     @commands.Cog.listener()

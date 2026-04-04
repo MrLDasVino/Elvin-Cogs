@@ -30,13 +30,25 @@ class DashboardIntegration:
     bot: Red
     cog: typing.Any  # set by the cog when exposing the integration
 
+    # Provide a human name used by some dashboards
+    name: str = "ReactionRoles"
+    description: str = "Manage reaction roles via the web dashboard"
+
     @commands.Cog.listener()
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
         """
         Called by the dashboard cog when it is added. Register this integration instance
         with the dashboard third_parties handler so it appears under Third Parties.
         """
-        dashboard_cog.rpc.third_parties_handler.add_third_party(self)
+        try:
+            dashboard_cog.rpc.third_parties_handler.add_third_party(self)
+        except Exception:
+            # avoid raising; the cog's logger will capture issues
+            try:
+                if hasattr(self.bot, "logger"):
+                    self.bot.logger.debug("ReactionRoles: dashboard integration registration failed in on_dashboard_cog_add.")
+            except Exception:
+                pass
 
     @staticmethod
     def _read_file(name: str) -> str:
