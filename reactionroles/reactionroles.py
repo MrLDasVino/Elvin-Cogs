@@ -39,25 +39,43 @@ class ReactionRoles(commands.Cog):
         self.bot = bot
         self.logger = log
         self.config = Config.get_conf(self, identifier=0xA1B2C3D4E7, force_registration=True)
-        default_guild = {"messages": {}}  # message_id -> {"channel": channel_id, "mappings": {emoji_key: role_id}}
+        default_guild = {"messages": {}}
         self.config.register_guild(**default_guild)
         self._dashboard_integration: typing.Optional[DashboardIntegration] = None
+
+    async def cog_load(self) -> None:
+        """
+        Called by Red when the cog is loaded. If the dashboard cog is already loaded,
+        register our dashboard integration immediately so it appears under Third Parties.
+        If the dashboard cog is added later, our on_dashboard_cog_add listener will handle it.
+        """
+        try:
+            dashboard_cog = self.bot.get_cog("Dashboard")
+            if dashboard_cog:
+                inst = self.dashboard
+                inst.bot = self.bot
+                inst.cog = self
+                # register the same instance the dashboard expects
+                dashboard_cog.rpc.third_parties_handler.add_third_party(inst)
+                self.logger.debug("Registered ReactionRoles dashboard integration during cog_load.")
+        except Exception:
+            self.logger.exception("Failed to register ReactionRoles dashboard integration in cog_load")
 
     # ---------- Dashboard registration ----------
     @commands.Cog.listener()
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
         """
-        Register the dashboard integration instance with the dashboard's third_parties_handler.
-        The dashboard expects the same object instance to be registered.
+        Called when the dashboard cog is added. Register our dashboard integration instance
+        with the dashboard third_parties handler so the integration appears under Third Parties.
         """
         try:
             inst = self.dashboard
             inst.bot = self.bot
             inst.cog = self
             dashboard_cog.rpc.third_parties_handler.add_third_party(inst)
-            self.logger.debug("ReactionRoles dashboard integration registered.")
+            self.logger.debug("ReactionRoles dashboard integration registered via on_dashboard_cog_add.")
         except Exception:
-            self.logger.exception("Failed to register ReactionRoles dashboard integration")
+            self.logger.exception("Failed to register ReactionRoles dashboard integration via event")
 
     # ---------- Events ----------
     @commands.Cog.listener()
@@ -159,12 +177,9 @@ class ReactionRoles(commands.Cog):
         Description: Adds the reaction to the message and maps it to the provided role.
         If the message is not registered yet the cog will register it automatically.
         """
-        # fetch message and channel
-        # try to find channel from stored config first, otherwise search guild channels
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
 
-        # try to fetch message from any channel in guild if not registered
         msg_conf = messages.get(str(message_id))
         message = None
         if msg_conf:
@@ -175,12 +190,10 @@ class ReactionRoles(commands.Cog):
                 except Exception:
                     message = None
         if message is None:
-            # attempt to find message by searching text channels (requires read permissions)
             for ch in ctx.guild.text_channels:
                 if ch.permissions_for(ctx.guild.me).read_messages and ch.permissions_for(ctx.guild.me).read_message_history:
                     try:
                         message = await ch.fetch_message(message_id)
-                        # register it
                         async with self.config.guild(ctx.guild).all() as guild_conf:
                             messages = guild_conf.get("messages", {})
                             messages[str(message.id)] = {"channel": ch.id, "mappings": {}}
@@ -192,7 +205,6 @@ class ReactionRoles(commands.Cog):
             await ctx.send("Could not find that message in this guild.")
             return
 
-        # enforce max mappings
         async with self.config.guild(ctx.guild).all() as guild_conf:
             messages = guild_conf.get("messages", {})
             msg_conf = messages.get(str(message.id), {"channel": message.channel.id, "mappings": {}})
@@ -201,7 +213,6 @@ class ReactionRoles(commands.Cog):
                 await ctx.send("A message can have no more than 20 reaction-role mappings.")
                 return
 
-        # parse emoji
         try:
             parsed = discord.PartialEmoji.from_str(emoji)
         except Exception:
@@ -212,14 +223,12 @@ class ReactionRoles(commands.Cog):
             await ctx.send("That emoji is already mapped to a role for this message.")
             return
 
-        # try to add reaction
         try:
             await message.add_reaction(parsed)
         except Exception as e:
             await ctx.send(f"Failed to add reaction to message: {e}")
             return
 
-        # save mapping
         async with self.config.guild(ctx.guild).all() as guild_conf:
             messages = guild_conf.get("messages", {})
             messages[str(message.id)]["mappings"][emoji_key] = role.id

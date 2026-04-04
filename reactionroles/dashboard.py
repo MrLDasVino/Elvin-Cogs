@@ -59,10 +59,7 @@ class DashboardIntegration:
     )
     async def dashboard_guild(self, user: discord.User, guild: discord.Guild, **kwargs) -> typing.Dict[str, typing.Any]:
         """
-        Guild-scoped page. Mirrors the structure used in the official examples:
-        - checks permissions
-        - builds a WTForms SendForm for sending/attaching messages and adding mappings
-        - on submit, uses the cog (via bot.get_cog) to perform actions and update config
+        Guild-scoped page. Mirrors the structure used in the official examples.
         """
         is_owner = user.id in self.bot.owner_ids
         member = guild.get_member(user.id)
@@ -153,7 +150,6 @@ class DashboardIntegration:
             </form>
         """
 
-        # The dashboard provides validate_dpy_converters; follow the example's pattern
         if send_form.validate_on_submit() and await send_form.validate_dpy_converters():
             notifications = []
             cog = self.bot.get_cog("ReactionRoles")
@@ -173,7 +169,6 @@ class DashboardIntegration:
             role_id = int(send_form.role.data)
 
             try:
-                # If message_id provided, attempt to fetch and register; otherwise send new message
                 if message_id:
                     message = await channel.fetch_message(int(message_id))
                     async with cog.config.guild(guild).all() as guild_conf:
@@ -190,7 +185,6 @@ class DashboardIntegration:
                         messages[str(message.id)] = {"channel": channel.id, "mappings": {}}
                         guild_conf["messages"] = messages
 
-                # add reaction and mapping
                 try:
                     parsed = discord.PartialEmoji.from_str(emoji)
                 except Exception:
