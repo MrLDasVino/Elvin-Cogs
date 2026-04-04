@@ -14,7 +14,6 @@ log = logging.getLogger("red.reactionroles")
 
 
 def emoji_to_key(emoji: typing.Union[discord.PartialEmoji, discord.Emoji, str]) -> str:
-    """Normalize an emoji to a stable string key for storage."""
     if isinstance(emoji, (discord.PartialEmoji, discord.Emoji)):
         if getattr(emoji, "id", None):
             return f"<:{emoji.name}:{emoji.id}>"
@@ -32,28 +31,22 @@ class ReactionRoles(commands.Cog):
         self.config.register_guild(messages={})
         self._dashboard_integration: typing.Optional[DashboardIntegration] = None
 
-    # ---------------- Dashboard registration helpers ----------------
+    # ---------------- internal handler helpers ----------------
     def _is_registered_in_handler(self, handler, inst) -> bool:
-        """Return True if inst is present in handler internals (various shapes)."""
         try:
-            # common attributes
             for attr in ("third_parties", "_third_parties", "registered", "_registered", "third_parties_list"):
                 val = getattr(handler, attr, None)
                 if not val:
                     continue
-                # dict mapping name->obj
                 if isinstance(val, dict):
                     if inst in val.values() or getattr(inst, "name", None) in val:
                         return True
-                # list/tuple/set
                 if isinstance(val, (list, tuple, set)):
                     for item in val:
                         if item is inst:
                             return True
-                        # sometimes stored as dicts with 'object' key
                         if isinstance(item, dict) and item.get("object") is inst:
                             return True
-            # some handlers expose a method to list third parties
             if hasattr(handler, "list_third_parties"):
                 try:
                     listed = handler.list_third_parties()
@@ -70,12 +63,7 @@ class ReactionRoles(commands.Cog):
         return False
 
     def _force_register_in_handler(self, handler, inst) -> bool:
-        """
-        Try multiple fallback strategies to insert our integration instance into the handler.
-        Returns True if insertion appears successful.
-        """
         try:
-            # 1) If handler has a dict attribute, try to set by name
             name = getattr(inst, "name", None) or getattr(inst, "__class__", type(inst)).__name__
             for attr in ("third_parties", "_third_parties", "registered", "_registered"):
                 val = getattr(handler, attr, None)
@@ -92,7 +80,6 @@ class ReactionRoles(commands.Cog):
                         return True
                     except Exception:
                         pass
-            # 2) If handler exposes an internal list attribute, append
             for attr in ("_third_parties", "third_parties"):
                 val = getattr(handler, attr, None)
                 if isinstance(val, list):
@@ -102,12 +89,10 @@ class ReactionRoles(commands.Cog):
                         return True
                     except Exception:
                         pass
-            # 3) If handler has a register/add method with different name, try common ones
             for method_name in ("add_third_party", "register_third_party", "register", "add"):
                 method = getattr(handler, method_name, None)
                 if callable(method):
                     try:
-                        # some methods accept only the object, some accept name+object
                         try:
                             method(inst)
                         except TypeError:
@@ -115,12 +100,10 @@ class ReactionRoles(commands.Cog):
                                 method(name, inst)
                             except Exception:
                                 method(inst)
-                        # verify
                         if self._is_registered_in_handler(handler, inst):
                             return True
                     except Exception:
                         pass
-            # 4) last resort: set an attribute directly on handler to hold our instance
             try:
                 if not hasattr(handler, "_third_parties_custom"):
                     setattr(handler, "_third_parties_custom", [])
@@ -135,55 +118,39 @@ class ReactionRoles(commands.Cog):
         return False
 
     async def _register_with_dashboard_handler(self, dashboard_cog: commands.Cog) -> bool:
-        """
-        Attempt to register our dashboard integration instance with the dashboard cog's handler.
-        Tries the official API first, then several fallbacks if the instance is not visible afterwards.
-        Returns True if registration succeeded (instance visible in handler).
-        """
         handler = getattr(dashboard_cog.rpc, "third_parties_handler", None)
         if handler is None:
             return False
         inst = self.dashboard
-        # ensure inst has bot and cog references
         inst.bot = self.bot
         inst.cog = self
 
-        # Try official API first
         try:
             if hasattr(handler, "add_third_party"):
                 try:
                     handler.add_third_party(inst)
                 except TypeError:
-                    # some versions might expect (name, object)
                     try:
                         handler.add_third_party(getattr(inst, "name", None) or inst.__class__.__name__, inst)
                     except Exception:
                         pass
         except Exception:
-            # swallow here; we'll try fallbacks below
             self.logger.debug("ReactionRoles: add_third_party call raised an exception (continuing to fallbacks).")
 
-        # If not present, try fallbacks
         if self._is_registered_in_handler(handler, inst):
             return True
 
-        # fallback insertion attempts
         try:
             if self._force_register_in_handler(handler, inst):
-                # verify
                 if self._is_registered_in_handler(handler, inst):
                     return True
         except Exception:
             pass
 
-        # final check
         return self._is_registered_in_handler(handler, inst)
 
     # ---------------- lifecycle hooks ----------------
     async def cog_load(self) -> None:
-        """
-        Called when the cog is loaded. If the Dashboard cog is already present, attempt registration.
-        """
         try:
             dashboard_cog = self.bot.get_cog("Dashboard")
             if dashboard_cog:
@@ -197,9 +164,6 @@ class ReactionRoles(commands.Cog):
 
     @commands.Cog.listener()
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
-        """
-        Called when the dashboard cog is added. Attempt registration then.
-        """
         try:
             ok = await self._register_with_dashboard_handler(dashboard_cog)
             if ok:
@@ -209,7 +173,7 @@ class ReactionRoles(commands.Cog):
         except Exception:
             self.logger.exception("ReactionRoles: failed to register dashboard integration via event")
 
-    # ---------------- debug/status command ----------------
+    # ---------------- debug/status commands ----------------
     @commands.command(name="reactionroles-dashboardstatus")
     @checks.admin_or_permissions(manage_guild=True)
     async def dashboard_status(self, ctx: commands.Context):
@@ -227,7 +191,6 @@ class ReactionRoles(commands.Cog):
             await ctx.send("\n".join(lines))
             return
 
-        # Try to inspect registered items from common handler internals
         registered = None
         try:
             registered = getattr(handler, "third_parties", None)
@@ -241,7 +204,6 @@ class ReactionRoles(commands.Cog):
         except Exception as e:
             lines.append(f"error accessing handler internals: {e}")
 
-        # Normalize registered into a list of objects to inspect
         objs = []
         if registered:
             if isinstance(registered, dict):
@@ -269,7 +231,6 @@ class ReactionRoles(commands.Cog):
                     else:
                         objs.append(val)
 
-        # Helper to detect a dashboard integration by decorated pages
         def is_integration_candidate(o):
             try:
                 for attr in dir(o):
@@ -289,7 +250,6 @@ class ReactionRoles(commands.Cog):
         lines.append(f"any integration-like object registered (decorated pages): {present_candidate}")
         lines.append(f"integration-like registered names (sample up to 10): {candidate_names[:10]}")
 
-        # Also list decorated pages on our instance for comparison
         pages = []
         try:
             for attr in dir(inst):
@@ -303,6 +263,34 @@ class ReactionRoles(commands.Cog):
         lines.extend(pages[:20])
 
         await ctx.send("\n".join(lines))
+
+    @commands.command(name="reactionroles-dashboarddump")
+    @checks.is_owner()
+    async def dashboard_dump(self, ctx: commands.Context):
+        """Dump raw third_parties_handler internals for debugging."""
+        dashboard_cog = self.bot.get_cog("Dashboard")
+        if not dashboard_cog:
+            return await ctx.send("Dashboard cog not loaded.")
+        handler = getattr(dashboard_cog.rpc, "third_parties_handler", None)
+        if not handler:
+            return await ctx.send("third_parties_handler not present.")
+        out = []
+        for attr in ("third_parties", "_third_parties", "registered", "_registered", "third_parties_list"):
+            val = getattr(handler, attr, None)
+            out.append(f"{attr}: {type(val).__name__} -> {repr(val)[:1000]}")
+        if hasattr(handler, "list_third_parties"):
+            try:
+                listed = handler.list_third_parties()
+                out.append(f"list_third_parties(): {type(listed).__name__} -> {repr(listed)[:1000]}")
+            except Exception as e:
+                out.append(f"list_third_parties() raised: {e}")
+        # send in chunks if too long
+        text = "\n".join(out)
+        if len(text) <= 1900:
+            await ctx.send(f"```\n{text}\n```")
+        else:
+            for i in range(0, len(text), 1900):
+                await ctx.send(f"```\n{text[i:i+1900]}\n```")
 
     # ---------------- Events ----------------
     @commands.Cog.listener()
@@ -363,7 +351,7 @@ class ReactionRoles(commands.Cog):
         except Exception:
             return
 
-    # ---------------- Commands ----------------
+    # ---------------- Commands (core) ----------------
     @commands.group(name="reactionroles", invoke_without_command=True)
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
@@ -375,11 +363,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_send(self, ctx: commands.Context, channel: discord.TextChannel, *, content: str):
-        """
-        Send a new message to a channel and register it for reaction roles.
-
-        Description: Sends a message in the specified channel and registers it so you can add reaction-role mappings.
-        """
         if not channel.permissions_for(ctx.guild.me).send_messages:
             await ctx.send("I cannot send messages in that channel.")
             return
@@ -398,12 +381,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_add(self, ctx: commands.Context, message_id: int, emoji: str, role: discord.Role):
-        """
-        Add a reaction-role mapping to a message.
-
-        Description: Adds the reaction to the message and maps it to the provided role.
-        If the message is not registered yet the cog will register it automatically.
-        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
 
@@ -467,11 +444,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_remove(self, ctx: commands.Context, message_id: int, emoji: str):
-        """
-        Remove a reaction-role mapping.
-
-        Description: Removes the mapping and clears the bot's reaction from the message.
-        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
         msg_conf = messages.get(str(message_id))
@@ -514,11 +486,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_list(self, ctx: commands.Context, message_id: int = None):
-        """
-        List reaction-role registrations or mappings.
-
-        Description: Without arguments lists registered messages. With a message_id lists mappings for that message.
-        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
 
@@ -553,11 +520,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_clear(self, ctx: commands.Context, message_id: int):
-        """
-        Clear all mappings for a message.
-
-        Description: Removes all mappings and attempts to clear reactions from the message.
-        """
         guild_conf = await self.config.guild(ctx.guild).all()
         messages = guild_conf.get("messages", {})
         msg_conf = messages.get(str(message_id))
@@ -591,11 +553,6 @@ class ReactionRoles(commands.Cog):
     @checks.admin_or_permissions(manage_guild=True)
     @commands.guild_only()
     async def rr_delete(self, ctx: commands.Context, message_id: int):
-        """
-        Unregister a message from reaction-role management.
-
-        Description: Removes the message from the cog's registry. Does not delete the message itself.
-        """
         async with self.config.guild(ctx.guild).all() as guild_conf:
             messages = guild_conf.get("messages", {})
             if str(message_id) not in messages:
