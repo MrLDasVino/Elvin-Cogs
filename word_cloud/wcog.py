@@ -64,21 +64,46 @@ class WordCloudCog(commands.Cog):
         self.autogen_loop.start()
 
     def cog_unload(self):
-
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+    
+        if loop:
+            loop.create_task(self._shutdown())
+        else:
+            try:
+                if self.autogen_loop.is_running():
+                    self.autogen_loop.cancel()
+                    task = getattr(self.autogen_loop, "_task", None)
+                    if task:
+                        try:
+                            task.cancel()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    
+    async def _shutdown(self):
         try:
             if self.autogen_loop.is_running():
                 self.autogen_loop.cancel()
+            task = getattr(self.autogen_loop, "_task", None)
+            if task:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         except Exception:
             pass
-
-
+    
+        
         if getattr(self, "_session", None) is not None:
             try:
-                asyncio.get_running_loop().create_task(self._session.close())
-            except RuntimeError:
-                # No running loop; nothing to schedule
+                await self._session.close()
+            except Exception:
                 pass
-
+    
 
     async def _ensure_db(self):
         # Create tables and add 'mask' column if missing
