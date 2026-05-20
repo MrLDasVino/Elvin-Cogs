@@ -3804,7 +3804,7 @@
   {"category":"Mythology","question":"Who is the Greek god of the forge and husband of Aphrodite?","correct":"Hephaestus","wrong":["Ares","Hermes","Dionysus"]},
   {"category":"Mythology","question":"Which Roman hero is said to have founded Rome after being raised by a she-wolf?","correct":"Romulus","wrong":["Remus","Aeneas","Numa"]},
   {"category":"Mythology","question":"In Greek myth who is the goddess of the earth and mother of the Titans?","correct":"Gaia","wrong":["Rhea","Hera","Demeter"]},
-  {"category":"Mythology","question":"Which creature in Greek myth is half-horse, half-human and often associated with Dionysian revels?","correct":"Satyr","wrong":["Centaur","Minotaur","Sphinx"]},
+  {"category":"Mythology","question":"Which creature in Greek myth is half-goat, half-human and often associated with Dionysian revels?","correct":"Satyr","wrong":["Centaur","Minotaur","Sphinx"]},
   {"category":"Mythology","question":"Who is the Greek god associated with dreams and the personification of sleep?","correct":"Hypnos","wrong":["Moros","Thanatos","Eros"]},
   {"category":"Mythology","question":"Which Norse goddess is the wife of Odin and associated with marriage and destiny?","correct":"Frigg","wrong":["Freyja","Sif","Idunn"]},
   {"category":"Mythology","question":"In Greek myth who is the mother of Achilles who dipped him in the River Styx?","correct":"Thetis","wrong":["Tethys","Dione","Leto"]},

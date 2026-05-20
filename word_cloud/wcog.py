@@ -44,8 +44,8 @@ class WordCloudCog(commands.Cog):
         self.bot = bot
         self.db_ready = False
 
-        # HTTP session + LRU cache for emoji PNGs
-        self._session = aiohttp.ClientSession()
+
+        self._session: aiohttp.ClientSession | None = None
         self._emoji_cache: OrderedDict[str, Image.Image] = OrderedDict()
         self._cache_max = 200
 
@@ -54,18 +54,31 @@ class WordCloudCog(commands.Cog):
         data_folder.mkdir(parents=True, exist_ok=True)
         self.db_path = str(data_folder / "wordcloud_data.sqlite3")
 
-        # Fire off initial DB setup
+
         self.bot.loop.create_task(self._ensure_db())
 
     async def cog_load(self):
-        # Start the autogen loop
+
+        self._session = aiohttp.ClientSession()
+
         self.autogen_loop.start()
 
-    async def cog_unload(self):
-        # Stop the loop and close session
-        if self.autogen_loop.is_running():
-            self.autogen_loop.cancel()
-        await self._session.close()
+    def cog_unload(self):
+
+        try:
+            if self.autogen_loop.is_running():
+                self.autogen_loop.cancel()
+        except Exception:
+            pass
+
+
+        if getattr(self, "_session", None) is not None:
+            try:
+                asyncio.get_running_loop().create_task(self._session.close())
+            except RuntimeError:
+                # No running loop; nothing to schedule
+                pass
+
 
     async def _ensure_db(self):
         # Create tables and add 'mask' column if missing
