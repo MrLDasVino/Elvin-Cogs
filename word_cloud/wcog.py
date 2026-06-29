@@ -2,6 +2,7 @@ import asyncio
 import random
 import io
 import math
+import logging
 import aiosqlite
 import regex as re
 from datetime import datetime
@@ -18,6 +19,8 @@ from redbot.core.data_manager import cog_data_path
 from redbot.core import commands, checks
 from discord.ext import tasks
 from redbot.core.bot import Red
+
+log = logging.getLogger("red.wordcloud")
 
 # Basic stopwords
 STOPWORDS = {
@@ -189,6 +192,11 @@ class WordCloudCog(commands.Cog):
         if self.db_ready:
             return
         async with aiosqlite.connect(self.db_path) as db:
+            # WAL lets writes (incoming messages) proceed while a long-running
+            # read is open elsewhere (e.g. the autogen loop scanning counts and
+            # rendering an image), instead of queuing behind the default
+            # rollback-journal lock until the 5s busy_timeout expires.
+            await db.execute("PRAGMA journal_mode=WAL")
             await db.execute(
                 """CREATE TABLE IF NOT EXISTS counts (
                      guild_id INTEGER,
@@ -245,7 +253,7 @@ class WordCloudCog(commands.Cog):
             return
         await self.init_db()
         # skip ignored
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self.db_path, timeout=10) as db:
             cur = await db.execute(
                 "SELECT 1 FROM ignored_channels WHERE guild_id = ? AND channel_id = ?",
                 (message.guild.id, message.channel.id),
@@ -314,19 +322,42 @@ class WordCloudCog(commands.Cog):
         norm = [str(t)[:200] for t in tokens if t]
         if not norm:
             return
-        async with aiosqlite.connect(self.db_path) as db:
-            cur = await db.cursor()
-            for t in norm:
-                await cur.execute(
-                    """
-                    INSERT INTO counts(guild_id, user_id, token, count)
-                    VALUES(?, ?, ?, 1)
-                    ON CONFLICT(guild_id, user_id, token)
-                    DO UPDATE SET count = count + 1
-                    """,
-                    (guild_id, user_id, t),
+
+        # Retry on transient "database is locked" contention instead of
+        # letting it bubble up into discord.py's generic on_message error
+        # handler, where it gets logged once and the tokens are gone for
+        # good with no obvious sign anything was missed.
+        attempts = 3
+        for attempt in range(1, attempts + 1):
+            try:
+                async with aiosqlite.connect(self.db_path, timeout=10) as db:
+                    cur = await db.cursor()
+                    for t in norm:
+                        await cur.execute(
+                            """
+                            INSERT INTO counts(guild_id, user_id, token, count)
+                            VALUES(?, ?, ?, 1)
+                            ON CONFLICT(guild_id, user_id, token)
+                            DO UPDATE SET count = count + 1
+                            """,
+                            (guild_id, user_id, t),
+                        )
+                    await db.commit()
+                return
+            except aiosqlite.OperationalError:
+                if attempt == attempts:
+                    log.exception(
+                        "Giving up writing token counts for guild=%s user=%s after %d attempts",
+                        guild_id, user_id, attempts,
+                    )
+                    return
+                await asyncio.sleep(0.25 * attempt)
+            except Exception:
+                log.exception(
+                    "Unexpected error writing token counts for guild=%s user=%s",
+                    guild_id, user_id,
                 )
-            await db.commit()
+                return
 
     async def _get_frequencies_for_guild(self, guild_id: int):
         await self.init_db()
@@ -404,6 +435,13 @@ class WordCloudCog(commands.Cog):
             "background_color": None,
             "prefer_horizontal": 0.9,
             "collocations": False,
+            # Compresses the gap between the biggest and smallest font sizes
+            # so a few very frequent tokens don't dominate the canvas and
+            # leave large empty gaps around them; smaller words fill in
+            # tighter as a result. 'auto'/1.0 (the wordcloud default) is
+            # closer to true-proportional sizing but leaves much more
+            # whitespace on Zipfian-distributed chat data.
+            "relative_scaling": 0.5,
         }
         if mask is not None:
             wc_kwargs["mask"] = mask
@@ -571,7 +609,7 @@ class WordCloudCog(commands.Cog):
         """Wordcloud management."""
         await ctx.send_help()
 
-    @wordcloud.command(name="shape", hidden=True)
+    @wordcloud.command(name="shape")
     @checks.admin()
     async def shape(self, ctx: commands.Context, shape: str = None):
         """View or set the wordcloud shape. Available: none, circle, square, triangle, star, heart."""
@@ -683,9 +721,9 @@ class WordCloudCog(commands.Cog):
         await self.init_db()
         async with aiosqlite.connect(self.db_path) as db:
             cur = await db.execute(
-                "SELECT token, SUM(count) FROM counts "
-                "WHERE guild_id = ? GROUP BY token ORDER BY SUM(count) DESC LIMIT ?",
-                (ctx.guild.id, limit * 2),
+                "SELECT token, SUM(count) as c FROM counts "
+                "WHERE guild_id = ? GROUP BY token ORDER BY c DESC",
+                (ctx.guild.id,),
             )
             rows = await cur.fetchall()
         if not rows:
@@ -697,16 +735,19 @@ class WordCloudCog(commands.Cog):
                 return f"<:{name}:{eid}>"
             return tok
 
-        emojis = [(disp(tok), cnt) for tok, cnt in rows if tok.startswith("custom_")]
-        words  = [(tok, cnt) for tok, cnt in rows if not tok.startswith("custom_")]
+        # Rank words and emoji independently so a guild with far more word
+        # volume than emoji volume doesn't starve the emoji list out of a
+        # single combined top-N before the split happens.
+        emojis = [(disp(tok), cnt) for tok, cnt in rows if is_emoji_token(tok)][:limit]
+        words  = [(tok, cnt) for tok, cnt in rows if not is_emoji_token(tok)][:limit]
 
         e_emb = discord.Embed(
             title="📊 Top Emojis",
-            description="\n".join(f"{t}: {c}" for t, c in emojis[:limit]) or "None",
+            description="\n".join(f"{t}: {c}" for t, c in emojis) or "None",
         )
         w_emb = discord.Embed(
             title="📊 Top Words",
-            description="\n".join(f"{t}: {c}" for t, c in words[:limit]) or "None",
+            description="\n".join(f"{t}: {c}" for t, c in words) or "None",
         )
         pages = [e_emb, w_emb]
         msg = await ctx.send(embed=pages[0])
