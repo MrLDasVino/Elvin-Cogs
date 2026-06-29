@@ -9,7 +9,7 @@ from datetime import datetime
 
 import discord
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import aiohttp
 from collections import OrderedDict
 from wordcloud import WordCloud
@@ -458,7 +458,14 @@ class WordCloudCog(commands.Cog):
         counter = 0
         for token, count in frequencies.items():
             if is_emoji_token(token):
-                surrogate = f"\ue000{counter:03d}"
+                # A single Private-Use-Area character. Every PUA codepoint
+                # renders with the font's .notdef fallback glyph, which is
+                # roughly square — much closer to square than a multi-char
+                # placeholder (a 4-char string like "\ue000123" renders as a
+                # wide ~3.3:1 rectangle, not the font_size x font_size square
+                # we used to assume when pasting, which is what let emoji
+                # spill into neighboring words/outside mask shapes).
+                surrogate = chr(0xE000 + counter)
                 surrogate_to_token[surrogate] = token
                 display_freqs[surrogate] = count
                 counter += 1
@@ -494,9 +501,35 @@ class WordCloudCog(commands.Cog):
         wc.layout_ = word_entries
         base_img = wc.to_image().convert("RGBA")
 
+        try:
+            resample = Image.Resampling.LANCZOS
+        except AttributeError:
+            resample = Image.LANCZOS
+
+        # The exact pixel box WordCloud reserved for a surrogate at a given
+        # font_size is whatever PIL's textbbox() reports for that glyph at
+        # that size (see WordCloud.generate_from_frequencies, which samples
+        # placement using exactly this box) — not font_size x font_size. All
+        # PUA codepoints share the same fallback glyph, so this needs to be
+        # measured once per font_size, not once per individual token.
+        font_for_box = ImageFont.truetype(wc.font_path, 100)
+        ref_bbox = font_for_box.getbbox(chr(0xE000))
+        ref_w, ref_h = ref_bbox[2] - ref_bbox[0], ref_bbox[3] - ref_bbox[1]
+        box_aspect = ref_w / ref_h  # constant across font sizes
+
+        # Emoji are rendered a bit smaller than the box reserved for them
+        # (which stays full-size for layout/spacing purposes) so they don't
+        # visually dominate text of the same frequency rank.
+        EMOJI_SCALE = 0.75
+
         # overlay emojis
         for entry in emoji_entries:
             token, font_size, position, orientation, _color = entry
+
+            box_w = int(font_size * box_aspect)
+            box_h = font_size
+            target_w = max(1, int(box_w * EMOJI_SCALE))
+            target_h = max(1, int(box_h * EMOJI_SCALE))
 
             # build URL + cache key
             if token.startswith("custom_"):
@@ -522,10 +555,12 @@ class WordCloudCog(commands.Cog):
                     )
                 key = f"unicode:{cps_full}"
 
-            # fetch or reuse
-            if key in self._emoji_cache:
-                em = self._emoji_cache[key]
-                self._emoji_cache.move_to_end(key)
+            # fetch or reuse — cache key includes the target box size since
+            # the same emoji can be requested at very different sizes
+            cache_key = f"{key}@{target_w}x{target_h}in{box_w}x{box_h}"
+            if cache_key in self._emoji_cache:
+                em = self._emoji_cache[cache_key]
+                self._emoji_cache.move_to_end(cache_key)
             else:
                 em = None
                 for url in urls:
@@ -540,19 +575,37 @@ class WordCloudCog(commands.Cog):
                         continue
                 if em is None:
                     continue
-                # resize
-                try:
-                    resample = Image.Resampling.LANCZOS
-                except AttributeError:
-                    resample = Image.LANCZOS
-                em = em.resize((font_size, font_size), resample)
-                self._emoji_cache[key] = em
+                # Fit the (usually square) emoji image inside its shrunk
+                # target size without distorting it: scale to the largest
+                # size that fits both dimensions, then center it on a
+                # transparent canvas the size of the full reserved box (so
+                # it still lines up with the slot WordCloud allocated, just
+                # smaller within it). A plain stretch-to-box would visibly
+                # squash square emoji images into a non-square box anyway.
+                src_w, src_h = em.size
+                scale = min(target_w / src_w, target_h / src_h)
+                fit_w, fit_h = max(1, int(src_w * scale)), max(1, int(src_h * scale))
+                em_resized = em.resize((fit_w, fit_h), resample)
+                canvas = Image.new("RGBA", (box_w, box_h), (0, 0, 0, 0))
+                canvas.paste(
+                    em_resized,
+                    ((box_w - fit_w) // 2, (box_h - fit_h) // 2),
+                    em_resized,
+                )
+                em = canvas
+                self._emoji_cache[cache_key] = em
                 if len(self._emoji_cache) > self._cache_max:
                     self._emoji_cache.popitem(last=False)
 
-            # paste
-            x, y = position
-            base_img.paste(em, (int(x), int(y)), em)
+            # paste — `position` from WordCloud's layout_ is (row, col) i.e.
+            # (top, left), but PIL's Image.paste() box argument is (left,
+            # top). Pasting at (row, col) directly — as if it were already
+            # (left, top) — silently transposes every placement, which is
+            # why emoji used to land on top of text or outside mask shapes
+            # instead of in the gap actually reserved for them.
+            row, col = position
+            left, top = col, row
+            base_img.paste(em, (int(left), int(top)), em)
 
         base_img.save(buf, format="PNG")
         buf.seek(0)
