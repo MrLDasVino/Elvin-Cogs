@@ -507,15 +507,22 @@ class WordCloudCog(commands.Cog):
             resample = Image.LANCZOS
 
         # The exact pixel box WordCloud reserved for a surrogate at a given
-        # font_size is whatever PIL's textbbox() reports for that glyph at
-        # that size (see WordCloud.generate_from_frequencies, which samples
-        # placement using exactly this box) — not font_size x font_size. All
-        # PUA codepoints share the same fallback glyph, so this needs to be
-        # measured once per font_size, not once per individual token.
-        font_for_box = ImageFont.truetype(wc.font_path, 100)
-        ref_bbox = font_for_box.getbbox(chr(0xE000))
-        ref_w, ref_h = ref_bbox[2] - ref_bbox[0], ref_bbox[3] - ref_bbox[1]
-        box_aspect = ref_w / ref_h  # constant across font sizes
+        # font_size comes from draw.textbbox(..., anchor="lt") — see
+        # WordCloud.generate_from_frequencies, which samples placement using
+        # exactly this box. Critically, the box's height is NOT font_size;
+        # a font's nominal point size includes internal leading the glyph's
+        # ink doesn't fill, so the real reserved height is only a fraction
+        # of font_size (around ~0.71x for this font). Treating box_h as
+        # font_size directly overstated the reserved box by ~40%, which is
+        # exactly what let a large, frequent emoji visually bleed past its
+        # actual slot into neighboring words. All PUA codepoints share the
+        # same fallback glyph, so the two ratios only need measuring once.
+        _img_grey = Image.new("L", (1, 1))
+        _draw = ImageDraw.Draw(_img_grey)
+        _ref_font = ImageFont.truetype(wc.font_path, 100)
+        _ref_box = _draw.textbbox((0, 0), chr(0xE000), font=_ref_font, anchor="lt")
+        w_ratio = (_ref_box[2] - _ref_box[0]) / 100
+        h_ratio = (_ref_box[3] - _ref_box[1]) / 100
 
         # Emoji are rendered a bit smaller than the box reserved for them
         # (which stays full-size for layout/spacing purposes) so they don't
@@ -526,8 +533,8 @@ class WordCloudCog(commands.Cog):
         for entry in emoji_entries:
             token, font_size, position, orientation, _color = entry
 
-            box_w = int(font_size * box_aspect)
-            box_h = font_size
+            box_w = max(1, int(font_size * w_ratio))
+            box_h = max(1, int(font_size * h_ratio))
             target_w = max(1, int(box_w * EMOJI_SCALE))
             target_h = max(1, int(box_h * EMOJI_SCALE))
 
