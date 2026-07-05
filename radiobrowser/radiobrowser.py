@@ -174,8 +174,13 @@ class RadioBrowser(commands.Cog):
             embed.add_field(name=_safe_field_name("🌍 Country"), value=_safe_field_value(country), inline=True)
             embed.add_field(name=_safe_field_name("🗣️ Language"), value=_safe_field_value(language), inline=True)
 
-            # Respond with chosen station
-            await interaction.response.send_message(embed=embed)
+            # Respond with chosen station, plus a Play button if we have a real URL
+            if stream and stream != "No URL available":
+                play_view = RadioBrowser._PlayButton(self.parent_view.cog, stream, self.parent_view.user_id)
+                await interaction.response.send_message(embed=embed, view=play_view)
+                play_view.message = await interaction.original_response()
+            else:
+                await interaction.response.send_message(embed=embed)
             # After a successful selection, disable everything and edit the original message to show it's closed
             self.parent_view._on_success_disable()
             try:
@@ -183,6 +188,99 @@ class RadioBrowser(commands.Cog):
             except Exception:
                 pass
             self.parent_view.stop()
+
+    class _PlayButton(discord.ui.View):
+        """
+        Small view with a single button that hands the station's stream URL
+        off to another cog's play command (e.g. Red's core Audio cog).
+
+        NOTE: This assumes there is a command registered on the bot called
+        "play" that accepts the stream URL as a keyword argument named
+        "query" (this matches Red's built-in Audio cog signature:
+        `command_play(self, ctx, *, query: str)`). If your audio/music cog
+        uses a different command name or parameter name, adjust
+        PLAY_COMMAND_NAME / the ctx.invoke call below accordingly.
+        """
+
+        PLAY_COMMAND_NAME = "play"
+
+        def __init__(self, cog: "RadioBrowser", stream_url: str, user_id: int, timeout: int = 300):
+            super().__init__(timeout=timeout)
+            self.cog = cog
+            self.stream_url = stream_url
+            self.user_id = user_id
+            self.message: Optional[discord.Message] = None
+
+        async def on_timeout(self):
+            for child in list(self.children):
+                try:
+                    child.disabled = True
+                except Exception:
+                    pass
+            if self.message:
+                try:
+                    await self.message.edit(view=self)
+                except Exception:
+                    pass
+
+        @discord.ui.button(label="▶️ Play", style=discord.ButtonStyle.success)
+        async def play_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message(
+                    "Only the person who picked this station can play it.", ephemeral=True
+                )
+                return
+
+            play_command = self.cog.bot.get_command(self.PLAY_COMMAND_NAME)
+            if play_command is None:
+                await interaction.response.send_message(
+                    f"❌ No `{self.PLAY_COMMAND_NAME}` command is loaded on this bot "
+                    "(is your audio cog loaded?).",
+                    ephemeral=True,
+                )
+                return
+
+            await interaction.response.defer(ephemeral=True)
+
+            # Build a Context from the message the button lives on, then swap
+            # the author for the person who actually clicked the button so
+            # things like "join the clicker's voice channel" behave correctly.
+            try:
+                ctx = await self.cog.bot.get_context(interaction.message)
+                ctx.author = interaction.user
+            except Exception as e:
+                logger.exception("Failed to build context for play button")
+                await interaction.followup.send(f"❌ Couldn't prepare playback: {e}", ephemeral=True)
+                return
+
+            try:
+                # NOTE: ctx.invoke() calls the command's callback directly and
+                # skips its checks/cooldowns — fine for handing off a query,
+                # but be aware if your play command relies on decorator-level
+                # checks (e.g. @commands.guild_only()) rather than internal logic.
+                await ctx.invoke(play_command, query=self.stream_url)
+            except TypeError:
+                # Fallback for cogs whose play command takes a positional arg
+                # instead of a keyword-only "query".
+                try:
+                    await ctx.invoke(play_command, self.stream_url)
+                except Exception as e:
+                    logger.exception("Failed to invoke play command (positional fallback)")
+                    await interaction.followup.send(f"❌ Couldn't start playback: {e}", ephemeral=True)
+                    return
+            except Exception as e:
+                logger.exception("Failed to invoke play command")
+                await interaction.followup.send(f"❌ Couldn't start playback: {e}", ephemeral=True)
+                return
+
+            button.disabled = True
+            button.label = "▶️ Playing…"
+            try:
+                await interaction.message.edit(view=self)
+            except Exception:
+                pass
+
+            await interaction.followup.send("▶️ Sent to the player.", ephemeral=True)
 
     class _ResultView(discord.ui.View):
         def __init__(self, cog: "RadioBrowser", user_id: int, all_results: List[dict], page: int = 0, timeout: int = 120):
@@ -372,6 +470,8 @@ class RadioBrowser(commands.Cog):
         embed.add_field(name=_safe_field_name("🌍 Country"), value=_safe_field_value(country), inline=True)
         embed.add_field(name=_safe_field_name("🗣️ Language"), value=_safe_field_value(language), inline=True)
 
-        await ctx.send(embed=embed)
         if stream and stream != "No URL available":
-            await ctx.send(f"Stream URL: {stream}")
+            play_view = RadioBrowser._PlayButton(self, stream, ctx.author.id)
+            play_view.message = await ctx.send(embed=embed, view=play_view)
+        else:
+            await ctx.send(embed=embed)
