@@ -6,8 +6,10 @@ from typing import Dict, Optional
 from redbot.core import commands, Config, checks, bank
 from discord.ui import View, button, Button, Modal, TextInput, Select
 
+from .dashboard import DashboardIntegration
 
-class Shop(commands.Cog):
+
+class Shop(DashboardIntegration, commands.Cog):
     """A shop cog with buttons, modals, and Red’s bank integration."""
 
     def __init__(self, bot):
