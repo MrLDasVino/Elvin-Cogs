@@ -1,9 +1,0 @@
-{
-  "name": "fishing",
-  "version": "2.7.1",
-  "short": "A simple fishing minigame",
-  "description": "Cast a line, catch fish, treasure chests, even break your rod!",
-  "author": ["Elvin"],
-  "install_modes": ["default"],
-  "requirements": []
-}
