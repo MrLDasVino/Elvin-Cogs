@@ -104,17 +104,25 @@ class DashboardIntegration:
             def __init__(self) -> None:
                 super().__init__(prefix="shop_dashboard_")
 
+
             action: wtforms.HiddenField = wtforms.HiddenField(
                 validators=[wtforms.validators.DataRequired()],
+                render_kw={"data-role": "shop-dashboard-action"},
             )
             payload: wtforms.HiddenField = wtforms.HiddenField(
                 validators=[wtforms.validators.Optional()],
+                render_kw={"data-role": "shop-dashboard-payload"},
             )
             submit: wtforms.SubmitField = wtforms.SubmitField("Save")
 
         form: ShopActionForm = ShopActionForm()
 
-        if form.validate_on_submit() and await form.validate_dpy_converters():
+        is_submitted_fn = getattr(form, "is_submitted", None)
+        was_submitted = (
+            is_submitted_fn() if callable(is_submitted_fn) else bool(form.action.raw_data)
+        )
+
+        if was_submitted and form.validate_on_submit() and await form.validate_dpy_converters():
             notifications = []
             action = form.action.data
             try:
@@ -331,7 +339,27 @@ class DashboardIntegration:
                 "redirect_url": kwargs["request_url"],
             }
 
-        # GET request (or a failed/invalid submission): render the editor.
+        if was_submitted:
+
+            error_parts = []
+            for field_name, errs in (getattr(form, "errors", None) or {}).items():
+                for err in errs:
+                    error_parts.append(f"{field_name}: {err}")
+            detail = "; ".join(error_parts) if error_parts else _(
+                "the form session may have expired - please refresh the page and try again.",
+            )
+            return {
+                "status": 0,
+                "notifications": [
+                    {
+                        "message": _("Your changes could not be saved ({detail})").format(detail=detail),
+                        "category": "danger",
+                    },
+                ],
+                "redirect_url": kwargs["request_url"],
+            }
+
+        # GET request: render the editor.
         shops = await guild_conf.shops()
         log_channel_id = await guild_conf.log_channel()
 

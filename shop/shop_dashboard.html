@@ -552,8 +552,7 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
-// escapeHtml is safe for text content, but NOT for attribute values (it doesn't
-// touch quote characters). Use this whenever a value is placed inside "..." or '...'.
+
 function escapeAttr(str) {
     return String(str ?? "")
         .replace(/&/g, "&amp;")
@@ -564,9 +563,20 @@ function escapeAttr(str) {
 }
 
 function submitAction(action, payload) {
-    document.getElementById(ACTION_FIELD_ID).value = action;
-    document.getElementById(PAYLOAD_FIELD_ID).value = JSON.stringify(payload);
-    document.getElementById("shopActionForm").submit();
+
+    const actionField = document.querySelector('[data-role="shop-dashboard-action"]') || document.getElementById(ACTION_FIELD_ID);
+    const payloadField = document.querySelector('[data-role="shop-dashboard-payload"]') || document.getElementById(PAYLOAD_FIELD_ID);
+    const form = document.getElementById("shopActionForm");
+
+    if (!actionField || !payloadField || !form) {
+        console.error("Shop dashboard: could not locate form fields.", { actionField, payloadField, form });
+        alert("Something went wrong preparing this save (couldn't find the form on the page). Please refresh the page and try again. If this keeps happening, check the bot's console/logs for an error.");
+        return;
+    }
+
+    actionField.value = action;
+    payloadField.value = JSON.stringify(payload);
+    form.submit();
 }
 
 function closeModal(id) {
@@ -872,8 +882,16 @@ function deleteItem(shopName, itemKey) {
 }
 
 /* ---------- init ---------- */
-renderLogChannelSelect();
-renderShops();
+try {
+    renderLogChannelSelect();
+    renderShops();
+} catch (err) {
+    console.error("Shop dashboard failed to initialize:", err);
+    document.getElementById("shopsList").innerHTML =
+        '<div class="empty-state"><h3>Something went wrong loading this page</h3>' +
+        '<p>Check the browser console for details, and the bot\u2019s logs for any server-side error. ' +
+        'Reloading the page may help.</p></div>';
+}
 </script>
 </body>
 </html>
