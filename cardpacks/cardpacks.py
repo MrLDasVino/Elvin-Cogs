@@ -16,6 +16,8 @@ INVENTORY_BANNER_URLS = [
 
 PAGE_SIZE = 25
 EMBED_FIELD_LIMIT = 24
+PACKS_PER_EMBED_PAGE = 5
+PACK_STACK_LIMIT = 6
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -171,13 +173,20 @@ class PaginatedSelectView(TimedView):
     """A select dropdown that pages through entries in chunks of PAGE_SIZE.
     Arrow buttons only appear when there's more than one page."""
 
-    def __init__(self, entries: List[Tuple[str, Optional[str], str]], placeholder: str, on_select, *, timeout: int = 60):
+    def __init__(self, entries: List[Tuple[str, Optional[str], str]], placeholder: str, on_select, *, timeout: int = 60, owner_id: Optional[int] = None):
         super().__init__(timeout=timeout)
         self.entries = entries
         self.placeholder = placeholder
         self.on_select = on_select
+        self.owner_id = owner_id
         self.page = 0
         self._render()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.owner_id is not None and interaction.user.id != self.owner_id:
+            await interaction.response.send_message("This isn't your menu to use.", ephemeral=True)
+            return False
+        return True
 
     @property
     def page_count(self) -> int:
@@ -228,6 +237,96 @@ class PaginatedManagerSelectView(PaginatedSelectView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return await _require_manager(interaction)
+
+
+class InventoryView(TimedView):
+    """Paginated inventory display: flips through pack-summary embed pages and
+    offers a (separately paginated) dropdown to view any owned card's artwork."""
+
+    def __init__(self, owner_id: int, pack_pages: List[discord.Embed], card_entries: List[Tuple[str, Optional[str], dict]], build_card_embed, *, timeout: int = 120):
+        super().__init__(timeout=timeout)
+        self.owner_id = owner_id
+        self.pack_pages = pack_pages
+        self.card_entries = card_entries
+        self.build_card_embed = build_card_embed
+        self.embed_page = 0
+        self.select_page = 0
+        self._render()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("This isn't your inventory menu.", ephemeral=True)
+            return False
+        return True
+
+    @property
+    def select_page_count(self) -> int:
+        return max(1, -(-len(self.card_entries) // PAGE_SIZE))
+
+    def current_embed(self) -> discord.Embed:
+        return self.pack_pages[self.embed_page]
+
+    def _render(self):
+        self.clear_items()
+
+        if self.card_entries:
+            start = self.select_page * PAGE_SIZE
+            chunk = self.card_entries[start:start + PAGE_SIZE]
+            options = []
+            for i, (label, desc, _payload) in enumerate(chunk):
+                kwargs = {"label": _truncate(label, 100), "value": str(start + i)}
+                if desc:
+                    kwargs["description"] = _truncate(desc, 100)
+                options.append(discord.SelectOption(**kwargs))
+
+            select = ui.Select(placeholder="View a card", min_values=1, max_values=1, options=options, row=0)
+
+            async def _select_cb(interaction: discord.Interaction):
+                idx = int(select.values[0])
+                _, _, payload = self.card_entries[idx]
+                embed = self.build_card_embed(payload)
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+
+            select.callback = _select_cb
+            self.add_item(select)
+
+        if len(self.pack_pages) > 1:
+            prev_btn = ui.Button(label="◀ Packs", style=discord.ButtonStyle.secondary, disabled=self.embed_page == 0, row=1)
+            next_btn = ui.Button(label="Packs ▶", style=discord.ButtonStyle.secondary, disabled=self.embed_page >= len(self.pack_pages) - 1, row=1)
+
+            async def _prev_cb(interaction: discord.Interaction):
+                self.embed_page = max(0, self.embed_page - 1)
+                self._render()
+                await interaction.response.edit_message(embed=self.current_embed(), view=self)
+
+            async def _next_cb(interaction: discord.Interaction):
+                self.embed_page = min(len(self.pack_pages) - 1, self.embed_page + 1)
+                self._render()
+                await interaction.response.edit_message(embed=self.current_embed(), view=self)
+
+            prev_btn.callback = _prev_cb
+            next_btn.callback = _next_cb
+            self.add_item(prev_btn)
+            self.add_item(next_btn)
+
+        if len(self.card_entries) > PAGE_SIZE:
+            prev_sel = ui.Button(label="◀ Cards", style=discord.ButtonStyle.secondary, disabled=self.select_page == 0, row=2)
+            next_sel = ui.Button(label="Cards ▶", style=discord.ButtonStyle.secondary, disabled=self.select_page >= self.select_page_count - 1, row=2)
+
+            async def _prev_sel_cb(interaction: discord.Interaction):
+                self.select_page = max(0, self.select_page - 1)
+                self._render()
+                await interaction.response.edit_message(view=self)
+
+            async def _next_sel_cb(interaction: discord.Interaction):
+                self.select_page = min(self.select_page_count - 1, self.select_page + 1)
+                self._render()
+                await interaction.response.edit_message(view=self)
+
+            prev_sel.callback = _prev_sel_cb
+            next_sel.callback = _next_sel_cb
+            self.add_item(prev_sel)
+            self.add_item(next_sel)
 
 
 class PackCreateModal(ui.Modal, title="Create pack"):
@@ -1196,9 +1295,82 @@ class CardPacks(commands.Cog):
             msg = await ctx.send("Cardpacks manager", view=view)
             view.message = msg
 
+    def _build_inventory_embeds(self, target: discord.abc.User, agg: Dict[Tuple[str, str, str], dict], packs: Dict[str, dict], requested_by: discord.abc.User) -> List[discord.Embed]:
+        total_items = sum(e["count"] for e in agg.values())
+        unique_stacks = len(agg)
+
+        by_pack = defaultdict(list)
+        owned_unique_per_pack = defaultdict(set)
+        for ident, entry in agg.items():
+            pack_counts: Counter = entry["packs"]
+            primary_pack = pack_counts.most_common(1)[0][0] if pack_counts else "Unknown pack"
+            by_pack[primary_pack].append((ident, entry))
+            for p_name in pack_counts.keys():
+                owned_unique_per_pack[p_name].add(ident)
+
+        pack_items = list(by_pack.items())
+        chunks = [pack_items[i:i + PACKS_PER_EMBED_PAGE] for i in range(0, len(pack_items), PACKS_PER_EMBED_PAGE)] or [[]]
+
+        try:
+            avatar_url = target.avatar.url if getattr(target, "avatar", None) else target.display_avatar.url
+        except Exception:
+            avatar_url = target.display_avatar.url
+
+        banner = random.choice(INVENTORY_BANNER_URLS) if INVENTORY_BANNER_URLS else None
+        first_img = None
+        for ident in agg.keys():
+            img = _valid_url(ident[2])
+            if img:
+                first_img = img
+                break
+
+        total_pages = len(chunks)
+        embeds = []
+        for page_num, chunk in enumerate(chunks, start=1):
+            embed = discord.Embed(title=f"{target.display_name}'s inventory", color=discord.Color.blurple())
+            embed.set_author(name=target.display_name, icon_url=avatar_url)
+            embed.add_field(name="Totals", value=f"Total cards: **{total_items}**\nUnique cards: **{unique_stacks}**", inline=False)
+
+            for pack_name, items in chunk:
+                if pack_name != "Unknown pack" and pack_name in packs:
+                    total_cards = len(packs[pack_name].get("cards", []))
+                else:
+                    total_cards = None
+                owned_count = len(owned_unique_per_pack.get(pack_name, set()))
+                total_disp = str(total_cards) if total_cards is not None else "?"
+                header = f"{pack_name} — {owned_count}/{total_disp}"
+
+                lines = []
+                items_sorted = sorted(items, key=lambda ie: (-ie[1]["count"], ie[0][1], ie[0][0]))
+                shown = items_sorted[:PACK_STACK_LIMIT]
+                for ident, entry in shown:
+                    name, rarity, _image = ident
+                    lines.append(f"**x{entry['count']}** • {name} ({rarity})")
+                remaining = len(items_sorted) - len(shown)
+                if remaining > 0:
+                    lines.append(f"...and {remaining} more stacks")
+                embed.add_field(name=header, value="\n".join(lines) or "No cards", inline=False)
+
+            if banner:
+                embed.set_image(url=banner)
+            if first_img:
+                try:
+                    embed.set_thumbnail(url=first_img)
+                except Exception:
+                    pass
+
+            footer = f"Requested by {requested_by.display_name}"
+            if total_pages > 1:
+                footer += f" • Page {page_num}/{total_pages}"
+            embed.set_footer(text=footer)
+            embed.timestamp = discord.utils.utcnow()
+            embeds.append(embed)
+
+        return embeds
+
     @cardpacks.command(name="inventory")
     async def inventory(self, ctx: commands.Context, member: Optional[discord.Member] = None):
-        """View inventory. Admins may mention a member to view theirs; regular users see their own."""
+        """View inventory, with a dropdown to look at any owned card's artwork."""
         if member is None:
             target = ctx.author
         else:
@@ -1216,84 +1388,25 @@ class CardPacks(commands.Cog):
             return
 
         agg = await self._aggregate_inventory(ctx.guild, target)
-        total_items = sum(e["count"] for e in agg.values())
-        unique_stacks = len(agg)
         packs = await self._get_all_packs(ctx.guild)
+        embeds = self._build_inventory_embeds(target, agg, packs, ctx.author)
 
-        title = f"{target.display_name}'s inventory"
-        embed = discord.Embed(title=title, color=discord.Color.blurple())
-        try:
-            avatar_url = target.avatar.url if getattr(target, "avatar", None) else target.display_avatar.url
-        except Exception:
-            avatar_url = target.display_avatar.url
-        embed.set_author(name=target.display_name, icon_url=avatar_url)
-        embed.add_field(name="Totals", value=f"Total cards: **{total_items}**\nUnique cards: **{unique_stacks}**", inline=False)
-
-        by_pack = defaultdict(list)
-        owned_unique_per_pack = defaultdict(set)
-
+        card_entries = []
         for ident, entry in agg.items():
-            pack_counts: Counter = entry["packs"]
-            primary_pack = pack_counts.most_common(1)[0][0] if pack_counts else "Unknown pack"
-            by_pack[primary_pack].append((ident, entry))
-            for p_name in pack_counts.keys():
-                owned_unique_per_pack[p_name].add(ident)
+            name, rarity, _image = ident
+            primary_pack = entry["packs"].most_common(1)[0][0] if entry["packs"] else "Unknown pack"
+            desc = f"x{entry['count']} • {rarity} • {primary_pack}"
+            payload = {"card": entry["card"], "pack": primary_pack, "count": entry["count"]}
+            card_entries.append((name or "Unnamed", desc, payload))
 
-        PACK_FIELD_LIMIT = 6
-        pack_items = list(by_pack.items())
-        shown_packs = pack_items[:EMBED_FIELD_LIMIT]
+        def build_card_embed(payload: dict) -> discord.Embed:
+            embed = self._build_card_embed(payload["pack"], payload["card"])
+            embed.add_field(name="Owned", value=f"x{payload['count']}")
+            return embed
 
-        for pack_name, items in shown_packs:
-            if pack_name != "Unknown pack" and pack_name in packs:
-                total_cards = len(packs[pack_name].get("cards", []))
-            else:
-                total_cards = None
-
-            owned_count = len(owned_unique_per_pack.get(pack_name, set()))
-            total_disp = str(total_cards) if total_cards is not None else "?"
-            header = f"{pack_name} — {owned_count}/{total_disp}"
-
-            lines = []
-            items_sorted = sorted(items, key=lambda ie: (-ie[1]["count"], ie[0][1], ie[0][0]))
-            shown = items_sorted[:PACK_FIELD_LIMIT]
-            for ident, entry in shown:
-                name, rarity, image = ident
-                count = entry["count"]
-                image_part = f" • {image}" if image else ""
-                lines.append(f"**x{count}** • {name} ({rarity}){image_part}")
-            remaining = len(items_sorted) - len(shown)
-            if remaining > 0:
-                lines.append(f"...and {remaining} more stacks")
-            value = "\n".join(lines) or "No cards"
-            embed.add_field(name=header, value=value, inline=False)
-
-        remaining_packs = len(pack_items) - len(shown_packs)
-        if remaining_packs > 0:
-            embed.add_field(name="More packs", value=f"...and {remaining_packs} more pack(s) not shown", inline=False)
-
-        try:
-            banner = random.choice(INVENTORY_BANNER_URLS) if INVENTORY_BANNER_URLS else None
-            if banner:
-                embed.set_image(url=banner)
-        except Exception:
-            pass
-
-        first_img = None
-        for ident in agg.keys():
-            img = _valid_url(ident[2])
-            if img:
-                first_img = img
-                break
-        if first_img:
-            try:
-                embed.set_thumbnail(url=first_img)
-            except Exception:
-                pass
-
-        embed.set_footer(text=f"Requested by {ctx.author.display_name}")
-        embed.timestamp = discord.utils.utcnow()
-
-        await ctx.send(embed=embed)
+        view = InventoryView(ctx.author.id, embeds, card_entries, build_card_embed)
+        msg = await ctx.send(embed=embeds[0], view=view)
+        view.message = msg
 
 
 def setup(bot):
