@@ -1,8 +1,0 @@
-{
-  "name": "RetroAchievements",
-  "author": ["Elvin"],
-  "version": [1, 2, 0],
-  "short": "Access RetroAchievements info",
-  "description": "Query RetroAchievements user profile, game info, recent achievements, leaderboards and achievements progress using the RetroAchievements API with pagination.",
-  "requirements": []
-}
