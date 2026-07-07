@@ -11,6 +11,17 @@ from redbot.core.i18n import Translator
 _: Translator = Translator("Shop", __file__)
 
 
+def _safe_json_for_script(obj: typing.Any) -> str:
+    """json.dumps, but safe to embed inside an inline <script> tag.
+
+    Without this, a shop/item name or description containing the literal
+    substring "</script" would prematurely close the tag as far as the HTML
+    parser is concerned, silently truncating (and breaking) every bit of
+    JS on the page - including handlers completely unrelated to that shop.
+    """
+    return json.dumps(obj).replace("</", "<\\/")
+
+
 def dashboard_page(*args, **kwargs):
     """Required so pages are registered correctly even if Dashboard loads after this cog."""
 
@@ -350,9 +361,9 @@ class DashboardIntegration:
                 "payload_field_id": form.payload.id,
                 "guild_name": guild.name,
                 "guild_icon": str(guild.icon.url) if guild.icon else "",
-                "shops_json": json.dumps(self._build_shops_payload(guild, shops)),
-                "roles_json": json.dumps(roles_data),
-                "channels_json": json.dumps(channels_data),
-                "log_channel_id_json": json.dumps(log_channel_id),
+                "shops_json": _safe_json_for_script(self._build_shops_payload(guild, shops)),
+                "roles_json": _safe_json_for_script(roles_data),
+                "channels_json": _safe_json_for_script(channels_data),
+                "log_channel_id_json": _safe_json_for_script(log_channel_id),
             },
         }

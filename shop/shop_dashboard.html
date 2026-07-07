@@ -426,7 +426,7 @@
         {% endif %}
         <div>
             <h1>{{ guild_name }} &mdash; Shop Manager</h1>
-            <p>Create shops, manage stock, and hand out items or roles.</p>
+            <p>Create shops, manage stock, via roles or items.</p>
         </div>
     </div>
 
@@ -552,6 +552,17 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+// escapeHtml is safe for text content, but NOT for attribute values (it doesn't
+// touch quote characters). Use this whenever a value is placed inside "..." or '...'.
+function escapeAttr(str) {
+    return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 function submitAction(action, payload) {
     document.getElementById(ACTION_FIELD_ID).value = action;
     document.getElementById(PAYLOAD_FIELD_ID).value = JSON.stringify(payload);
@@ -603,7 +614,7 @@ function renderShops() {
 function shopCardHtml(name, shop) {
     const itemKeys = Object.keys(shop.stock || {});
     const thumbHtml = shop.thumbnail
-        ? `<img class="shop-thumb" src="${escapeHtml(shop.thumbnail)}" onerror="this.style.visibility='hidden'" />`
+        ? `<img class="shop-thumb" src="${escapeAttr(shop.thumbnail)}" onerror="this.style.visibility='hidden'" />`
         : "";
 
     const itemsHtml = itemKeys.length === 0
@@ -629,20 +640,20 @@ function shopCardHtml(name, shop) {
                 ${shop.description ? `<p>${escapeHtml(shop.description)}</p>` : ""}
             </div>
             <div class="shop-card-actions">
-                <button type="button" class="icon-btn" title="Edit shop" onclick="openShopModal(${JSON.stringify(name)})">&#9998;</button>
-                <button type="button" class="icon-btn" title="Delete shop" onclick="deleteShop(${JSON.stringify(name)})">&#128465;</button>
+                <button type="button" class="icon-btn" title="Edit shop" data-action="edit-shop" data-shop="${escapeAttr(name)}">&#9998;</button>
+                <button type="button" class="icon-btn" title="Delete shop" data-action="delete-shop" data-shop="${escapeAttr(name)}">&#128465;</button>
             </div>
         </div>
         ${itemsHtml}
         <div class="add-item-row">
-            <button type="button" class="secondary" onclick="openItemModal(${JSON.stringify(name)})">+ Add item / role</button>
+            <button type="button" class="secondary" data-action="add-item" data-shop="${escapeAttr(name)}">+ Add item / role</button>
         </div>
     </div>`;
 }
 
 function itemRowHtml(shopName, key, entry) {
     const isRole = !!entry.role_id;
-    const dot = isRole ? `<span class="dot" style="background:${entry.role_color || "#99aab5"}"></span>` : "";
+    const dot = isRole ? `<span class="dot" style="background:${escapeAttr(entry.role_color || "#99aab5")}"></span>` : "";
     const missing = entry.role_missing ? `<span class="missing-role-tag">(role deleted)</span>` : "";
     const label = isRole ? (entry.role_name || key) : key;
     const stockLabel = (entry.amount === null || entry.amount === undefined) ? "&infin;" : entry.amount;
@@ -652,15 +663,31 @@ function itemRowHtml(shopName, key, entry) {
         <td><div class="item-name-cell">${dot}${escapeHtml(label)}${missing}</div></td>
         <td>${entry.price} credits</td>
         <td>${stockLabel}</td>
-        <td class="item-desc" title="${escapeHtml(entry.description || "")}">${escapeHtml(entry.description || "&mdash;")}</td>
+        <td class="item-desc" title="${escapeAttr(entry.description || "")}">${escapeHtml(entry.description || "\u2014")}</td>
         <td>
             <div class="item-actions">
-                <button type="button" class="icon-btn" title="Edit" onclick='openItemModal(${JSON.stringify(shopName)}, ${JSON.stringify(key)})'>&#9998;</button>
-                <button type="button" class="icon-btn" title="Delete" onclick='deleteItem(${JSON.stringify(shopName)}, ${JSON.stringify(key)})'>&#128465;</button>
+                <button type="button" class="icon-btn" title="Edit" data-action="edit-item" data-shop="${escapeAttr(shopName)}" data-item="${escapeAttr(key)}">&#9998;</button>
+                <button type="button" class="icon-btn" title="Delete" data-action="delete-item" data-shop="${escapeAttr(shopName)}" data-item="${escapeAttr(key)}">&#128465;</button>
             </div>
         </td>
     </tr>`;
 }
+
+// Single delegated listener handles every dynamically-rendered button above,
+// so we never have to interpolate arbitrary shop/item names into onclick="" strings.
+document.getElementById("shopsList").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const shop = btn.dataset.shop;
+    const item = btn.dataset.item;
+    switch (btn.dataset.action) {
+        case "edit-shop": openShopModal(shop); break;
+        case "delete-shop": deleteShop(shop); break;
+        case "add-item": openItemModal(shop); break;
+        case "edit-item": openItemModal(shop, item); break;
+        case "delete-item": deleteItem(shop, item); break;
+    }
+});
 
 /* ---------- shop modal ---------- */
 
@@ -730,12 +757,18 @@ function renderRoleOptions() {
         return;
     }
     panel.innerHTML = ROLES.map(r => `
-        <div class="role-option" onclick='selectRole(${r.id}, ${JSON.stringify(r.name)}, ${JSON.stringify(r.color)})'>
-            <span class="dot" style="background:${r.color}"></span>
+        <div class="role-option" data-role-id="${r.id}" data-role-name="${escapeAttr(r.name)}" data-role-color="${escapeAttr(r.color)}">
+            <span class="dot" style="background:${escapeAttr(r.color)}"></span>
             <span>${escapeHtml(r.name)}</span>
         </div>
     `).join("");
 }
+
+document.getElementById("roleSelectPanel").addEventListener("click", (e) => {
+    const opt = e.target.closest(".role-option");
+    if (!opt) return;
+    selectRole(Number(opt.dataset.roleId), opt.dataset.roleName, opt.dataset.roleColor);
+});
 
 function toggleRolePanel() {
     document.getElementById("roleSelectPanel").classList.toggle("open");
