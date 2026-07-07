@@ -1,8 +1,0 @@
-{
-  "name": "VisualMap",
-  "author": ["Elvin"],
-  "description": "Procedural visual map generator for RP worlds tiles masks markers",
-  "install_msg": "Type `[p]map` to get started.",
-  "requirements": ["Pillow"],
-  "tags": ["map", "generation", "tool"]
-}
