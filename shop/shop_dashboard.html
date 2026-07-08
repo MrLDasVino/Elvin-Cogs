@@ -41,8 +41,20 @@
     .wrap {
         max-width: 960px;
         margin: 0 auto;
-        padding: 28px 20px 80px;
+        padding: 20px 20px 80px;
     }
+
+    .back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-muted);
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 500;
+        margin-bottom: 16px;
+    }
+    .back-link:hover { color: var(--text-bright); }
 
     .header {
         display: flex;
@@ -249,7 +261,6 @@
     }
     .empty-state h3 { color: var(--text-bright); margin-bottom: 6px; }
 
-    /* Modal */
     .overlay {
         display: none;
         position: fixed;
@@ -311,7 +322,6 @@
     }
     .field.checkbox-row label { margin: 0; text-transform: none; font-size: 14px; color: var(--text-normal); }
     .hint { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
-    .error-text { font-size: 12px; color: var(--danger); margin-top: 4px; display: none; }
 
     .thumb-preview {
         width: 44px;
@@ -340,7 +350,6 @@
     .mode-toggle button.active { background: var(--accent); color: #fff; }
     .mode-toggle button:hover:not(.active) { background: transparent; color: var(--text-bright); }
 
-    /* Custom role dropdown */
     .role-select { position: relative; }
     .role-select-btn {
         width: 100%;
@@ -389,6 +398,7 @@
         gap: 8px;
         margin-top: 18px;
     }
+    .modal-actions button:disabled { opacity: 0.6; cursor: wait; }
 
     .toast-wrap {
         position: fixed;
@@ -418,6 +428,10 @@
 <body>
 
 <div class="wrap">
+    {% if dashboard_url %}
+    <a class="back-link" href="{{ dashboard_url }}">&larr; Back to Dashboard</a>
+    {% endif %}
+
     <div class="header">
         {% if guild_icon %}
         <img class="guild-icon" src="{{ guild_icon }}" alt="" />
@@ -426,7 +440,7 @@
         {% endif %}
         <div>
             <h1>{{ guild_name }} &mdash; Shop Manager</h1>
-            <p>Create shops, manage stock, via roles or items.</p>
+            <p>Create shops, manage stock, via roles and items.</p>
         </div>
     </div>
 
@@ -452,7 +466,6 @@
 
 <div class="toast-wrap" id="toastWrap"></div>
 
-<!-- Shop modal -->
 <div class="overlay" id="shopModalOverlay">
     <div class="modal">
         <h3 id="shopModalTitle">New Shop</h3>
@@ -475,12 +488,11 @@
         </div>
         <div class="modal-actions">
             <button type="button" class="secondary" onclick="closeModal('shopModalOverlay')">Cancel</button>
-            <button type="button" onclick="saveShop()">Save shop</button>
+            <button type="button" id="shopSaveBtn" onclick="saveShop()">Save shop</button>
         </div>
     </div>
 </div>
 
-<!-- Item modal -->
 <div class="overlay" id="itemModalOverlay">
     <div class="modal">
         <h3 id="itemModalTitle">New Item</h3>
@@ -527,7 +539,7 @@
 
         <div class="modal-actions">
             <button type="button" class="secondary" onclick="closeModal('itemModalOverlay')">Cancel</button>
-            <button type="button" onclick="saveItem()">Save item</button>
+            <button type="button" id="itemSaveBtn" onclick="saveItem()">Save item</button>
         </div>
     </div>
 </div>
@@ -537,13 +549,11 @@ const SHOPS = {{ shops_json|safe }};
 const ROLES = {{ roles_json|safe }};
 const CHANNELS = {{ channels_json|safe }};
 const LOG_CHANNEL_ID = {{ log_channel_id_json|safe }};
-const ACTION_FIELD_ID = "{{ action_field_id }}";
-const PAYLOAD_FIELD_ID = "{{ payload_field_id }}";
 
-let currentEditShop = null;   // original shop name being edited, or null for new
-let currentItemShop = null;   // shop name the item modal is operating on
-let currentItemKey = null;    // original item key being edited, or null for new
-let currentItemMode = "item"; // "item" | "role"
+let currentEditShop = null;
+let currentItemShop = null;
+let currentItemKey = null;
+let currentItemMode = "item";
 let currentRoleId = null;
 
 function escapeHtml(str) {
@@ -551,7 +561,6 @@ function escapeHtml(str) {
     div.textContent = str ?? "";
     return div.innerHTML;
 }
-
 
 function escapeAttr(str) {
     return String(str ?? "")
@@ -562,21 +571,68 @@ function escapeAttr(str) {
         .replace(/'/g, "&#39;");
 }
 
-function submitAction(action, payload) {
+function showToast(ok, message) {
+    const wrap = document.getElementById("toastWrap");
+    const el = document.createElement("div");
+    el.className = "toast " + (ok ? "success" : "danger");
+    el.textContent = message;
+    wrap.appendChild(el);
+    setTimeout(() => el.remove(), 5000);
+}
 
-    const actionField = document.querySelector('[data-role="shop-dashboard-action"]') || document.getElementById(ACTION_FIELD_ID);
-    const payloadField = document.querySelector('[data-role="shop-dashboard-payload"]') || document.getElementById(PAYLOAD_FIELD_ID);
+function setModalButtonsBusy(busy) {
+    document.getElementById("shopSaveBtn").disabled = busy;
+    document.getElementById("itemSaveBtn").disabled = busy;
+}
+
+async function submitAction(action, payload) {
+    const actionField = document.querySelector('[data-role="shop-dashboard-action"]');
+    const payloadField = document.querySelector('[data-role="shop-dashboard-payload"]');
     const form = document.getElementById("shopActionForm");
 
     if (!actionField || !payloadField || !form) {
-        console.error("Shop dashboard: could not locate form fields.", { actionField, payloadField, form });
-        alert("Something went wrong preparing this save (couldn't find the form on the page). Please refresh the page and try again. If this keeps happening, check the bot's console/logs for an error.");
+        showToast(false, "Could not find the save form on this page. Please refresh and try again.");
         return;
     }
 
     actionField.value = action;
     payloadField.value = JSON.stringify(payload);
-    form.submit();
+
+    setModalButtonsBusy(true);
+    try {
+        const response = await fetch(window.location.href, {
+            method: "POST",
+            credentials: "same-origin",
+            body: new FormData(form),
+        });
+
+        let parsed;
+        try {
+            parsed = await response.json();
+        } catch (parseErr) {
+            showToast(false, "The server didn't return a valid response (HTTP " + response.status + "). Check the bot's logs.");
+            setModalButtonsBusy(false);
+            return;
+        }
+
+        const result = parsed && parsed.data ? parsed.data : parsed;
+        const ok = !!(result && result.ok);
+        const message = (result && result.message) || (ok ? "Saved." : "Something went wrong.");
+
+        showToast(ok, message);
+
+        if (ok) {
+            closeModal("shopModalOverlay");
+            closeModal("itemModalOverlay");
+            setModalButtonsBusy(false);
+            setTimeout(() => window.location.reload(), 700);
+        } else {
+            setModalButtonsBusy(false);
+        }
+    } catch (networkErr) {
+        showToast(false, "Network error while saving. Please check your connection and try again.");
+        setModalButtonsBusy(false);
+    }
 }
 
 function closeModal(id) {
@@ -585,8 +641,6 @@ function closeModal(id) {
 function openModalEl(id) {
     document.getElementById(id).classList.add("open");
 }
-
-/* ---------- rendering ---------- */
 
 function renderLogChannelSelect() {
     const sel = document.getElementById("logChannelSelect");
@@ -683,8 +737,6 @@ function itemRowHtml(shopName, key, entry) {
     </tr>`;
 }
 
-// Single delegated listener handles every dynamically-rendered button above,
-// so we never have to interpolate arbitrary shop/item names into onclick="" strings.
 document.getElementById("shopsList").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
@@ -699,9 +751,8 @@ document.getElementById("shopsList").addEventListener("click", (e) => {
     }
 });
 
-/* ---------- shop modal ---------- */
-
 function openShopModal(name) {
+    setModalButtonsBusy(false);
     currentEditShop = name || null;
     const data = name ? SHOPS[name] : null;
 
@@ -744,8 +795,6 @@ function deleteShop(name) {
     if (!confirm(`Delete shop "${name}" and all of its items? This cannot be undone.`)) return;
     submitAction("delete_shop", { name: name });
 }
-
-/* ---------- item modal ---------- */
 
 function setItemMode(mode) {
     currentItemMode = mode;
@@ -803,6 +852,7 @@ document.addEventListener("click", (e) => {
 });
 
 function openItemModal(shopName, itemKey) {
+    setModalButtonsBusy(false);
     currentItemShop = shopName;
     currentItemKey = itemKey || null;
     currentRoleId = null;
@@ -881,7 +931,6 @@ function deleteItem(shopName, itemKey) {
     submitAction("delete_item", { shop_name: shopName, item_key: itemKey });
 }
 
-/* ---------- init ---------- */
 try {
     renderLogChannelSelect();
     renderShops();
