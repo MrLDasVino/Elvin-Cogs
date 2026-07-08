@@ -212,48 +212,26 @@ class DashboardIntegration:
                 "message": _("You don't have permissions to manage the shop in this server."),
             }
 
-        import wtforms
+        if kwargs.get("method") == "POST":
+            data_kw = kwargs.get("data") or {}
+            json_body = data_kw.get("json") or {}
+            form_body = data_kw.get("form") or {}
 
-        class ShopActionForm(kwargs["Form"]):
-            def __init__(self) -> None:
-                super().__init__(prefix="shop_dashboard_")
+            action = json_body.get("action") or form_body.get("action")
+            raw_payload = json_body.get("payload") or form_body.get("payload")
+            try:
+                payload = json.loads(raw_payload) if isinstance(raw_payload, str) else (raw_payload or {})
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
 
-            action: wtforms.HiddenField = wtforms.HiddenField(
-                validators=[wtforms.validators.DataRequired()],
-                render_kw={"data-role": "shop-dashboard-action"},
-            )
-            payload: wtforms.HiddenField = wtforms.HiddenField(
-                validators=[wtforms.validators.Optional()],
-                render_kw={"data-role": "shop-dashboard-payload"},
-            )
-            submit: wtforms.SubmitField = wtforms.SubmitField("Save")
+            if not action:
+                return {
+                    "status": 0,
+                    "data": {"ok": False, "message": _("No action was received by the server.")},
+                }
 
-        form: ShopActionForm = ShopActionForm()
-
-        is_submitted_fn = getattr(form, "is_submitted", None)
-        was_submitted = (
-            is_submitted_fn() if callable(is_submitted_fn) else bool(form.action.raw_data)
-        )
-
-        if was_submitted:
-            if form.validate_on_submit() and await form.validate_dpy_converters():
-                try:
-                    data = json.loads(form.payload.data or "{}")
-                except (json.JSONDecodeError, TypeError):
-                    data = {}
-                ok, message = await self._apply_shop_action(guild, form.action.data, data)
-                return {"status": 0, "data": {"ok": ok, "message": message}}
-
-            error_parts = []
-            for field_name, errs in (getattr(form, "errors", None) or {}).items():
-                for err in errs:
-                    error_parts.append(f"{field_name}: {err}")
-            message = (
-                "; ".join(error_parts)
-                if error_parts
-                else _("Your session may have expired. Please refresh the page and try again.")
-            )
-            return {"status": 0, "data": {"ok": False, "message": message}}
+            ok, message = await self._apply_shop_action(guild, action, payload)
+            return {"status": 0, "data": {"ok": ok, "message": message}}
 
         guild_conf = self.config.guild(guild)
         shops = await guild_conf.shops()
@@ -273,14 +251,11 @@ class DashboardIntegration:
         with open(file_path, encoding="utf-8") as f:
             source = f.read()
 
-        form_html = f'<form id="shopActionForm" method="POST" action="">{form.hidden_tag()}</form>'
-
         return {
             "status": 0,
             "web_content": {
                 "source": source,
                 "standalone": True,
-                "form_html": form_html,
                 "guild_name": guild.name,
                 "guild_icon": str(guild.icon.url) if guild.icon else "",
                 "dashboard_url": f"/dashboard/{guild.id}",

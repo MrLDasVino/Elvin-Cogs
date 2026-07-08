@@ -462,8 +462,6 @@
     <div id="shopsList"></div>
 </div>
 
-{{ form_html|safe }}
-
 <div class="toast-wrap" id="toastWrap"></div>
 
 <div class="overlay" id="shopModalOverlay">
@@ -586,24 +584,13 @@ function setModalButtonsBusy(busy) {
 }
 
 async function submitAction(action, payload) {
-    const actionField = document.querySelector('[data-role="shop-dashboard-action"]');
-    const payloadField = document.querySelector('[data-role="shop-dashboard-payload"]');
-    const form = document.getElementById("shopActionForm");
-
-    if (!actionField || !payloadField || !form) {
-        showToast(false, "Could not find the save form on this page. Please refresh and try again.");
-        return;
-    }
-
-    actionField.value = action;
-    payloadField.value = JSON.stringify(payload);
-
     setModalButtonsBusy(true);
     try {
         const response = await fetch(window.location.href, {
             method: "POST",
             credentials: "same-origin",
-            body: new FormData(form),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: action, payload: JSON.stringify(payload) }),
         });
 
         let parsed;
