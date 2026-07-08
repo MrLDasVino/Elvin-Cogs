@@ -259,6 +259,7 @@ class DashboardIntegration:
                 "guild_name": guild.name,
                 "guild_icon": str(guild.icon.url) if guild.icon else "",
                 "dashboard_url": f"/dashboard/{guild.id}",
+                "request_url_json": _safe_json_for_script(kwargs.get("request_url") or ""),
                 "shops_json": _safe_json_for_script(self._build_shops_payload(guild, shops)),
                 "roles_json": _safe_json_for_script(roles_data),
                 "channels_json": _safe_json_for_script(channels_data),

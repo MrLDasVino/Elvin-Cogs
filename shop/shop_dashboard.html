@@ -547,6 +547,7 @@ const SHOPS = {{ shops_json|safe }};
 const ROLES = {{ roles_json|safe }};
 const CHANNELS = {{ channels_json|safe }};
 const LOG_CHANNEL_ID = {{ log_channel_id_json|safe }};
+const REQUEST_URL = {{ request_url_json|safe }};
 
 let currentEditShop = null;
 let currentItemShop = null;
@@ -586,7 +587,7 @@ function setModalButtonsBusy(busy) {
 async function submitAction(action, payload) {
     setModalButtonsBusy(true);
     try {
-        const response = await fetch(window.location.href, {
+        const response = await fetch(REQUEST_URL, {
             method: "POST",
             credentials: "same-origin",
             headers: { "Content-Type": "application/json" },
