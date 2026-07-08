@@ -251,6 +251,8 @@ class DashboardIntegration:
         with open(file_path, encoding="utf-8") as f:
             source = f.read()
 
+        csrf_field_name, csrf_field_value = kwargs.get("csrf_token") or (None, None)
+
         return {
             "status": 0,
             "web_content": {
@@ -260,6 +262,8 @@ class DashboardIntegration:
                 "guild_icon": str(guild.icon.url) if guild.icon else "",
                 "dashboard_url": f"/dashboard/{guild.id}",
                 "request_url_json": _safe_json_for_script(kwargs.get("request_url") or ""),
+                "csrf_field_name_json": _safe_json_for_script(csrf_field_name),
+                "csrf_field_value_json": _safe_json_for_script(csrf_field_value),
                 "shops_json": _safe_json_for_script(self._build_shops_payload(guild, shops)),
                 "roles_json": _safe_json_for_script(roles_data),
                 "channels_json": _safe_json_for_script(channels_data),

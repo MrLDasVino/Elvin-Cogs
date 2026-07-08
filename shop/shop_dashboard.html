@@ -548,6 +548,8 @@ const ROLES = {{ roles_json|safe }};
 const CHANNELS = {{ channels_json|safe }};
 const LOG_CHANNEL_ID = {{ log_channel_id_json|safe }};
 const REQUEST_URL = {{ request_url_json|safe }};
+const CSRF_FIELD_NAME = {{ csrf_field_name_json|safe }};
+const CSRF_FIELD_VALUE = {{ csrf_field_value_json|safe }};
 
 let currentEditShop = null;
 let currentItemShop = null;
@@ -587,11 +589,19 @@ function setModalButtonsBusy(busy) {
 async function submitAction(action, payload) {
     setModalButtonsBusy(true);
     try {
-        const response = await fetch(REQUEST_URL, {
+        const headers = { "Content-Type": "application/json" };
+        if (CSRF_FIELD_NAME && CSRF_FIELD_VALUE) {
+            headers["X-CSRFToken"] = CSRF_FIELD_VALUE;
+        }
+        const body = { action: action, payload: JSON.stringify(payload) };
+        if (CSRF_FIELD_NAME && CSRF_FIELD_VALUE) {
+            body[CSRF_FIELD_NAME] = CSRF_FIELD_VALUE;
+        }
+        const response = await fetch(window.location.href, {
             method: "POST",
             credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: action, payload: JSON.stringify(payload) }),
+            headers: headers,
+            body: JSON.stringify(body),
         });
 
         let parsed;
@@ -618,7 +628,8 @@ async function submitAction(action, payload) {
             setModalButtonsBusy(false);
         }
     } catch (networkErr) {
-        showToast(false, "Network error while saving. Please check your connection and try again.");
+        const detail = networkErr && networkErr.message ? networkErr.message : String(networkErr);
+        showToast(false, "Save request failed: " + detail + " (target: " + window.location.href + ")");
         setModalButtonsBusy(false);
     }
 }
@@ -922,6 +933,9 @@ function deleteItem(shopName, itemKey) {
 try {
     renderLogChannelSelect();
     renderShops();
+    if (!REQUEST_URL) {
+        showToast(false, "REQUEST_URL was empty when this page loaded - saving will not work until this is fixed.");
+    }
 } catch (err) {
     console.error("Shop dashboard failed to initialize:", err);
     document.getElementById("shopsList").innerHTML =
