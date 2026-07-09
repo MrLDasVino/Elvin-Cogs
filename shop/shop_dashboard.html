@@ -1,948 +1,535 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>{{ guild_name }} - Shop Manager</title>
-<style>
-    :root {
-        --bg-primary: #313338;
-        --bg-secondary: #2b2d31;
-        --bg-tertiary: #1e1f22;
-        --bg-card: #383a40;
-        --bg-input: #1e1f22;
-        --text-normal: #dbdee1;
-        --text-muted: #949ba4;
-        --text-bright: #f2f3f5;
-        --accent: #5865f2;
-        --accent-hover: #4752c4;
-        --danger: #da373c;
-        --danger-hover: #a12828;
-        --success: #23a55a;
-        --warning: #f0b232;
-        --border: #1e1f22;
-        --radius: 8px;
-    }
-    * { box-sizing: border-box; }
-    html, body {
-        margin: 0;
-        padding: 0;
-        background: var(--bg-primary);
-        color: var(--text-normal);
-        font-family: "gg sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
-        min-height: 100%;
-    }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 4px; }
-    ::-webkit-scrollbar-track { background: transparent; }
+<div class="shop-wrap">
+    <style>
+        .shop-wrap {
+            --shop-bg: #2b2d31;
+            --shop-bg-alt: #313338;
+            --shop-border: #40444b;
+            --shop-text: #dbdee1;
+            --shop-muted: #949ba4;
+            --shop-accent: #5865f2;
+            --shop-accent-hover: #4752c4;
+            --shop-danger: #da373c;
+            --shop-danger-hover: #a12828;
+            --shop-success: #23a55a;
+            font-family: inherit;
+            color: var(--shop-text);
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .shop-wrap h2 {
+            margin-top: 0;
+        }
+        .shop-card {
+            background: var(--shop-bg);
+            border: 1px solid var(--shop-border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .shop-card h3 {
+            margin-top: 0;
+            margin-bottom: 16px;
+        }
+        .shop-shop-block {
+            border: 1px solid var(--shop-border);
+            border-radius: 6px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+        }
+        .shop-shop-block:last-child {
+            margin-bottom: 0;
+        }
+        .shop-shop-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .shop-shop-desc {
+            color: var(--shop-muted);
+            font-size: 0.88em;
+            margin: 8px 0;
+            white-space: pre-wrap;
+        }
+        .shop-table-wrap {
+            max-height: 230px;
+            overflow-y: auto;
+            border: 1px solid var(--shop-border);
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+        .shop-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.92em;
+        }
+        .shop-table th,
+        .shop-table td {
+            text-align: left;
+            padding: 10px 8px;
+            border-bottom: 1px solid var(--shop-border);
+            vertical-align: middle;
+        }
+        .shop-table th {
+            position: sticky;
+            top: 0;
+            background: var(--shop-bg-alt);
+            color: var(--shop-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75em;
+            letter-spacing: 0.02em;
+            z-index: 1;
+        }
+        .shop-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .shop-url-cell {
+            max-width: 220px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: inline-block;
+            color: var(--shop-muted);
+        }
+        .shop-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 0.75em;
+            font-weight: 600;
+        }
+        .shop-badge-on {
+            background: rgba(35, 165, 90, 0.15);
+            color: var(--shop-success);
+        }
+        .shop-badge-off {
+            background: rgba(148, 155, 164, 0.15);
+            color: var(--shop-muted);
+        }
+        .shop-badge-error {
+            background: rgba(218, 55, 60, 0.15);
+            color: var(--shop-danger);
+            margin-left: 6px;
+        }
+        .shop-empty {
+            color: var(--shop-muted);
+            padding: 12px 0;
+        }
+        .shop-help {
+            color: var(--shop-muted);
+            font-size: 0.85em;
+            margin-bottom: 16px;
+        }
+        .shop-btn {
+            display: inline-block;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            cursor: pointer;
+            color: #fff;
+            background: var(--shop-accent);
+        }
+        .shop-btn:hover {
+            background: var(--shop-accent-hover);
+        }
+        .shop-btn-secondary {
+            background: var(--shop-bg-alt);
+            border: 1px solid var(--shop-border);
+            color: var(--shop-text);
+            margin-left: 8px;
+        }
+        .shop-btn-sm {
+            padding: 4px 9px;
+            font-size: 0.78em;
+            margin-right: 4px;
+        }
+        .shop-btn-danger {
+            background: var(--shop-danger);
+        }
+        .shop-btn-danger:hover {
+            background: var(--shop-danger-hover);
+        }
+        .shop-form-row {
+            margin-bottom: 14px;
+        }
+        .shop-form-row label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.85em;
+            color: var(--shop-muted);
+            font-weight: 600;
+        }
+        .shop-input,
+        .shop-wrap select,
+        .shop-wrap textarea {
+            width: 100%;
+            max-width: 420px;
+            background: var(--shop-bg-alt);
+            border: 1px solid var(--shop-border);
+            color: var(--shop-text);
+            border-radius: 4px;
+            padding: 8px 10px;
+            font-size: 0.9em;
+            box-sizing: border-box;
+            font-family: inherit;
+        }
+        .shop-checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .shop-checkbox-row label {
+            margin-bottom: 0;
+        }
+        .shop-error {
+            display: block;
+            color: var(--shop-danger);
+            font-size: 0.8em;
+            margin-top: 4px;
+        }
+        .shop-role-picker {
+            position: relative;
+            max-width: 420px;
+        }
+        .shop-role-picker-btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--shop-bg-alt);
+            border: 1px solid var(--shop-border);
+            border-radius: 4px;
+            padding: 8px 10px;
+            color: var(--shop-text);
+            font-size: 0.9em;
+            text-align: left;
+            cursor: pointer;
+        }
+        .shop-role-label.shop-role-placeholder {
+            color: var(--shop-muted);
+        }
+        .shop-role-panel {
+            display: none;
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            right: 0;
+            max-height: 220px;
+            overflow-y: auto;
+            background: var(--shop-bg-alt);
+            border: 1px solid var(--shop-border);
+            border-radius: 4px;
+            z-index: 10;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        }
+        .shop-role-panel.shop-role-panel-open {
+            display: block;
+        }
+        .shop-role-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        .shop-role-option:hover {
+            background: var(--shop-bg);
+        }
+        .shop-role-empty {
+            padding: 10px;
+            color: var(--shop-muted);
+            font-size: 0.85em;
+        }
+        .shop-role-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: inline-block;
+        }
+        #shop-edit-shop-card,
+        #shop-add-item-card,
+        #shop-edit-item-card {
+            display: none;
+        }
+    </style>
 
-    a { color: var(--accent); }
+    <h2>Shop &mdash; {{ guild.name }}</h2>
 
-    .wrap {
-        max-width: 960px;
-        margin: 0 auto;
-        padding: 20px 20px 80px;
-    }
-
-    .back-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        color: var(--text-muted);
-        text-decoration: none;
-        font-size: 13px;
-        font-weight: 500;
-        margin-bottom: 16px;
-    }
-    .back-link:hover { color: var(--text-bright); }
-
-    .header {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        margin-bottom: 22px;
-    }
-    .header img.guild-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 50%;
-        object-fit: cover;
-        background: var(--bg-tertiary);
-    }
-    .header .guild-icon-fallback {
-        width: 48px;
-        height: 48px;
-        border-radius: 50%;
-        background: var(--bg-tertiary);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 700;
-        color: var(--text-muted);
-    }
-    .header h1 {
-        font-size: 20px;
-        margin: 0;
-        color: var(--text-bright);
-    }
-    .header p {
-        margin: 2px 0 0;
-        font-size: 13px;
-        color: var(--text-muted);
-    }
-
-    .toolbar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 18px;
-        flex-wrap: wrap;
-    }
-
-    .panel {
-        background: var(--bg-secondary);
-        border-radius: var(--radius);
-        padding: 16px 18px;
-        margin-bottom: 18px;
-    }
-    .panel h2 {
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.02em;
-        color: var(--text-muted);
-        margin: 0 0 12px;
-    }
-    .panel .row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-    }
-
-    button, .btn {
-        font-family: inherit;
-        font-size: 14px;
-        font-weight: 500;
-        border: none;
-        border-radius: 6px;
-        padding: 9px 16px;
-        cursor: pointer;
-        color: #fff;
-        background: var(--accent);
-        transition: background 0.12s ease;
-    }
-    button:hover, .btn:hover { background: var(--accent-hover); }
-    button.secondary {
-        background: var(--bg-card);
-        color: var(--text-normal);
-    }
-    button.secondary:hover { background: #45474e; }
-    button.danger { background: var(--danger); }
-    button.danger:hover { background: var(--danger-hover); }
-    button.icon-btn {
-        background: transparent;
-        color: var(--text-muted);
-        padding: 6px 8px;
-        border-radius: 6px;
-    }
-    button.icon-btn:hover { background: var(--bg-tertiary); color: var(--text-bright); }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .shop-card {
-        background: var(--bg-secondary);
-        border-radius: var(--radius);
-        margin-bottom: 16px;
-        overflow: hidden;
-    }
-    .shop-card-header {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        padding: 16px 18px;
-        border-bottom: 1px solid var(--border);
-    }
-    .shop-thumb {
-        width: 44px;
-        height: 44px;
-        border-radius: 8px;
-        object-fit: cover;
-        background: var(--bg-tertiary);
-        flex-shrink: 0;
-    }
-    .shop-card-title-wrap { flex: 1; min-width: 0; }
-    .shop-card-title-wrap .title-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-    }
-    .shop-card-title-wrap h3 {
-        margin: 0;
-        font-size: 16px;
-        color: var(--text-bright);
-        word-break: break-word;
-    }
-    .badge {
-        font-size: 11px;
-        font-weight: 600;
-        padding: 2px 8px;
-        border-radius: 20px;
-        white-space: nowrap;
-    }
-    .badge.giftable { background: rgba(35,165,90,0.15); color: var(--success); }
-    .badge.not-giftable { background: rgba(148,155,164,0.15); color: var(--text-muted); }
-    .shop-card-title-wrap p {
-        margin: 4px 0 0;
-        font-size: 13px;
-        color: var(--text-muted);
-        white-space: pre-wrap;
-        word-break: break-word;
-    }
-    .shop-card-actions {
-        display: flex;
-        gap: 4px;
-        flex-shrink: 0;
-    }
-
-    .items-table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-    .items-table th {
-        text-align: left;
-        font-size: 11px;
-        text-transform: uppercase;
-        color: var(--text-muted);
-        padding: 10px 18px 6px;
-        font-weight: 600;
-    }
-    .items-table td {
-        padding: 10px 18px;
-        font-size: 14px;
-        border-top: 1px solid var(--border);
-        vertical-align: middle;
-    }
-    .items-table tr:hover td { background: rgba(255,255,255,0.02); }
-    .item-name-cell { display: flex; align-items: center; gap: 8px; }
-    .dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        flex-shrink: 0;
-        display: inline-block;
-    }
-    .item-desc {
-        color: var(--text-muted);
-        font-size: 12.5px;
-        max-width: 280px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .item-actions { display: flex; gap: 2px; justify-content: flex-end; }
-    .missing-role-tag {
-        color: var(--danger);
-        font-size: 11px;
-        margin-left: 6px;
-    }
-
-    .empty-items {
-        padding: 14px 18px 18px;
-        color: var(--text-muted);
-        font-size: 13px;
-    }
-    .add-item-row { padding: 12px 18px 18px; }
-
-    .empty-state {
-        text-align: center;
-        padding: 60px 20px;
-        color: var(--text-muted);
-    }
-    .empty-state h3 { color: var(--text-bright); margin-bottom: 6px; }
-
-    .overlay {
-        display: none;
-        position: fixed;
-        inset: 0;
-        background: rgba(0,0,0,0.6);
-        z-index: 100;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-    }
-    .overlay.open { display: flex; }
-    .modal {
-        background: var(--bg-secondary);
-        border-radius: 8px;
-        width: 100%;
-        max-width: 460px;
-        max-height: 90vh;
-        overflow-y: auto;
-        padding: 22px 22px 18px;
-    }
-    .modal h3 {
-        margin: 0 0 16px;
-        font-size: 18px;
-        color: var(--text-bright);
-    }
-    .field { margin-bottom: 14px; }
-    .field label {
-        display: block;
-        font-size: 12px;
-        font-weight: 600;
-        text-transform: uppercase;
-        color: var(--text-muted);
-        margin-bottom: 6px;
-    }
-    .field input[type="text"],
-    .field input[type="number"],
-    .field input[type="url"],
-    .field textarea,
-    .field select {
-        width: 100%;
-        background: var(--bg-input);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 9px 10px;
-        color: var(--text-normal);
-        font-size: 14px;
-        font-family: inherit;
-        resize: vertical;
-    }
-    .field textarea { min-height: 60px; }
-    .field input:focus, .field textarea:focus, .field select:focus {
-        outline: none;
-        border-color: var(--accent);
-    }
-    .field.checkbox-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    .field.checkbox-row label { margin: 0; text-transform: none; font-size: 14px; color: var(--text-normal); }
-    .hint { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
-
-    .thumb-preview {
-        width: 44px;
-        height: 44px;
-        border-radius: 8px;
-        object-fit: cover;
-        background: var(--bg-tertiary);
-        margin-top: 8px;
-        display: none;
-    }
-
-    .mode-toggle {
-        display: flex;
-        background: var(--bg-input);
-        border-radius: 6px;
-        padding: 3px;
-        margin-bottom: 14px;
-    }
-    .mode-toggle button {
-        flex: 1;
-        background: transparent;
-        color: var(--text-muted);
-        padding: 7px 0;
-        border-radius: 5px;
-    }
-    .mode-toggle button.active { background: var(--accent); color: #fff; }
-    .mode-toggle button:hover:not(.active) { background: transparent; color: var(--text-bright); }
-
-    .role-select { position: relative; }
-    .role-select-btn {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        background: var(--bg-input);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 9px 10px;
-        color: var(--text-normal);
-        font-size: 14px;
-        text-align: left;
-        cursor: pointer;
-    }
-    .role-select-btn .placeholder { color: var(--text-muted); }
-    .role-select-panel {
-        display: none;
-        position: absolute;
-        top: calc(100% + 4px);
-        left: 0;
-        right: 0;
-        max-height: 220px;
-        overflow-y: auto;
-        background: var(--bg-input);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        z-index: 10;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-    }
-    .role-select-panel.open { display: block; }
-    .role-option {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 10px;
-        cursor: pointer;
-        font-size: 14px;
-    }
-    .role-option:hover { background: var(--bg-card); }
-    .role-empty { padding: 10px; color: var(--text-muted); font-size: 13px; }
-
-    .modal-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-        margin-top: 18px;
-    }
-    .modal-actions button:disabled { opacity: 0.6; cursor: wait; }
-
-    .toast-wrap {
-        position: fixed;
-        top: 16px;
-        right: 16px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        z-index: 200;
-    }
-    .toast {
-        background: var(--bg-card);
-        border-left: 3px solid var(--accent);
-        padding: 10px 14px;
-        border-radius: 6px;
-        font-size: 13px;
-        max-width: 320px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }
-    .toast.success { border-color: var(--success); }
-    .toast.danger { border-color: var(--danger); }
-    .toast.warning { border-color: var(--warning); }
-
-    select#logChannelSelect { max-width: 260px; }
-</style>
-</head>
-<body>
-
-<div class="wrap">
-    {% if dashboard_url %}
-    <a class="back-link" href="{{ dashboard_url }}">&larr; Back to Dashboard</a>
+    {% if setup_error %}
+    <div class="shop-card">
+        <p class="shop-error">{{ setup_error }}</p>
+    </div>
     {% endif %}
 
-    <div class="header">
-        {% if guild_icon %}
-        <img class="guild-icon" src="{{ guild_icon }}" alt="" />
-        {% else %}
-        <div class="guild-icon-fallback">{{ guild_name[0]|upper }}</div>
-        {% endif %}
-        <div>
-            <h1>{{ guild_name }} &mdash; Shop Manager</h1>
-            <p>Create shops, manage stock, via roles and items.</p>
-        </div>
-    </div>
-
-    <div class="panel">
-        <h2>Purchase &amp; gift log channel</h2>
-        <div class="row">
-            <select id="logChannelSelect">
-                <option value="none">No logging</option>
-            </select>
-            <button type="button" class="secondary" onclick="saveLogChannel()">Save</button>
-        </div>
-    </div>
-
-    <div class="toolbar">
-        <h2 style="margin:0; font-size:15px; color:var(--text-bright);">Shops</h2>
-        <button type="button" onclick="openShopModal()">+ New Shop</button>
-    </div>
-
-    <div id="shopsList"></div>
-</div>
-
-<div class="toast-wrap" id="toastWrap"></div>
-
-<div class="overlay" id="shopModalOverlay">
-    <div class="modal">
-        <h3 id="shopModalTitle">New Shop</h3>
-        <div class="field">
-            <label>Shop name</label>
-            <input type="text" id="shopNameInput" maxlength="100" placeholder="e.g. General Store" />
-        </div>
-        <div class="field">
-            <label>Description <span style="text-transform:none;">(optional)</span></label>
-            <textarea id="shopDescInput" placeholder="What does this shop sell?"></textarea>
-        </div>
-        <div class="field">
-            <label>Thumbnail URL <span style="text-transform:none;">(optional)</span></label>
-            <input type="url" id="shopThumbInput" placeholder="https://example.com/image.png" oninput="updateThumbPreview()" />
-            <img class="thumb-preview" id="shopThumbPreview" onerror="this.style.display='none'" />
-        </div>
-        <div class="field checkbox-row">
-            <input type="checkbox" id="shopGiftableInput" checked />
-            <label for="shopGiftableInput">Allow gifting items from this shop</label>
-        </div>
-        <div class="modal-actions">
-            <button type="button" class="secondary" onclick="closeModal('shopModalOverlay')">Cancel</button>
-            <button type="button" id="shopSaveBtn" onclick="saveShop()">Save shop</button>
-        </div>
-    </div>
-</div>
-
-<div class="overlay" id="itemModalOverlay">
-    <div class="modal">
-        <h3 id="itemModalTitle">New Item</h3>
-        <div class="mode-toggle">
-            <button type="button" id="modeItemBtn" class="active" onclick="setItemMode('item')">Item</button>
-            <button type="button" id="modeRoleBtn" onclick="setItemMode('role')">Role reward</button>
-        </div>
-
-        <div class="field" id="itemNameField">
-            <label>Item name</label>
-            <input type="text" id="itemNameInput" maxlength="100" placeholder="e.g. Fishing Rod" />
-        </div>
-
-        <div class="field" id="roleField" style="display:none;">
-            <label>Role</label>
-            <div class="role-select">
-                <button type="button" class="role-select-btn" id="roleSelectBtn" onclick="toggleRolePanel()">
-                    <span class="dot" id="roleSelectedDot" style="display:none;"></span>
-                    <span id="roleSelectedLabel" class="placeholder">Choose a role&hellip;</span>
-                </button>
-                <div class="role-select-panel" id="roleSelectPanel"></div>
+    <div class="shop-card">
+        <h3>Current shops ({{ shops_rows|length }})</h3>
+        {% if shops_rows %}
+        {% for shop in shops_rows %}
+        <div class="shop-shop-block">
+            <div class="shop-shop-header">
+                <div>
+                    <strong>{{ shop.name }}</strong>
+                    <span class="shop-badge {{ 'shop-badge-on' if shop.giftable else 'shop-badge-off' }}">
+                        {{ "Giftable" if shop.giftable else "Not giftable" }}
+                    </span>
+                </div>
+                <div>
+                    <button type="button" class="shop-btn shop-btn-sm"
+                        data-name="{{ shop.name }}" data-description="{{ shop.description }}"
+                        data-thumbnail="{{ shop.thumbnail }}" data-giftable="{{ '1' if shop.giftable else '0' }}"
+                        onclick="shopEditShop(this)">
+                        Edit
+                    </button>
+                    <button type="button" class="shop-btn shop-btn-sm shop-btn-danger"
+                        onclick="shopManageAction('{{ shop.name }}', '', 'delete_shop')">
+                        Delete
+                    </button>
+                </div>
             </div>
-            <div class="hint">Members will receive this role when they buy or receive it as a gift.</div>
+            {% if shop.description %}
+            <p class="shop-shop-desc">{{ shop.description }}</p>
+            {% endif %}
+            {% if shop.stock_items %}
+            <div class="shop-table-wrap">
+                <table class="shop-table">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Price</th>
+                            <th>Stock</th>
+                            <th>Description</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in shop.stock_items %}
+                        <tr>
+                            <td>
+                                {{ item.label }}
+                                {% if item.role_missing %}<span class="shop-badge shop-badge-error">role deleted</span>{% endif %}
+                            </td>
+                            <td>{{ item.price }}</td>
+                            <td>{{ item.stock_label }}</td>
+                            <td><span class="shop-url-cell" title="{{ item.description }}">{{ item.description }}</span></td>
+                            <td>
+                                <button type="button" class="shop-btn shop-btn-sm"
+                                    data-shop="{{ shop.name }}" data-key="{{ item.key }}" data-mode="{{ item.mode }}"
+                                    data-item-name="{{ item.item_name }}" data-role-id="{{ item.role_id }}"
+                                    data-price="{{ item.price }}"
+                                    data-amount="{{ item.amount if item.amount is not none else '' }}"
+                                    data-description="{{ item.description }}"
+                                    onclick="shopEditItem(this)">
+                                    Edit
+                                </button>
+                                <button type="button" class="shop-btn shop-btn-sm shop-btn-danger"
+                                    onclick="shopManageAction('{{ shop.name }}', '{{ item.key }}', 'delete_item')">
+                                    Delete
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="shop-empty">No items in this shop yet.</p>
+            {% endif %}
+            <button type="button" class="shop-btn shop-btn-secondary shop-btn-sm" onclick="shopOpenAddItem('{{ shop.name }}')">
+                + Add item / role
+            </button>
         </div>
-
-        <div class="field">
-            <label>Description <span style="text-transform:none;">(optional)</span></label>
-            <textarea id="itemDescInput" placeholder="Shown to buyers in the shop listing"></textarea>
-        </div>
-
-        <div class="field">
-            <label>Price (credits)</label>
-            <input type="number" id="itemPriceInput" min="0" step="1" />
-        </div>
-
-        <div class="field checkbox-row">
-            <input type="checkbox" id="itemUnlimitedInput" checked onchange="toggleAmountInput()" />
-            <label for="itemUnlimitedInput">Unlimited stock</label>
-        </div>
-        <div class="field" id="itemAmountField" style="display:none;">
-            <label>Amount in stock</label>
-            <input type="number" id="itemAmountInput" min="0" step="1" />
-        </div>
-
-        <div class="modal-actions">
-            <button type="button" class="secondary" onclick="closeModal('itemModalOverlay')">Cancel</button>
-            <button type="button" id="itemSaveBtn" onclick="saveItem()">Save item</button>
-        </div>
+        {% endfor %}
+        {% else %}
+        <p class="shop-empty">No shops yet. Use the form below to create your first one.</p>
+        {% endif %}
     </div>
-</div>
 
-<script>
-const SHOPS = {{ shops_json|safe }};
-const ROLES = {{ roles_json|safe }};
-const CHANNELS = {{ channels_json|safe }};
-const LOG_CHANNEL_ID = {{ log_channel_id_json|safe }};
-const REQUEST_URL = {{ request_url_json|safe }};
-const CSRF_FIELD_NAME = {{ csrf_field_name_json|safe }};
-const CSRF_FIELD_VALUE = {{ csrf_field_value_json|safe }};
+    <div class="shop-card" id="shop-edit-shop-card">
+        <h3>Edit shop</h3>
+        {{ edit_shop_form_html|safe }}
+    </div>
 
-let currentEditShop = null;
-let currentItemShop = null;
-let currentItemKey = null;
-let currentItemMode = "item";
-let currentRoleId = null;
+    <div class="shop-card">
+        <h3>Add a shop</h3>
+        {{ add_shop_form_html|safe }}
+    </div>
 
-function escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str ?? "";
-    return div.innerHTML;
-}
+    <div class="shop-card" id="shop-add-item-card">
+        <h3>Add item / role</h3>
+        {{ add_item_form_html|safe }}
+    </div>
 
-function escapeAttr(str) {
-    return String(str ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-}
+    <div class="shop-card" id="shop-edit-item-card">
+        <h3>Edit item</h3>
+        {{ edit_item_form_html|safe }}
+    </div>
 
-function showToast(ok, message) {
-    const wrap = document.getElementById("toastWrap");
-    const el = document.createElement("div");
-    el.className = "toast " + (ok ? "success" : "danger");
-    el.textContent = message;
-    wrap.appendChild(el);
-    setTimeout(() => el.remove(), 5000);
-}
+    <div class="shop-card">
+        <h3>Purchase &amp; gift log channel</h3>
+        <p class="shop-help">Currently: {{ log_channel_name }}</p>
+        {{ settings_form_html|safe }}
+    </div>
 
-function setModalButtonsBusy(busy) {
-    document.getElementById("shopSaveBtn").disabled = busy;
-    document.getElementById("itemSaveBtn").disabled = busy;
-}
+    {{ manage_form_html|safe }}
 
-async function submitAction(action, payload) {
-    setModalButtonsBusy(true);
-    try {
-        const headers = { "Content-Type": "application/json" };
-        if (CSRF_FIELD_NAME && CSRF_FIELD_VALUE) {
-            headers["X-CSRFToken"] = CSRF_FIELD_VALUE;
+    <script>
+        var SHOP_ROLES = {{ roles_json|safe }};
+
+        function shopManageAction(shopName, itemKey, action) {
+            if ((action === "delete_shop" || action === "delete_item") &&
+                !confirm("Delete this " + (action === "delete_shop" ? "shop" : "item") + "? This cannot be undone.")) {
+                return;
+            }
+            document.getElementById("shop_manage_shop_name").value = shopName;
+            document.getElementById("shop_manage_item_key").value = itemKey;
+            document.getElementById("shop_manage_action").value = action;
+            document.getElementById("shop_manage_submit").click();
         }
-        const body = { action: action, payload: JSON.stringify(payload) };
-        if (CSRF_FIELD_NAME && CSRF_FIELD_VALUE) {
-            body[CSRF_FIELD_NAME] = CSRF_FIELD_VALUE;
+
+        function shopEditShop(btn) {
+            document.getElementById("shop_edit_shop_original_name").value = btn.dataset.name;
+            document.getElementById("shop_edit_shop_name").value = btn.dataset.name;
+            document.getElementById("shop_edit_shop_description").value = btn.dataset.description;
+            document.getElementById("shop_edit_shop_thumbnail").value = btn.dataset.thumbnail;
+            document.getElementById("shop_edit_shop_giftable").checked = btn.dataset.giftable === "1";
+            var card = document.getElementById("shop-edit-shop-card");
+            card.style.display = "block";
+            card.scrollIntoView({ behavior: "smooth" });
         }
-        const response = await fetch(window.location.href, {
-            method: "POST",
-            credentials: "same-origin",
-            headers: headers,
-            body: JSON.stringify(body),
+
+        function shopCloseEditShop() {
+            document.getElementById("shop-edit-shop-card").style.display = "none";
+        }
+
+        function shopOpenAddItem(shopName) {
+            document.getElementById("shop_add_item_shop_name").value = shopName;
+            document.getElementById("shop_add_item_mode").value = "item";
+            document.getElementById("shop_add_item_item_name").value = "";
+            document.getElementById("shop_add_item_price").value = "";
+            document.getElementById("shop_add_item_amount").value = "";
+            document.getElementById("shop_add_item_description").value = "";
+            shopSetRolePicker("shop_add_item_role_picker", null);
+            shopToggleItemMode("add");
+            var card = document.getElementById("shop-add-item-card");
+            card.style.display = "block";
+            card.scrollIntoView({ behavior: "smooth" });
+        }
+
+        function shopCloseAddItem() {
+            document.getElementById("shop-add-item-card").style.display = "none";
+        }
+
+        function shopEditItem(btn) {
+            document.getElementById("shop_edit_item_shop_name").value = btn.dataset.shop;
+            document.getElementById("shop_edit_item_original_key").value = btn.dataset.key;
+            document.getElementById("shop_edit_item_mode").value = btn.dataset.mode;
+            document.getElementById("shop_edit_item_item_name").value = btn.dataset.itemName;
+            document.getElementById("shop_edit_item_price").value = btn.dataset.price;
+            document.getElementById("shop_edit_item_amount").value = btn.dataset.amount;
+            document.getElementById("shop_edit_item_description").value = btn.dataset.description;
+            var roleId = parseInt(btn.dataset.roleId, 10);
+            shopSetRolePicker("shop_edit_item_role_picker", roleId || null);
+            shopToggleItemMode("edit");
+            var card = document.getElementById("shop-edit-item-card");
+            card.style.display = "block";
+            card.scrollIntoView({ behavior: "smooth" });
+        }
+
+        function shopCloseEditItem() {
+            document.getElementById("shop-edit-item-card").style.display = "none";
+        }
+
+        function shopToggleItemMode(which) {
+            var mode = document.getElementById("shop_" + which + "_item_mode").value;
+            document.getElementById("shop_" + which + "_item_item_name_row").style.display = mode === "item" ? "block" : "none";
+            document.getElementById("shop_" + which + "_item_role_row").style.display = mode === "role" ? "block" : "none";
+        }
+
+        function shopFindRole(roleId) {
+            for (var i = 0; i < SHOP_ROLES.length; i++) {
+                if (SHOP_ROLES[i].id === roleId) {
+                    return SHOP_ROLES[i];
+                }
+            }
+            return null;
+        }
+
+        function shopSetRolePicker(pickerId, roleId) {
+            var picker = document.getElementById(pickerId);
+            var hidden = picker.querySelector("input[type=hidden]");
+            var dot = picker.querySelector(".shop-role-dot");
+            var label = picker.querySelector(".shop-role-label");
+            var role = roleId ? shopFindRole(roleId) : null;
+            hidden.value = role ? role.id : "";
+            if (role) {
+                dot.style.background = role.color;
+                dot.style.display = "inline-block";
+                label.textContent = role.name;
+                label.classList.remove("shop-role-placeholder");
+            } else {
+                dot.style.display = "none";
+                label.textContent = "Choose a role\u2026";
+                label.classList.add("shop-role-placeholder");
+            }
+        }
+
+        function shopToggleRolePanel(pickerId) {
+            var picker = document.getElementById(pickerId);
+            var panel = picker.querySelector(".shop-role-panel");
+            var isOpen = panel.classList.contains("shop-role-panel-open");
+            document.querySelectorAll(".shop-role-panel").forEach(function (p) {
+                p.classList.remove("shop-role-panel-open");
+            });
+            if (!isOpen) {
+                shopRenderRolePanel(pickerId);
+                panel.classList.add("shop-role-panel-open");
+            }
+        }
+
+        function shopRenderRolePanel(pickerId) {
+            var picker = document.getElementById(pickerId);
+            var panel = picker.querySelector(".shop-role-panel");
+            panel.innerHTML = "";
+            if (SHOP_ROLES.length === 0) {
+                var empty = document.createElement("div");
+                empty.className = "shop-role-empty";
+                empty.textContent = "No assignable roles in this server.";
+                panel.appendChild(empty);
+                return;
+            }
+            SHOP_ROLES.forEach(function (role) {
+                var opt = document.createElement("div");
+                opt.className = "shop-role-option";
+                var dot = document.createElement("span");
+                dot.className = "shop-role-dot";
+                dot.style.background = role.color;
+                var label = document.createElement("span");
+                label.textContent = role.name;
+                opt.appendChild(dot);
+                opt.appendChild(label);
+                opt.addEventListener("click", function () {
+                    shopSetRolePicker(pickerId, role.id);
+                    panel.classList.remove("shop-role-panel-open");
+                });
+                panel.appendChild(opt);
+            });
+        }
+
+        document.addEventListener("click", function (e) {
+            document.querySelectorAll(".shop-role-picker").forEach(function (picker) {
+                if (!picker.contains(e.target)) {
+                    picker.querySelector(".shop-role-panel").classList.remove("shop-role-panel-open");
+                }
+            });
         });
 
-        let parsed;
-        try {
-            parsed = await response.json();
-        } catch (parseErr) {
-            showToast(false, "The server didn't return a valid response (HTTP " + response.status + "). Check the bot's logs.");
-            setModalButtonsBusy(false);
-            return;
-        }
-
-        const result = parsed && parsed.data ? parsed.data : parsed;
-        const ok = !!(result && result.ok);
-        const message = (result && result.message) || (ok ? "Saved." : "Something went wrong.");
-
-        showToast(ok, message);
-
-        if (ok) {
-            closeModal("shopModalOverlay");
-            closeModal("itemModalOverlay");
-            setModalButtonsBusy(false);
-            setTimeout(() => window.location.reload(), 700);
-        } else {
-            setModalButtonsBusy(false);
-        }
-    } catch (networkErr) {
-        const detail = networkErr && networkErr.message ? networkErr.message : String(networkErr);
-        showToast(false, "Save request failed: " + detail + " (target: " + window.location.href + ")");
-        setModalButtonsBusy(false);
-    }
-}
-
-function closeModal(id) {
-    document.getElementById(id).classList.remove("open");
-}
-function openModalEl(id) {
-    document.getElementById(id).classList.add("open");
-}
-
-function renderLogChannelSelect() {
-    const sel = document.getElementById("logChannelSelect");
-    sel.innerHTML = '<option value="none">No logging</option>';
-    CHANNELS.forEach(c => {
-        const opt = document.createElement("option");
-        opt.value = c.id;
-        opt.textContent = "#" + c.name;
-        if (LOG_CHANNEL_ID && String(LOG_CHANNEL_ID) === String(c.id)) opt.selected = true;
-        sel.appendChild(opt);
-    });
-}
-
-function saveLogChannel() {
-    const val = document.getElementById("logChannelSelect").value;
-    submitAction("set_log_channel", { channel_id: val === "none" ? null : val });
-}
-
-function renderShops() {
-    const container = document.getElementById("shopsList");
-    const names = Object.keys(SHOPS);
-
-    if (names.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <h3>No shops yet</h3>
-                <p>Create your first shop to start selling items and roles.</p>
-            </div>`;
-        return;
-    }
-
-    container.innerHTML = names.map(name => shopCardHtml(name, SHOPS[name])).join("");
-}
-
-function shopCardHtml(name, shop) {
-    const itemKeys = Object.keys(shop.stock || {});
-    const thumbHtml = shop.thumbnail
-        ? `<img class="shop-thumb" src="${escapeAttr(shop.thumbnail)}" onerror="this.style.visibility='hidden'" />`
-        : "";
-
-    const itemsHtml = itemKeys.length === 0
-        ? `<div class="empty-items">No items in this shop yet.</div>`
-        : `<table class="items-table">
-            <thead>
-                <tr><th>Item</th><th>Price</th><th>Stock</th><th>Description</th><th></th></tr>
-            </thead>
-            <tbody>
-                ${itemKeys.map(key => itemRowHtml(name, key, shop.stock[key])).join("")}
-            </tbody>
-        </table>`;
-
-    return `
-    <div class="shop-card">
-        <div class="shop-card-header">
-            ${thumbHtml}
-            <div class="shop-card-title-wrap">
-                <div class="title-row">
-                    <h3>${escapeHtml(name)}</h3>
-                    <span class="badge ${shop.giftable ? "giftable" : "not-giftable"}">${shop.giftable ? "Giftable" : "Not giftable"}</span>
-                </div>
-                ${shop.description ? `<p>${escapeHtml(shop.description)}</p>` : ""}
-            </div>
-            <div class="shop-card-actions">
-                <button type="button" class="icon-btn" title="Edit shop" data-action="edit-shop" data-shop="${escapeAttr(name)}">&#9998;</button>
-                <button type="button" class="icon-btn" title="Delete shop" data-action="delete-shop" data-shop="${escapeAttr(name)}">&#128465;</button>
-            </div>
-        </div>
-        ${itemsHtml}
-        <div class="add-item-row">
-            <button type="button" class="secondary" data-action="add-item" data-shop="${escapeAttr(name)}">+ Add item / role</button>
-        </div>
-    </div>`;
-}
-
-function itemRowHtml(shopName, key, entry) {
-    const isRole = !!entry.role_id;
-    const dot = isRole ? `<span class="dot" style="background:${escapeAttr(entry.role_color || "#99aab5")}"></span>` : "";
-    const missing = entry.role_missing ? `<span class="missing-role-tag">(role deleted)</span>` : "";
-    const label = isRole ? (entry.role_name || key) : key;
-    const stockLabel = (entry.amount === null || entry.amount === undefined) ? "&infin;" : entry.amount;
-
-    return `
-    <tr>
-        <td><div class="item-name-cell">${dot}${escapeHtml(label)}${missing}</div></td>
-        <td>${entry.price} credits</td>
-        <td>${stockLabel}</td>
-        <td class="item-desc" title="${escapeAttr(entry.description || "")}">${escapeHtml(entry.description || "\u2014")}</td>
-        <td>
-            <div class="item-actions">
-                <button type="button" class="icon-btn" title="Edit" data-action="edit-item" data-shop="${escapeAttr(shopName)}" data-item="${escapeAttr(key)}">&#9998;</button>
-                <button type="button" class="icon-btn" title="Delete" data-action="delete-item" data-shop="${escapeAttr(shopName)}" data-item="${escapeAttr(key)}">&#128465;</button>
-            </div>
-        </td>
-    </tr>`;
-}
-
-document.getElementById("shopsList").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-action]");
-    if (!btn) return;
-    const shop = btn.dataset.shop;
-    const item = btn.dataset.item;
-    switch (btn.dataset.action) {
-        case "edit-shop": openShopModal(shop); break;
-        case "delete-shop": deleteShop(shop); break;
-        case "add-item": openItemModal(shop); break;
-        case "edit-item": openItemModal(shop, item); break;
-        case "delete-item": deleteItem(shop, item); break;
-    }
-});
-
-function openShopModal(name) {
-    setModalButtonsBusy(false);
-    currentEditShop = name || null;
-    const data = name ? SHOPS[name] : null;
-
-    document.getElementById("shopModalTitle").textContent = name ? "Edit Shop" : "New Shop";
-    document.getElementById("shopNameInput").value = name || "";
-    document.getElementById("shopDescInput").value = data ? (data.description || "") : "";
-    document.getElementById("shopThumbInput").value = data ? (data.thumbnail || "") : "";
-    document.getElementById("shopGiftableInput").checked = data ? !!data.giftable : true;
-    updateThumbPreview();
-    openModalEl("shopModalOverlay");
-}
-
-function updateThumbPreview() {
-    const url = document.getElementById("shopThumbInput").value.trim();
-    const img = document.getElementById("shopThumbPreview");
-    if (url) {
-        img.src = url;
-        img.style.display = "inline-block";
-    } else {
-        img.style.display = "none";
-    }
-}
-
-function saveShop() {
-    const name = document.getElementById("shopNameInput").value.trim();
-    if (!name) {
-        alert("Please enter a shop name.");
-        return;
-    }
-    submitAction("save_shop", {
-        original_name: currentEditShop,
-        name: name,
-        description: document.getElementById("shopDescInput").value.trim(),
-        thumbnail: document.getElementById("shopThumbInput").value.trim(),
-        giftable: document.getElementById("shopGiftableInput").checked,
-    });
-}
-
-function deleteShop(name) {
-    if (!confirm(`Delete shop "${name}" and all of its items? This cannot be undone.`)) return;
-    submitAction("delete_shop", { name: name });
-}
-
-function setItemMode(mode) {
-    currentItemMode = mode;
-    document.getElementById("modeItemBtn").classList.toggle("active", mode === "item");
-    document.getElementById("modeRoleBtn").classList.toggle("active", mode === "role");
-    document.getElementById("itemNameField").style.display = mode === "item" ? "block" : "none";
-    document.getElementById("roleField").style.display = mode === "role" ? "block" : "none";
-}
-
-function toggleAmountInput() {
-    const unlimited = document.getElementById("itemUnlimitedInput").checked;
-    document.getElementById("itemAmountField").style.display = unlimited ? "none" : "block";
-}
-
-function renderRoleOptions() {
-    const panel = document.getElementById("roleSelectPanel");
-    if (ROLES.length === 0) {
-        panel.innerHTML = `<div class="role-empty">No assignable roles in this server.</div>`;
-        return;
-    }
-    panel.innerHTML = ROLES.map(r => `
-        <div class="role-option" data-role-id="${r.id}" data-role-name="${escapeAttr(r.name)}" data-role-color="${escapeAttr(r.color)}">
-            <span class="dot" style="background:${escapeAttr(r.color)}"></span>
-            <span>${escapeHtml(r.name)}</span>
-        </div>
-    `).join("");
-}
-
-document.getElementById("roleSelectPanel").addEventListener("click", (e) => {
-    const opt = e.target.closest(".role-option");
-    if (!opt) return;
-    selectRole(Number(opt.dataset.roleId), opt.dataset.roleName, opt.dataset.roleColor);
-});
-
-function toggleRolePanel() {
-    document.getElementById("roleSelectPanel").classList.toggle("open");
-}
-
-function selectRole(id, name, color) {
-    currentRoleId = id;
-    const label = document.getElementById("roleSelectedLabel");
-    label.textContent = name;
-    label.classList.remove("placeholder");
-    const dot = document.getElementById("roleSelectedDot");
-    dot.style.background = color;
-    dot.style.display = "inline-block";
-    document.getElementById("roleSelectPanel").classList.remove("open");
-}
-
-document.addEventListener("click", (e) => {
-    const wrap = document.querySelector(".role-select");
-    if (wrap && !wrap.contains(e.target)) {
-        document.getElementById("roleSelectPanel").classList.remove("open");
-    }
-});
-
-function openItemModal(shopName, itemKey) {
-    setModalButtonsBusy(false);
-    currentItemShop = shopName;
-    currentItemKey = itemKey || null;
-    currentRoleId = null;
-
-    const entry = itemKey ? SHOPS[shopName].stock[itemKey] : null;
-    const isRole = entry ? !!entry.role_id : false;
-
-    document.getElementById("itemModalTitle").textContent = itemKey ? "Edit Item" : "New Item";
-    renderRoleOptions();
-    setItemMode(isRole ? "role" : "item");
-
-    document.getElementById("itemNameInput").value = (entry && !isRole) ? itemKey : "";
-    document.getElementById("itemDescInput").value = entry ? (entry.description || "") : "";
-    document.getElementById("itemPriceInput").value = entry ? entry.price : "";
-
-    const unlimited = !entry || entry.amount === null || entry.amount === undefined;
-    document.getElementById("itemUnlimitedInput").checked = unlimited;
-    document.getElementById("itemAmountInput").value = (entry && !unlimited) ? entry.amount : "";
-    toggleAmountInput();
-
-    const label = document.getElementById("roleSelectedLabel");
-    const dot = document.getElementById("roleSelectedDot");
-    if (isRole && entry.role_id) {
-        currentRoleId = entry.role_id;
-        label.textContent = entry.role_name || itemKey;
-        label.classList.remove("placeholder");
-        dot.style.background = entry.role_color || "#99aab5";
-        dot.style.display = "inline-block";
-    } else {
-        label.textContent = "Choose a role\u2026";
-        label.classList.add("placeholder");
-        dot.style.display = "none";
-    }
-
-    openModalEl("itemModalOverlay");
-}
-
-function saveItem() {
-    const price = document.getElementById("itemPriceInput").value;
-    if (price === "" || Number(price) < 0) {
-        alert("Please enter a valid price.");
-        return;
-    }
-    const unlimited = document.getElementById("itemUnlimitedInput").checked;
-    const amount = unlimited ? null : document.getElementById("itemAmountInput").value;
-
-    const payload = {
-        shop_name: currentItemShop,
-        original_key: currentItemKey,
-        mode: currentItemMode,
-        description: document.getElementById("itemDescInput").value.trim(),
-        price: price,
-        amount: amount,
-    };
-
-    if (currentItemMode === "role") {
-        if (!currentRoleId) {
-            alert("Please select a role.");
-            return;
-        }
-        payload.role_id = currentRoleId;
-    } else {
-        const name = document.getElementById("itemNameInput").value.trim();
-        if (!name) {
-            alert("Please enter an item name.");
-            return;
-        }
-        payload.name = name;
-    }
-
-    submitAction("save_item", payload);
-}
-
-function deleteItem(shopName, itemKey) {
-    if (!confirm(`Delete "${itemKey}" from "${shopName}"? This cannot be undone.`)) return;
-    submitAction("delete_item", { shop_name: shopName, item_key: itemKey });
-}
-
-try {
-    renderLogChannelSelect();
-    renderShops();
-    if (!REQUEST_URL) {
-        showToast(false, "REQUEST_URL was empty when this page loaded - saving will not work until this is fixed.");
-    }
-} catch (err) {
-    console.error("Shop dashboard failed to initialize:", err);
-    document.getElementById("shopsList").innerHTML =
-        '<div class="empty-state"><h3>Something went wrong loading this page</h3>' +
-        '<p>Check the browser console for details, and the bot\u2019s logs for any server-side error. ' +
-        'Reloading the page may help.</p></div>';
-}
-</script>
-</body>
-</html>
+        shopToggleItemMode("add");
+        shopToggleItemMode("edit");
+    </script>
+</div>
