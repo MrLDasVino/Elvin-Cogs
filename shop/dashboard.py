@@ -157,11 +157,11 @@ def _render_add_item_form_html(form) -> str:
             <label>Type</label>
             {mode_field}
         </div>
-        <div class="shop-form-row" id="shop_add_item_item_name_row">
+        <div class="shop-form-row" id="shop_add_item_item_name_row" style="display:none;">
             <label>Item name</label>
             {item_name_field}
         </div>
-        <div class="shop-form-row" id="shop_add_item_role_row" style="display:none;">
+        <div class="shop-form-row" id="shop_add_item_role_row">
             {_role_picker_html("shop_add_item_role_picker", role_field)}
         </div>
         <div class="shop-form-row">
@@ -214,11 +214,11 @@ def _render_edit_item_form_html(form) -> str:
             <label>Type</label>
             {mode_field}
         </div>
-        <div class="shop-form-row" id="shop_edit_item_item_name_row">
+        <div class="shop-form-row" id="shop_edit_item_item_name_row" style="display:none;">
             <label>Item name</label>
             {item_name_field}
         </div>
-        <div class="shop-form-row" id="shop_edit_item_role_row" style="display:none;">
+        <div class="shop-form-row" id="shop_edit_item_role_row">
             {_role_picker_html("shop_edit_item_role_picker", role_field)}
         </div>
         <div class="shop-form-row">
@@ -369,7 +369,7 @@ class DashboardIntegration:
                     validators=[wtforms.validators.DataRequired()]
                 )
                 mode: wtforms.SelectField = wtforms.SelectField(
-                    choices=[("item", "Item"), ("role", "Role reward")], default="item"
+                    choices=[("role", "Role reward"), ("item", "Item")], default="role"
                 )
                 item_name: wtforms.StringField = wtforms.StringField(
                     validators=[wtforms.validators.Optional(), wtforms.validators.Length(max=100)]
@@ -397,7 +397,7 @@ class DashboardIntegration:
                     validators=[wtforms.validators.DataRequired()]
                 )
                 mode: wtforms.SelectField = wtforms.SelectField(
-                    choices=[("item", "Item"), ("role", "Role reward")], default="item"
+                    choices=[("role", "Role reward"), ("item", "Item")], default="role"
                 )
                 item_name: wtforms.StringField = wtforms.StringField(
                     validators=[wtforms.validators.Optional(), wtforms.validators.Length(max=100)]

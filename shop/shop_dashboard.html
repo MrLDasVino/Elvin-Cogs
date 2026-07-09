@@ -229,6 +229,27 @@
         .shop-role-panel.shop-role-panel-open {
             display: block;
         }
+        .shop-role-search {
+            width: 100%;
+            box-sizing: border-box;
+            border: none;
+            border-bottom: 1px solid var(--shop-border);
+            border-radius: 4px 4px 0 0;
+            background: var(--shop-bg-alt);
+            color: var(--shop-text);
+            padding: 8px 10px;
+            font-size: 0.9em;
+            font-family: inherit;
+            position: sticky;
+            top: 0;
+        }
+        .shop-role-search:focus {
+            outline: none;
+        }
+        .shop-role-list {
+            max-height: 180px;
+            overflow-y: auto;
+        }
         .shop-role-option {
             display: flex;
             align-items: center;
@@ -409,7 +430,7 @@
 
         function shopOpenAddItem(shopName) {
             document.getElementById("shop_add_item_shop_name").value = shopName;
-            document.getElementById("shop_add_item_mode").value = "item";
+            document.getElementById("shop_add_item_mode").value = "role";
             document.getElementById("shop_add_item_item_name").value = "";
             document.getElementById("shop_add_item_price").value = "";
             document.getElementById("shop_add_item_amount").value = "";
@@ -447,8 +468,9 @@
 
         function shopToggleItemMode(which) {
             var mode = document.getElementById("shop_" + which + "_item_mode").value;
-            document.getElementById("shop_" + which + "_item_item_name_row").style.display = mode === "item" ? "block" : "none";
-            document.getElementById("shop_" + which + "_item_role_row").style.display = mode === "role" ? "block" : "none";
+            var isRole = mode === "role";
+            document.getElementById("shop_" + which + "_item_item_name_row").style.display = isRole ? "none" : "block";
+            document.getElementById("shop_" + which + "_item_role_row").style.display = isRole ? "block" : "none";
         }
 
         function shopFindRole(roleId) {
@@ -496,14 +518,42 @@
             var picker = document.getElementById(pickerId);
             var panel = picker.querySelector(".shop-role-panel");
             panel.innerHTML = "";
-            if (SHOP_ROLES.length === 0) {
+            var search = document.createElement("input");
+            search.type = "text";
+            search.className = "shop-role-search";
+            search.placeholder = "Search roles\u2026";
+            var list = document.createElement("div");
+            list.className = "shop-role-list";
+            panel.appendChild(search);
+            panel.appendChild(list);
+            shopRenderRoleList(list, panel, pickerId, "");
+            search.addEventListener("input", function () {
+                shopRenderRoleList(list, panel, pickerId, search.value);
+            });
+            search.addEventListener("click", function (e) {
+                e.stopPropagation();
+            });
+            setTimeout(function () {
+                search.focus();
+            }, 0);
+        }
+
+        function shopRenderRoleList(list, panel, pickerId, query) {
+            list.innerHTML = "";
+            var q = query.trim().toLowerCase();
+            var filtered = SHOP_ROLES.filter(function (role) {
+                return role.name.toLowerCase().indexOf(q) !== -1;
+            });
+            if (filtered.length === 0) {
                 var empty = document.createElement("div");
                 empty.className = "shop-role-empty";
-                empty.textContent = "No assignable roles in this server.";
-                panel.appendChild(empty);
+                empty.textContent = SHOP_ROLES.length === 0
+                    ? "No assignable roles in this server."
+                    : "No roles match your search.";
+                list.appendChild(empty);
                 return;
             }
-            SHOP_ROLES.forEach(function (role) {
+            filtered.forEach(function (role) {
                 var opt = document.createElement("div");
                 opt.className = "shop-role-option";
                 var dot = document.createElement("span");
@@ -517,7 +567,7 @@
                     shopSetRolePicker(pickerId, role.id);
                     panel.classList.remove("shop-role-panel-open");
                 });
-                panel.appendChild(opt);
+                list.appendChild(opt);
             });
         }
 
