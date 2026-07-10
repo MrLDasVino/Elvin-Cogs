@@ -46,6 +46,18 @@
             flex-wrap: wrap;
             gap: 8px;
         }
+        .shop-shop-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .shop-thumb {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
         .shop-shop-desc {
             color: var(--shop-muted);
             font-size: 0.88em;
@@ -294,11 +306,16 @@
         {% for shop in shops_rows %}
         <div class="shop-shop-block">
             <div class="shop-shop-header">
-                <div>
-                    <strong>{{ shop.name }}</strong>
-                    <span class="shop-badge {{ 'shop-badge-on' if shop.giftable else 'shop-badge-off' }}">
-                        {{ "Giftable" if shop.giftable else "Not giftable" }}
-                    </span>
+                <div class="shop-shop-title">
+                    {% if shop.thumbnail %}
+                    <img src="{{ shop.thumbnail }}" alt="" class="shop-thumb" onerror="this.style.display='none';">
+                    {% endif %}
+                    <div>
+                        <strong>{{ shop.name }}</strong>
+                        <span class="shop-badge {{ 'shop-badge-on' if shop.giftable else 'shop-badge-off' }}">
+                            {{ "Giftable" if shop.giftable else "Not giftable" }}
+                        </span>
+                    </div>
                 </div>
                 <div>
                     <button type="button" class="shop-btn shop-btn-sm"
@@ -454,8 +471,11 @@
             document.getElementById("shop_edit_item_price").value = btn.dataset.price;
             document.getElementById("shop_edit_item_amount").value = btn.dataset.amount;
             document.getElementById("shop_edit_item_description").value = btn.dataset.description;
-            var roleId = parseInt(btn.dataset.roleId, 10);
-            shopSetRolePicker("shop_edit_item_role_picker", roleId || null);
+            var roleId = btn.dataset.roleId;
+            if (!roleId || roleId === "0") {
+                roleId = null;
+            }
+            shopSetRolePicker("shop_edit_item_role_picker", roleId);
             shopToggleItemMode("edit");
             var card = document.getElementById("shop-edit-item-card");
             card.style.display = "block";

@@ -784,7 +784,7 @@ class DashboardIntegration:
             )
 
         roles_data = [
-            {"id": role.id, "name": role.name, "color": self._role_color_hex(role)}
+            {"id": str(role.id), "name": role.name, "color": self._role_color_hex(role)}
             for role in reversed(guild.roles)
             if not role.is_default() and not role.managed
         ]
