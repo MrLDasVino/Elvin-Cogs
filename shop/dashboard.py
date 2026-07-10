@@ -540,7 +540,7 @@ class DashboardIntegration:
                 ],
                 "web_content": {
                     "source": _load_template(),
-                    "fullscreen": True,
+                    "standalone": True,
                     "setup_error": (
                         "This page failed to build normally - see the notification above "
                         "and the bot's console/logs for details."
@@ -817,7 +817,7 @@ class DashboardIntegration:
             "notifications": notifications,
             "web_content": {
                 "source": _load_template(),
-                "fullscreen": True,
+                "standalone": True,
                 "add_shop_form_html": _render_add_shop_form_html(add_shop_form),
                 "edit_shop_form_html": _render_edit_shop_form_html(edit_shop_form),
                 "add_item_form_html": _render_add_item_form_html(add_item_form, role_data),

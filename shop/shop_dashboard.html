@@ -1,5 +1,21 @@
-<div class="shop-wrap">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link rel="icon" type="image/png" href="{{ variables["meta"]["icon"] }}">
+    <title>{{ variables["meta"]["title"] }} - Shop{% if guild %} - {{ guild.name }}{% endif %}</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #1e1f22;
+            color: #dbdee1;
+            font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        }
         .shop-wrap {
             --shop-bg: #2b2d31;
             --shop-bg-alt: #313338;
@@ -15,6 +31,27 @@
             color: var(--shop-text);
             max-width: 1100px;
             margin: 0 auto;
+            padding: 32px 20px 64px;
+        }
+        .shop-topbar {
+            margin-bottom: 18px;
+        }
+        .shop-back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--shop-text);
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+            background: var(--shop-bg-alt);
+            border: 1px solid var(--shop-border);
+            border-radius: 999px;
+            padding: 6px 14px 6px 10px;
+        }
+        .shop-back-btn:hover {
+            border-color: var(--shop-accent);
+            color: #fff;
         }
         .shop-wrap h2 {
             margin-top: 0;
@@ -204,25 +241,23 @@
             margin-top: 4px;
         }
         .shop-role-select-wrap {
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            position: relative;
             max-width: 420px;
-        }
-        .shop-role-select-wrap select {
-            flex: 1;
-            max-width: none;
         }
         .shop-role-select {
-            max-width: 420px;
+            padding-left: 30px;
         }
         .shop-role-color-dot {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
             width: 12px;
             height: 12px;
-            min-width: 12px;
             border-radius: 50%;
             border: 1px solid rgba(255,255,255,0.25);
             visibility: hidden;
+            pointer-events: none;
         }
         #shop-edit-shop-card,
         #shop-add-item-card,
@@ -230,14 +265,20 @@
             display: none;
         }
     </style>
+</head>
+<body>
+    <div class="shop-wrap">
+        <div class="shop-topbar">
+            <a class="shop-back-btn" href="{{ url_for('base_blueprint.index') }}">&larr; Back to dashboard</a>
+        </div>
 
-    <h2>Shop &mdash; {{ guild.name }}</h2>
+        <h2>Shop &mdash; {{ guild.name }}</h2>
 
-    {% if setup_error %}
-    <div class="shop-card">
-        <p class="shop-error">{{ setup_error }}</p>
-    </div>
-    {% endif %}
+        {% if setup_error %}
+        <div class="shop-card">
+            <p class="shop-error">{{ setup_error }}</p>
+        </div>
+        {% endif %}
 
     <div class="shop-card">
         <h3>Current shops ({{ shops_rows|length }})</h3>
@@ -450,4 +491,6 @@
         shopUpdateRoleDot(document.getElementById("shop_add_item_role"));
         shopUpdateRoleDot(document.getElementById("shop_edit_item_role"));
     </script>
-</div>
+    </div>
+</body>
+</html>
