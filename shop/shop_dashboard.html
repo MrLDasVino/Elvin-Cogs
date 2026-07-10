@@ -203,12 +203,26 @@
             font-size: 0.8em;
             margin-top: 4px;
         }
+        .shop-role-select-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            max-width: 420px;
+        }
+        .shop-role-select-wrap select {
+            flex: 1;
+            max-width: none;
+        }
         .shop-role-select {
             max-width: 420px;
         }
-        .shop-role-search {
-            max-width: 420px;
-            margin-bottom: 6px;
+        .shop-role-color-dot {
+            width: 12px;
+            height: 12px;
+            min-width: 12px;
+            border-radius: 50%;
+            border: 1px solid rgba(255,255,255,0.25);
+            visibility: hidden;
         }
         #shop-edit-shop-card,
         #shop-add-item-card,
@@ -376,8 +390,7 @@
             document.getElementById("shop_add_item_amount").value = "";
             document.getElementById("shop_add_item_description").value = "";
             document.getElementById("shop_add_item_role").value = "";
-            document.getElementById("shop_add_item_role_search").value = "";
-            shopFilterRoleSelect("shop_add_item_role", "");
+            shopUpdateRoleDot(document.getElementById("shop_add_item_role"));
             shopToggleItemMode("add");
             document.getElementById("shop-edit-item-card").style.display = "none";
             var card = document.getElementById("shop-add-item-card");
@@ -401,9 +414,8 @@
             if (!roleId || roleId === "0") {
                 roleId = "";
             }
-            document.getElementById("shop_edit_item_role_search").value = "";
-            shopFilterRoleSelect("shop_edit_item_role", "");
             document.getElementById("shop_edit_item_role").value = roleId;
+            shopUpdateRoleDot(document.getElementById("shop_edit_item_role"));
             shopToggleItemMode("edit");
             document.getElementById("shop-add-item-card").style.display = "none";
             var card = document.getElementById("shop-edit-item-card");
@@ -422,18 +434,20 @@
             document.getElementById("shop_" + which + "_item_role_row").style.display = isRole ? "block" : "none";
         }
 
-        function shopFilterRoleSelect(selectId, query) {
-            var select = document.getElementById(selectId);
-            var q = query.trim().toLowerCase();
-            Array.prototype.forEach.call(select.options, function (opt) {
-                if (!opt.value) {
-                    return;
-                }
-                opt.hidden = q !== "" && opt.textContent.toLowerCase().indexOf(q) === -1;
-            });
+        function shopUpdateRoleDot(select) {
+            var dot = document.getElementById(select.id + "_dot");
+            if (!dot) {
+                return;
+            }
+            var opt = select.options[select.selectedIndex];
+            var color = opt ? opt.getAttribute("data-color") : null;
+            dot.style.background = color || "transparent";
+            dot.style.visibility = select.value ? "visible" : "hidden";
         }
 
         shopToggleItemMode("add");
         shopToggleItemMode("edit");
+        shopUpdateRoleDot(document.getElementById("shop_add_item_role"));
+        shopUpdateRoleDot(document.getElementById("shop_edit_item_role"));
     </script>
 </div>

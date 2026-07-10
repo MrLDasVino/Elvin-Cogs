@@ -44,12 +44,18 @@ def _render_role_select(field, id_: str, role_data) -> str:
     for role_id, role_name, color in role_data:
         selected = " selected" if role_id == selected_value else ""
         options.append(
-            f'<option value="{role_id}" style="color:{color};"{selected}>{html.escape(role_name)}</option>'
+            f'<option value="{role_id}" style="color:{color};" data-color="{color}"{selected}>{html.escape(role_name)}</option>'
         )
-    return (
-        f'<select name="{field.name}" id="{id_}" class="shop-input shop-role-select">'
+    select_html = (
+        f'<select name="{field.name}" id="{id_}" class="shop-input shop-role-select" onchange="shopUpdateRoleDot(this)">'
         + "".join(options)
         + "</select>"
+    )
+    return (
+        f'<div class="shop-role-select-wrap">'
+        f'<span class="shop-role-color-dot" id="{id_}_dot"></span>'
+        f"{select_html}"
+        f"</div>"
     )
 
 
@@ -168,8 +174,6 @@ def _render_add_item_form_html(form, role_data) -> str:
         </div>
         <div class="shop-form-row" id="shop_add_item_role_row">
             <label>Role reward</label>
-            <input type="text" class="shop-input shop-role-search" id="shop_add_item_role_search"
-                placeholder="Search roles\u2026" oninput="shopFilterRoleSelect('shop_add_item_role', this.value)">
             {role_field}
             {role_errors}
         </div>
@@ -230,8 +234,6 @@ def _render_edit_item_form_html(form, role_data) -> str:
         </div>
         <div class="shop-form-row" id="shop_edit_item_role_row">
             <label>Role reward</label>
-            <input type="text" class="shop-input shop-role-search" id="shop_edit_item_role_search"
-                placeholder="Search roles\u2026" oninput="shopFilterRoleSelect('shop_edit_item_role', this.value)">
             {role_field}
             {role_errors}
         </div>
