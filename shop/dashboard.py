@@ -1,4 +1,3 @@
-import json
 import logging
 import typing
 from pathlib import Path
@@ -31,22 +30,6 @@ def _safe_render(label: str, func: typing.Callable, *args, **kwargs) -> str:
     except Exception:
         log.exception("Shop dashboard: failed to render %s", label)
         return f"<!-- failed to render {label}, see bot logs -->"
-
-
-def _role_picker_html(picker_id: str, hidden_input_html: str) -> str:
-    return f"""
-    <div class="shop-form-row">
-        <label>Role reward</label>
-        <div class="shop-role-picker" id="{picker_id}">
-            {hidden_input_html}
-            <button type="button" class="shop-role-picker-btn" onclick="shopToggleRolePanel('{picker_id}')">
-                <span class="shop-role-dot" style="display:none;"></span>
-                <span class="shop-role-label shop-role-placeholder">Choose a role&hellip;</span>
-            </button>
-            <div class="shop-role-panel"></div>
-        </div>
-    </div>
-    """
 
 
 def _render_add_shop_form_html(form) -> str:
@@ -141,7 +124,10 @@ def _render_add_item_form_html(form) -> str:
     item_name_field = _safe_render(
         "add_item_form.item_name", form.item_name, id="shop_add_item_item_name", class_="shop-input"
     )
-    role_field = _safe_render("add_item_form.role", form.role, id="shop_add_item_role")
+    role_field = _safe_render(
+        "add_item_form.role", form.role, id="shop_add_item_role", class_="shop-input shop-role-select"
+    )
+    role_errors = "".join(f'<span class="shop-error">{e}</span>' for e in getattr(form.role, "errors", []))
     price_field = _safe_render("add_item_form.price", form.price, id="shop_add_item_price", class_="shop-input")
     price_errors = "".join(f'<span class="shop-error">{e}</span>' for e in getattr(form.price, "errors", []))
     amount_field = _safe_render("add_item_form.amount", form.amount, id="shop_add_item_amount", class_="shop-input")
@@ -162,7 +148,11 @@ def _render_add_item_form_html(form) -> str:
             {item_name_field}
         </div>
         <div class="shop-form-row" id="shop_add_item_role_row">
-            {_role_picker_html("shop_add_item_role_picker", role_field)}
+            <label>Role reward</label>
+            <input type="text" class="shop-input shop-role-search" id="shop_add_item_role_search"
+                placeholder="Search roles\u2026" oninput="shopFilterRoleSelect('shop_add_item_role', this.value)">
+            {role_field}
+            {role_errors}
         </div>
         <div class="shop-form-row">
             <label>Price (credits)</label>
@@ -196,7 +186,10 @@ def _render_edit_item_form_html(form) -> str:
     item_name_field = _safe_render(
         "edit_item_form.item_name", form.item_name, id="shop_edit_item_item_name", class_="shop-input"
     )
-    role_field = _safe_render("edit_item_form.role", form.role, id="shop_edit_item_role")
+    role_field = _safe_render(
+        "edit_item_form.role", form.role, id="shop_edit_item_role", class_="shop-input shop-role-select"
+    )
+    role_errors = "".join(f'<span class="shop-error">{e}</span>' for e in getattr(form.role, "errors", []))
     price_field = _safe_render("edit_item_form.price", form.price, id="shop_edit_item_price", class_="shop-input")
     amount_field = _safe_render(
         "edit_item_form.amount", form.amount, id="shop_edit_item_amount", class_="shop-input"
@@ -219,7 +212,11 @@ def _render_edit_item_form_html(form) -> str:
             {item_name_field}
         </div>
         <div class="shop-form-row" id="shop_edit_item_role_row">
-            {_role_picker_html("shop_edit_item_role_picker", role_field)}
+            <label>Role reward</label>
+            <input type="text" class="shop-input shop-role-search" id="shop_edit_item_role_search"
+                placeholder="Search roles\u2026" oninput="shopFilterRoleSelect('shop_edit_item_role', this.value)">
+            {role_field}
+            {role_errors}
         </div>
         <div class="shop-form-row">
             <label>Price (credits)</label>
@@ -288,10 +285,6 @@ class DashboardIntegration:
     async def on_dashboard_cog_add(self, dashboard_cog: commands.Cog) -> None:
         dashboard_cog.rpc.third_parties_handler.add_third_party(self)
 
-    @staticmethod
-    def _role_color_hex(role: discord.Role) -> str:
-        return f"#{role.color.value:06x}" if role.color.value else "#99aab5"
-
     @dashboard_page(
         name="guild",
         description="Create, edit and manage this server's shops and items!",
@@ -323,6 +316,12 @@ class DashboardIntegration:
                 if perms is None or perms.send_messages:
                     text_channels.append((str(channel.id), f"#{channel.name}"))
             channel_choices = [("0", "(none - disable logging)")] + text_channels
+
+            role_choices = [("", "Select a role\u2026")]
+            for role in reversed(guild.roles):
+                if role.is_default() or role.managed:
+                    continue
+                role_choices.append((str(role.id), role.name))
 
             class AddShopForm(kwargs["Form"]):
                 def __init__(self) -> None:
@@ -374,7 +373,9 @@ class DashboardIntegration:
                 item_name: wtforms.StringField = wtforms.StringField(
                     validators=[wtforms.validators.Optional(), wtforms.validators.Length(max=100)]
                 )
-                role: wtforms.HiddenField = wtforms.HiddenField(validators=[wtforms.validators.Optional()])
+                role: wtforms.SelectField = wtforms.SelectField(
+                    choices=role_choices, validators=[wtforms.validators.Optional()]
+                )
                 price: wtforms.IntegerField = wtforms.IntegerField(
                     validators=[wtforms.validators.DataRequired(), wtforms.validators.NumberRange(min=0)]
                 )
@@ -402,7 +403,9 @@ class DashboardIntegration:
                 item_name: wtforms.StringField = wtforms.StringField(
                     validators=[wtforms.validators.Optional(), wtforms.validators.Length(max=100)]
                 )
-                role: wtforms.HiddenField = wtforms.HiddenField(validators=[wtforms.validators.Optional()])
+                role: wtforms.SelectField = wtforms.SelectField(
+                    choices=role_choices, validators=[wtforms.validators.Optional()]
+                )
                 price: wtforms.IntegerField = wtforms.IntegerField(
                     validators=[wtforms.validators.DataRequired(), wtforms.validators.NumberRange(min=0)]
                 )
@@ -530,7 +533,6 @@ class DashboardIntegration:
                     "manage_form_html": "",
                     "settings_form_html": "",
                     "shops_rows": [],
-                    "roles_json": "[]",
                 },
             }
 
@@ -783,12 +785,6 @@ class DashboardIntegration:
                 }
             )
 
-        roles_data = [
-            {"id": str(role.id), "name": role.name, "color": self._role_color_hex(role)}
-            for role in reversed(guild.roles)
-            if not role.is_default() and not role.managed
-        ]
-
         log_channel = guild.get_channel(log_channel_id) if log_channel_id else None
 
         return {
@@ -804,7 +800,6 @@ class DashboardIntegration:
                 "manage_form_html": _render_manage_form_html(manage_form),
                 "settings_form_html": _render_settings_form_html(settings_form),
                 "shops_rows": rows,
-                "roles_json": json.dumps(roles_data).replace("</", "<\\/"),
                 "log_channel_name": f"#{log_channel.name}" if log_channel else "None",
             },
         }

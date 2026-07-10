@@ -203,87 +203,12 @@
             font-size: 0.8em;
             margin-top: 4px;
         }
-        .shop-role-picker {
-            position: relative;
+        .shop-role-select {
             max-width: 420px;
         }
-        .shop-role-picker-btn {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            background: var(--shop-bg-alt);
-            border: 1px solid var(--shop-border);
-            border-radius: 4px;
-            padding: 8px 10px;
-            color: var(--shop-text);
-            font-size: 0.9em;
-            text-align: left;
-            cursor: pointer;
-        }
-        .shop-role-label.shop-role-placeholder {
-            color: var(--shop-muted);
-        }
-        .shop-role-panel {
-            display: none;
-            position: absolute;
-            top: calc(100% + 4px);
-            left: 0;
-            right: 0;
-            max-height: 220px;
-            overflow-y: auto;
-            background: var(--shop-bg-alt);
-            border: 1px solid var(--shop-border);
-            border-radius: 4px;
-            z-index: 10;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-        }
-        .shop-role-panel.shop-role-panel-open {
-            display: block;
-        }
         .shop-role-search {
-            width: 100%;
-            box-sizing: border-box;
-            border: none;
-            border-bottom: 1px solid var(--shop-border);
-            border-radius: 4px 4px 0 0;
-            background: var(--shop-bg-alt);
-            color: var(--shop-text);
-            padding: 8px 10px;
-            font-size: 0.9em;
-            font-family: inherit;
-            position: sticky;
-            top: 0;
-        }
-        .shop-role-search:focus {
-            outline: none;
-        }
-        .shop-role-list {
-            max-height: 180px;
-            overflow-y: auto;
-        }
-        .shop-role-option {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 10px;
-            cursor: pointer;
-            font-size: 0.9em;
-        }
-        .shop-role-option:hover {
-            background: var(--shop-bg);
-        }
-        .shop-role-empty {
-            padding: 10px;
-            color: var(--shop-muted);
-            font-size: 0.85em;
-        }
-        .shop-role-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            flex-shrink: 0;
-            display: inline-block;
+            max-width: 420px;
+            margin-bottom: 6px;
         }
         #shop-edit-shop-card,
         #shop-add-item-card,
@@ -417,8 +342,6 @@
     {{ manage_form_html|safe }}
 
     <script>
-        var SHOP_ROLES = {{ roles_json|safe }};
-
         function shopManageAction(shopName, itemKey, action) {
             if ((action === "delete_shop" || action === "delete_item") &&
                 !confirm("Delete this " + (action === "delete_shop" ? "shop" : "item") + "? This cannot be undone.")) {
@@ -452,7 +375,9 @@
             document.getElementById("shop_add_item_price").value = "";
             document.getElementById("shop_add_item_amount").value = "";
             document.getElementById("shop_add_item_description").value = "";
-            shopSetRolePicker("shop_add_item_role_picker", null);
+            document.getElementById("shop_add_item_role").value = "";
+            document.getElementById("shop_add_item_role_search").value = "";
+            shopFilterRoleSelect("shop_add_item_role", "");
             shopToggleItemMode("add");
             var card = document.getElementById("shop-add-item-card");
             card.style.display = "block";
@@ -473,9 +398,11 @@
             document.getElementById("shop_edit_item_description").value = btn.dataset.description;
             var roleId = btn.dataset.roleId;
             if (!roleId || roleId === "0") {
-                roleId = null;
+                roleId = "";
             }
-            shopSetRolePicker("shop_edit_item_role_picker", roleId);
+            document.getElementById("shop_edit_item_role_search").value = "";
+            shopFilterRoleSelect("shop_edit_item_role", "");
+            document.getElementById("shop_edit_item_role").value = roleId;
             shopToggleItemMode("edit");
             var card = document.getElementById("shop-edit-item-card");
             card.style.display = "block";
@@ -493,111 +420,16 @@
             document.getElementById("shop_" + which + "_item_role_row").style.display = isRole ? "block" : "none";
         }
 
-        function shopFindRole(roleId) {
-            for (var i = 0; i < SHOP_ROLES.length; i++) {
-                if (SHOP_ROLES[i].id === roleId) {
-                    return SHOP_ROLES[i];
-                }
-            }
-            return null;
-        }
-
-        function shopSetRolePicker(pickerId, roleId) {
-            var picker = document.getElementById(pickerId);
-            var hidden = picker.querySelector("input[type=hidden]");
-            var dot = picker.querySelector(".shop-role-dot");
-            var label = picker.querySelector(".shop-role-label");
-            var role = roleId ? shopFindRole(roleId) : null;
-            hidden.value = role ? role.id : "";
-            if (role) {
-                dot.style.background = role.color;
-                dot.style.display = "inline-block";
-                label.textContent = role.name;
-                label.classList.remove("shop-role-placeholder");
-            } else {
-                dot.style.display = "none";
-                label.textContent = "Choose a role\u2026";
-                label.classList.add("shop-role-placeholder");
-            }
-        }
-
-        function shopToggleRolePanel(pickerId) {
-            var picker = document.getElementById(pickerId);
-            var panel = picker.querySelector(".shop-role-panel");
-            var isOpen = panel.classList.contains("shop-role-panel-open");
-            document.querySelectorAll(".shop-role-panel").forEach(function (p) {
-                p.classList.remove("shop-role-panel-open");
-            });
-            if (!isOpen) {
-                shopRenderRolePanel(pickerId);
-                panel.classList.add("shop-role-panel-open");
-            }
-        }
-
-        function shopRenderRolePanel(pickerId) {
-            var picker = document.getElementById(pickerId);
-            var panel = picker.querySelector(".shop-role-panel");
-            panel.innerHTML = "";
-            var search = document.createElement("input");
-            search.type = "text";
-            search.className = "shop-role-search";
-            search.placeholder = "Search roles\u2026";
-            var list = document.createElement("div");
-            list.className = "shop-role-list";
-            panel.appendChild(search);
-            panel.appendChild(list);
-            shopRenderRoleList(list, panel, pickerId, "");
-            search.addEventListener("input", function () {
-                shopRenderRoleList(list, panel, pickerId, search.value);
-            });
-            search.addEventListener("click", function (e) {
-                e.stopPropagation();
-            });
-            setTimeout(function () {
-                search.focus();
-            }, 0);
-        }
-
-        function shopRenderRoleList(list, panel, pickerId, query) {
-            list.innerHTML = "";
+        function shopFilterRoleSelect(selectId, query) {
+            var select = document.getElementById(selectId);
             var q = query.trim().toLowerCase();
-            var filtered = SHOP_ROLES.filter(function (role) {
-                return role.name.toLowerCase().indexOf(q) !== -1;
-            });
-            if (filtered.length === 0) {
-                var empty = document.createElement("div");
-                empty.className = "shop-role-empty";
-                empty.textContent = SHOP_ROLES.length === 0
-                    ? "No assignable roles in this server."
-                    : "No roles match your search.";
-                list.appendChild(empty);
-                return;
-            }
-            filtered.forEach(function (role) {
-                var opt = document.createElement("div");
-                opt.className = "shop-role-option";
-                var dot = document.createElement("span");
-                dot.className = "shop-role-dot";
-                dot.style.background = role.color;
-                var label = document.createElement("span");
-                label.textContent = role.name;
-                opt.appendChild(dot);
-                opt.appendChild(label);
-                opt.addEventListener("click", function () {
-                    shopSetRolePicker(pickerId, role.id);
-                    panel.classList.remove("shop-role-panel-open");
-                });
-                list.appendChild(opt);
+            Array.prototype.forEach.call(select.options, function (opt) {
+                if (!opt.value) {
+                    return;
+                }
+                opt.hidden = q !== "" && opt.textContent.toLowerCase().indexOf(q) === -1;
             });
         }
-
-        document.addEventListener("click", function (e) {
-            document.querySelectorAll(".shop-role-picker").forEach(function (picker) {
-                if (!picker.contains(e.target)) {
-                    picker.querySelector(".shop-role-panel").classList.remove("shop-role-panel-open");
-                }
-            });
-        });
 
         shopToggleItemMode("add");
         shopToggleItemMode("edit");
