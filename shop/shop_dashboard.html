@@ -379,6 +379,7 @@
             document.getElementById("shop_add_item_role_search").value = "";
             shopFilterRoleSelect("shop_add_item_role", "");
             shopToggleItemMode("add");
+            document.getElementById("shop-edit-item-card").style.display = "none";
             var card = document.getElementById("shop-add-item-card");
             card.style.display = "block";
             card.scrollIntoView({ behavior: "smooth" });
@@ -404,6 +405,7 @@
             shopFilterRoleSelect("shop_edit_item_role", "");
             document.getElementById("shop_edit_item_role").value = roleId;
             shopToggleItemMode("edit");
+            document.getElementById("shop-add-item-card").style.display = "none";
             var card = document.getElementById("shop-edit-item-card");
             card.style.display = "block";
             card.scrollIntoView({ behavior: "smooth" });

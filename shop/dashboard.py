@@ -1,3 +1,4 @@
+import html
 import logging
 import typing
 from pathlib import Path
@@ -30,6 +31,26 @@ def _safe_render(label: str, func: typing.Callable, *args, **kwargs) -> str:
     except Exception:
         log.exception("Shop dashboard: failed to render %s", label)
         return f"<!-- failed to render {label}, see bot logs -->"
+
+
+def _role_color_hex(role: discord.Role) -> str:
+    return f"#{role.color.value:06x}" if role.color.value else "#99aab5"
+
+
+def _render_role_select(field, id_: str, role_data) -> str:
+    selected_value = field.data or ""
+    placeholder_selected = " selected" if selected_value == "" else ""
+    options = [f'<option value=""{placeholder_selected}>Select a role\u2026</option>']
+    for role_id, role_name, color in role_data:
+        selected = " selected" if role_id == selected_value else ""
+        options.append(
+            f'<option value="{role_id}" style="color:{color};"{selected}>{html.escape(role_name)}</option>'
+        )
+    return (
+        f'<select name="{field.name}" id="{id_}" class="shop-input shop-role-select">'
+        + "".join(options)
+        + "</select>"
+    )
 
 
 def _render_add_shop_form_html(form) -> str:
@@ -113,7 +134,7 @@ def _render_edit_shop_form_html(form) -> str:
     """
 
 
-def _render_add_item_form_html(form) -> str:
+def _render_add_item_form_html(form, role_data) -> str:
     hidden = _safe_render("add_item_form.hidden_tag", form.hidden_tag)
     shop_name_field = _safe_render(
         "add_item_form.shop_name", form.shop_name, id="shop_add_item_shop_name"
@@ -124,9 +145,7 @@ def _render_add_item_form_html(form) -> str:
     item_name_field = _safe_render(
         "add_item_form.item_name", form.item_name, id="shop_add_item_item_name", class_="shop-input"
     )
-    role_field = _safe_render(
-        "add_item_form.role", form.role, id="shop_add_item_role", class_="shop-input shop-role-select"
-    )
+    role_field = _render_role_select(form.role, "shop_add_item_role", role_data)
     role_errors = "".join(f'<span class="shop-error">{e}</span>' for e in getattr(form.role, "errors", []))
     price_field = _safe_render("add_item_form.price", form.price, id="shop_add_item_price", class_="shop-input")
     price_errors = "".join(f'<span class="shop-error">{e}</span>' for e in getattr(form.price, "errors", []))
@@ -172,7 +191,7 @@ def _render_add_item_form_html(form) -> str:
     """
 
 
-def _render_edit_item_form_html(form) -> str:
+def _render_edit_item_form_html(form, role_data) -> str:
     hidden = _safe_render("edit_item_form.hidden_tag", form.hidden_tag)
     shop_name_field = _safe_render(
         "edit_item_form.shop_name", form.shop_name, id="shop_edit_item_shop_name"
@@ -186,9 +205,7 @@ def _render_edit_item_form_html(form) -> str:
     item_name_field = _safe_render(
         "edit_item_form.item_name", form.item_name, id="shop_edit_item_item_name", class_="shop-input"
     )
-    role_field = _safe_render(
-        "edit_item_form.role", form.role, id="shop_edit_item_role", class_="shop-input shop-role-select"
-    )
+    role_field = _render_role_select(form.role, "shop_edit_item_role", role_data)
     role_errors = "".join(f'<span class="shop-error">{e}</span>' for e in getattr(form.role, "errors", []))
     price_field = _safe_render("edit_item_form.price", form.price, id="shop_edit_item_price", class_="shop-input")
     amount_field = _safe_render(
@@ -785,6 +802,12 @@ class DashboardIntegration:
                 }
             )
 
+        role_data = [
+            (str(role.id), role.name, _role_color_hex(role))
+            for role in reversed(guild.roles)
+            if not role.is_default() and not role.managed
+        ]
+
         log_channel = guild.get_channel(log_channel_id) if log_channel_id else None
 
         return {
@@ -795,8 +818,8 @@ class DashboardIntegration:
                 "fullscreen": True,
                 "add_shop_form_html": _render_add_shop_form_html(add_shop_form),
                 "edit_shop_form_html": _render_edit_shop_form_html(edit_shop_form),
-                "add_item_form_html": _render_add_item_form_html(add_item_form),
-                "edit_item_form_html": _render_edit_item_form_html(edit_item_form),
+                "add_item_form_html": _render_add_item_form_html(add_item_form, role_data),
+                "edit_item_form_html": _render_edit_item_form_html(edit_item_form, role_data),
                 "manage_form_html": _render_manage_form_html(manage_form),
                 "settings_form_html": _render_settings_form_html(settings_form),
                 "shops_rows": rows,
