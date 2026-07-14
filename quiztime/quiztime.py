@@ -250,7 +250,7 @@ class QuizTime(commands.Cog):
             with open(QUIZ_JSON_PATH, "w", encoding="utf-8") as f:
                 json.dump({
                     "default_thumbnail": "",
-                    "category_thumbnails": {},
+                    "category_images": {},
                     "correct_thumbnail": "",
                     "incorrect_thumbnail": "",
                     "questions": []
@@ -261,7 +261,7 @@ class QuizTime(commands.Cog):
             except Exception:
                 self.quiz_data = {
                     "default_thumbnail": "",
-                    "category_thumbnails": {},
+                    "category_images": {},
                     "correct_thumbnail": "",
                     "incorrect_thumbnail": "",
                     "questions": []
@@ -451,7 +451,14 @@ class QuizTime(commands.Cog):
         embed.set_footer(text="Be the first to click the correct button to win")
         embed.timestamp = discord.utils.utcnow()
 
-        thumb = self.quiz_data.get("category_thumbnails", {}).get(category) or self.quiz_data.get("default_thumbnail") or None
+        category_image = self.quiz_data.get("category_images", {}).get(category) or None
+        if category_image:
+            try:
+                embed.set_image(url=category_image)
+            except Exception:
+                pass
+
+        thumb = self.quiz_data.get("default_thumbnail") or None
         if thumb:
             try:
                 embed.set_thumbnail(url=thumb)
@@ -565,7 +572,7 @@ class QuizTime(commands.Cog):
             "wrong": [wrong1, wrong2, wrong3]
         }
         self.quiz_data.setdefault("questions", []).append(q)
-        self.quiz_data.setdefault("category_thumbnails", {}).setdefault(category, "")
+        self.quiz_data.setdefault("category_images", {}).setdefault(category, "")
         self._save_quiz_file()
         await ctx.send(f"Added question to category **{category}**.")
 
@@ -633,19 +640,26 @@ class QuizTime(commands.Cog):
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
-    async def setthumbnail(self, ctx: commands.Context, category: str, url: str):
+    async def setthumbnail(self, ctx: commands.Context, url: str):
         """
-        Set a thumbnail URL for a category. Use 'default' as category to set the default thumbnail.
+        Set the default thumbnail URL used for quiz embeds.
         """
         self._load_quiz_file()
-        if category.lower() == "default":
-            self.quiz_data["default_thumbnail"] = url
-            self._save_quiz_file()
-            await ctx.send("Default thumbnail set.")
-            return
-        self.quiz_data.setdefault("category_thumbnails", {})[category] = url
+        self.quiz_data["default_thumbnail"] = url
         self._save_quiz_file()
-        await ctx.send(f"Thumbnail for category **{category}** set.")
+        await ctx.send("Default thumbnail set.")
+
+    @quiztime.command()
+    @checks.admin_or_permissions(manage_guild=True)
+    async def setcategoryimage(self, ctx: commands.Context, category: str, url: str):
+        """
+        Set the image URL for a category. This is displayed as a full image in the quiz embed
+        (not a small thumbnail).
+        """
+        self._load_quiz_file()
+        self.quiz_data.setdefault("category_images", {})[category] = url
+        self._save_quiz_file()
+        await ctx.send(f"Image for category **{category}** set.")
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
