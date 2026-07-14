@@ -1,31 +1,4 @@
-# glint.py
-"""
-Glint - interactive image editor cog for Red-DiscordBot.
 
-Rewrite notes (for the maintainer, can be deleted):
-- Fixed: the dropdown's selection never visually cleared after use, because
-  discord.ui.Select.values is a read-only property - you can't reassign it,
-  you have to rebuild the select. The old code did `self.select.values = []`
-  inside a bare try/except, so the bug was silently swallowed.
-- Fixed: solarize's threshold formula could exceed 255 (the max pixel value),
-  which made the effect a complete no-op at the default 100% intensity and
-  anything below ~200%.
-- Fixed: vignette used a pure-Python per-pixel double for-loop. On a
-  1024x1024 image that's ~1 full second per application, which adds up fast
-  once it's part of a stack that gets replayed on every undo.
-- Fixed: image fetching relied on a private discord.py attribute
-  (bot.http._session) that isn't public API and isn't guaranteed to exist.
-- Fixed: almost every exception across the cog was caught and silently
-  discarded, so broken features just did nothing with no feedback at all.
-  Errors are now logged and, where it matters, shown to the user.
-- Added: large input images are downscaled up front so effects stay fast and
-  uploads stay under Discord's size limit; outputs that are still too big
-  automatically fall back to JPEG.
-- Added: a Reset-to-original button, a numbered effect-stack display,
-  grouped dropdowns by category (the old one had 24 options in a single
-  select, one away from Discord's hard cap of 25), and clearer error
-  messages when something goes wrong.
-"""
 import io
 import logging
 import math
@@ -112,13 +85,7 @@ def image_to_discord_file(img: Image.Image, filename: str) -> discord.File:
     return discord.File(bio, filename=filename)
 
 
-# --------------------------------------------------------------------------- #
-# Effects
-# --------------------------------------------------------------------------- #
-# Each effect is a pure function: (Image, intensity 10-300) -> Image.
-# Grouped into categories purely for the UI (Discord caps a single select at
-# 25 options, so splitting into a few logical groups also leaves headroom to
-# add more effects later without hitting that ceiling).
+
 
 EFFECT_GROUPS = [
     (
@@ -162,7 +129,7 @@ EFFECT_GROUPS = [
     ),
 ]
 
-# Flat lookup used for validation and for rendering effect names in embeds.
+
 EFFECT_LABELS = {value: label for _, opts in EFFECT_GROUPS for label, value in opts}
 
 
@@ -232,9 +199,7 @@ def _posterize(img, intensity):
 
 
 def _solarize(img, intensity):
-    # Stays within Pillow's valid 0-255 threshold range, unlike the old
-    # formula (128 * 200 / intensity), which exceeded 255 for any intensity
-    # under 200 and made the effect invisible at normal settings.
+
     threshold = max(0, min(255, round(255 - (intensity / 300.0) * 255)))
     return ImageOps.solarize(img.convert("RGB"), threshold=threshold).convert("RGBA")
 
@@ -249,14 +214,7 @@ def _pixelate(img, intensity):
 
 
 def _vignette(img, intensity):
-    """Vectorized radial vignette: build a small gradient, then upscale + blur.
 
-    The original implementation drew this pixel-by-pixel with nested Python
-    loops, which took roughly a full second on a 1024x1024 image. Building
-    the gradient at low resolution and letting Pillow's resize/blur do the
-    heavy lifting is visually equivalent (it gets blurred anyway) and runs in
-    a few hundredths of a second.
-    """
     width, height = img.size
     small_w, small_h = max(2, width // 8), max(2, height // 8)
     gradient = Image.new("L", (small_w, small_h), 0)
@@ -644,11 +602,7 @@ class GlintEditorView(discord.ui.View):
         return callback
 
     def _rebuild_select(self, group_name: str, options, row: int) -> None:
-        """Replace a select with a freshly built one so its visible selection
-        clears. discord.ui.Select.values is read-only - it can't be reset by
-        assignment, only by swapping in a new Select instance. (This is the
-        root cause of the old dropdown-never-clears bug.)
-        """
+
         old = self._selects[group_name]
         self.remove_item(old)
         self._add_group_select(row, group_name, options)
@@ -674,9 +628,7 @@ class GlintEditorView(discord.ui.View):
                 await self.session.update_message(self, "Editor timed out; controls disabled.")
         except Exception:
             log.exception("Failed to update message on Glint editor timeout")
-        # Deliberately does not post a final image - Finish is the only path
-        # that posts, same as before, just now actually guaranteed by this
-        # function doing nothing else.
+
 
     # -- intensity ----------------------------------------------------------
 
