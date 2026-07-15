@@ -23,6 +23,7 @@
     "Mythology": "https://gamedash.thevillage.monster/assets/Quiztime/mythology.png",
     "Riddles": "https://gamedash.thevillage.monster/assets/Quiztime/riddles.png"
   },
+  "disabled_categories": [],
   "questions": [
     {
       "category": "Video Games",

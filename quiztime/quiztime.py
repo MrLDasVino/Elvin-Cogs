@@ -118,6 +118,60 @@ class PaginatorView(View):
                 pass
 
 
+class ConfirmView(View):
+    """A simple Yes/Cancel confirmation view. Only the original user may interact."""
+
+    def __init__(self, author_id: int, timeout: int = 30):
+        super().__init__(timeout=timeout)
+        self.author_id = author_id
+        self.value: Optional[bool] = None
+        self.message: Optional[discord.Message] = None
+
+        self.yes_button = Button(style=discord.ButtonStyle.danger, label="Yes, delete everything")
+        self.yes_button.callback = self._yes
+        self.add_item(self.yes_button)
+
+        self.cancel_button = Button(style=discord.ButtonStyle.secondary, label="Cancel")
+        self.cancel_button.callback = self._cancel
+        self.add_item(self.cancel_button)
+
+    async def _yes(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("You didn't start this confirmation.", ephemeral=True)
+            return
+        self.value = True
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            pass
+        self.stop()
+
+    async def _cancel(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("You didn't start this confirmation.", ephemeral=True)
+            return
+        self.value = False
+        for child in self.children:
+            child.disabled = True
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            pass
+        self.stop()
+
+    async def on_timeout(self):
+        self.value = False
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+
 class QuizView(View):
     """
     A View that stays active until explicitly expired by the cog when a new quiz is posted.
@@ -253,6 +307,7 @@ class QuizTime(commands.Cog):
                     "category_images": {},
                     "correct_thumbnail": "",
                     "incorrect_thumbnail": "",
+                    "disabled_categories": [],
                     "questions": []
                 }, f, indent=2, ensure_ascii=False)
         with open(QUIZ_JSON_PATH, "r", encoding="utf-8") as f:
@@ -264,12 +319,41 @@ class QuizTime(commands.Cog):
                     "category_images": {},
                     "correct_thumbnail": "",
                     "incorrect_thumbnail": "",
+                    "disabled_categories": [],
                     "questions": []
                 }
+        # Backfill keys for quiz.json files saved before these features existed.
+        # An empty disabled_categories list means every category is enabled by default.
+        self.quiz_data.setdefault("category_images", {})
+        self.quiz_data.setdefault("disabled_categories", [])
+        self.quiz_data.setdefault("questions", [])
 
     def _save_quiz_file(self):
         with open(QUIZ_JSON_PATH, "w", encoding="utf-8") as f:
             json.dump(self.quiz_data, f, indent=2, ensure_ascii=False)
+
+    # -------------------------
+    # Category helpers
+    # -------------------------
+    def _get_all_categories(self) -> List[str]:
+        """All known categories, from both category_images and questions."""
+        cats = set(self.quiz_data.get("category_images", {}).keys())
+        for q in self.quiz_data.get("questions", []):
+            c = q.get("category")
+            if c:
+                cats.add(c)
+        return sorted(cats, key=lambda s: s.lower())
+
+    def _resolve_category_name(self, name: str) -> str:
+        """Match `name` case-insensitively against known categories; fall back to `name` as given."""
+        for c in self._get_all_categories():
+            if c.lower() == name.lower():
+                return c
+        return name
+
+    def _is_category_enabled(self, category: str) -> bool:
+        disabled = {c.lower() for c in self.quiz_data.get("disabled_categories", [])}
+        return category.lower() not in disabled
 
     # -------------------------
     # Background task management
@@ -424,9 +508,23 @@ class QuizTime(commands.Cog):
                 pass
             return
 
+        available_questions = [
+            q for q in questions
+            if self._is_category_enabled(q.get("category", "General"))
+        ]
+        if not available_questions:
+            try:
+                await channel.send(
+                    "No quiz questions available — all categories may be disabled. "
+                    "Admins can check `[p]quiztime category list`."
+                )
+            except Exception:
+                pass
+            return
+
         await self._expire_previous_quiz_in_channel(channel)
 
-        q = random.choice(questions)
+        q = random.choice(available_questions)
         category = q.get("category", "General")
         question_text = q.get("question", "No question text")
         correct = q.get("correct")
@@ -451,10 +549,10 @@ class QuizTime(commands.Cog):
         embed.set_footer(text="Be the first to click the correct button to win")
         embed.timestamp = discord.utils.utcnow()
 
-        category_image = self.quiz_data.get("category_images", {}).get(category) or None
-        if category_image:
+        question_image = q.get("image") or self.quiz_data.get("category_images", {}).get(category) or None
+        if question_image:
             try:
-                embed.set_image(url=category_image)
+                embed.set_image(url=question_image)
             except Exception:
                 pass
 
@@ -559,10 +657,13 @@ class QuizTime(commands.Cog):
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
-    async def add(self, ctx: commands.Context, category: str, question: str, correct: str, wrong1: str, wrong2: str, wrong3: str):
+    async def add(self, ctx: commands.Context, category: str, question: str, correct: str, wrong1: str, wrong2: str, wrong3: str, image: Optional[str] = None):
         """
-        Add a question.
-        Usage: [p]quiztime add "Category" "Question text" "Correct" "Wrong1" "Wrong2" "Wrong3"
+        Add a question, optionally with its own image.
+        Usage: [p]quiztime add "Category" "Question text" "Correct" "Wrong1" "Wrong2" "Wrong3" ["Image URL"]
+
+        If no image is given, the question falls back to its category's image (if one is set)
+        when the quiz is posted.
         """
         self._load_quiz_file()
         q = {
@@ -571,10 +672,41 @@ class QuizTime(commands.Cog):
             "correct": correct,
             "wrong": [wrong1, wrong2, wrong3]
         }
+        if image:
+            q["image"] = image
         self.quiz_data.setdefault("questions", []).append(q)
         self.quiz_data.setdefault("category_images", {}).setdefault(category, "")
         self._save_quiz_file()
-        await ctx.send(f"Added question to category **{category}**.")
+        if image:
+            await ctx.send(f"Added question to category **{category}** with its own image.")
+        else:
+            await ctx.send(f"Added question to category **{category}**.")
+
+    @quiztime.command()
+    @checks.admin_or_permissions(manage_guild=True)
+    async def setquestionimage(self, ctx: commands.Context, index: int, url: Optional[str] = None):
+        """
+        Set or clear the image for a specific question by index. Use [p]quiztime list to find indexes.
+        Usage: [p]quiztime setquestionimage <index> <url>
+               [p]quiztime setquestionimage <index>   -> clears the question's own image (falls back to category image)
+        """
+        self._load_quiz_file()
+        questions = self.quiz_data.get("questions", [])
+        if not questions:
+            await ctx.send("No questions available.")
+            return
+        if index < 1 or index > len(questions):
+            await ctx.send("Index out of range. Use [p]quiztime list to see valid indexes.")
+            return
+        q = questions[index - 1]
+        if url:
+            q["image"] = url
+            self._save_quiz_file()
+            await ctx.send(f"Image set for question #{index}.")
+        else:
+            q.pop("image", None)
+            self._save_quiz_file()
+            await ctx.send(f"Image cleared for question #{index}; it will now fall back to its category image (if any).")
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
@@ -597,6 +729,36 @@ class QuizTime(commands.Cog):
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
+    async def purge(self, ctx: commands.Context):
+        """
+        Delete ALL quiz questions. This cannot be undone. Requires confirmation.
+        """
+        self._load_quiz_file()
+        questions = self.quiz_data.get("questions", [])
+        if not questions:
+            await ctx.send("There are no questions to purge.")
+            return
+
+        count = len(questions)
+        view = ConfirmView(author_id=ctx.author.id)
+        msg = await ctx.send(
+            f"⚠️ This will permanently delete **{count}** question(s) across all categories. "
+            f"This cannot be undone. Are you sure?",
+            view=view
+        )
+        view.message = msg
+        await view.wait()
+
+        if view.value:
+            self._load_quiz_file()
+            self.quiz_data["questions"] = []
+            self._save_quiz_file()
+            await ctx.send(f"🗑️ Purged all **{count}** question(s).")
+        else:
+            await ctx.send("Purge cancelled.")
+
+    @quiztime.command()
+    @checks.admin_or_permissions(manage_guild=True)
     async def list(self, ctx: commands.Context):
         """
         List all questions with indexes so admins can delete by index.
@@ -613,7 +775,8 @@ class QuizTime(commands.Cog):
         for i, q in enumerate(questions, start=1):
             cat = q.get('category', 'General')
             qtext = q.get('question', 'No question text')
-            lines.append(f"{i}. [{cat}] {qtext}")
+            img_marker = " 🖼️" if q.get("image") else ""
+            lines.append(f"{i}. [{cat}] {qtext}{img_marker}")
 
         # Chunk into pages
         pages: List[str] = []
@@ -660,6 +823,69 @@ class QuizTime(commands.Cog):
         self.quiz_data.setdefault("category_images", {})[category] = url
         self._save_quiz_file()
         await ctx.send(f"Image for category **{category}** set.")
+
+    @quiztime.group(name="category")
+    @checks.admin_or_permissions(manage_guild=True)
+    async def quiztime_category(self, ctx: commands.Context):
+        """Enable or disable quiz categories. All categories are enabled by default."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help()
+
+    @quiztime_category.command(name="disable")
+    async def category_disable(self, ctx: commands.Context, *, category: str):
+        """
+        Disable a category so its questions won't be picked for quizzes.
+        Usage: [p]quiztime category disable "Category Name"
+        """
+        self._load_quiz_file()
+        canonical = self._resolve_category_name(category)
+        disabled = {c.lower(): c for c in self.quiz_data.get("disabled_categories", [])}
+        if canonical.lower() in disabled:
+            await ctx.send(f"Category **{canonical}** is already disabled.")
+            return
+        disabled[canonical.lower()] = canonical
+        self.quiz_data["disabled_categories"] = sorted(disabled.values(), key=lambda s: s.lower())
+        self._save_quiz_file()
+        note = "" if canonical in self._get_all_categories() else " (note: this category doesn't have any questions or an image yet)"
+        await ctx.send(f"Category **{canonical}** disabled.{note}")
+
+    @quiztime_category.command(name="enable")
+    async def category_enable(self, ctx: commands.Context, *, category: str):
+        """
+        Re-enable a previously disabled category.
+        Usage: [p]quiztime category enable "Category Name"
+        """
+        self._load_quiz_file()
+        canonical = self._resolve_category_name(category)
+        disabled = {c.lower(): c for c in self.quiz_data.get("disabled_categories", [])}
+        if canonical.lower() not in disabled:
+            await ctx.send(f"Category **{canonical}** is not currently disabled.")
+            return
+        del disabled[canonical.lower()]
+        self.quiz_data["disabled_categories"] = sorted(disabled.values(), key=lambda s: s.lower())
+        self._save_quiz_file()
+        await ctx.send(f"Category **{canonical}** enabled.")
+
+    @quiztime_category.command(name="list")
+    async def category_list(self, ctx: commands.Context):
+        """List all categories and whether they're enabled or disabled."""
+        self._load_quiz_file()
+        all_cats = self._get_all_categories()
+        if not all_cats:
+            await ctx.send("No categories found yet. Add a question first with `[p]quiztime add`.")
+            return
+        disabled = {c.lower() for c in self.quiz_data.get("disabled_categories", [])}
+        lines = []
+        enabled_count = 0
+        for c in all_cats:
+            if c.lower() in disabled:
+                lines.append(f"🔴 Disabled — {c}")
+            else:
+                enabled_count += 1
+                lines.append(f"🟢 Enabled — {c}")
+        embed = Embed(title="📁 Quiz Categories", description="\n".join(lines), color=0x2F3136)
+        embed.set_footer(text=f"{enabled_count} enabled / {len(all_cats)} total")
+        await ctx.send(embed=embed)
 
     @quiztime.command()
     @checks.admin_or_permissions(manage_guild=True)
@@ -715,6 +941,8 @@ class QuizTime(commands.Cog):
         offset_max = cfg.get("offset_max", 0)
         lb = cfg.get("leaderboard", {}) or {}
         qcount = len(self.quiz_data.get("questions", []))
+        all_cats = self._get_all_categories()
+        disabled_cats = self.quiz_data.get("disabled_categories", [])
         embed = Embed(title="⚙️ QuizTime Settings", color=random.randint(0, 0xFFFFFF))
         embed.add_field(name="Channel", value=channel.mention if channel else "Not set", inline=False)
         embed.add_field(name="Enabled", value=str(enabled), inline=True)
@@ -723,6 +951,7 @@ class QuizTime(commands.Cog):
         embed.add_field(name="Reward range", value=f"{rmin} — {rmax}", inline=True)
         embed.add_field(name="Questions stored", value=str(qcount), inline=True)
         embed.add_field(name="Leaderboard entries", value=str(len(lb)), inline=True)
+        embed.add_field(name="Categories", value=f"{len(all_cats) - len(disabled_cats)} enabled / {len(all_cats)} total", inline=True)
         correct_thumb = bool(self.quiz_data.get("correct_thumbnail"))
         incorrect_thumb = bool(self.quiz_data.get("incorrect_thumbnail"))
         embed.add_field(name="Correct embed thumbnail set", value=str(correct_thumb), inline=True)
