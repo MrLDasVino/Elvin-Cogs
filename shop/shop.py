@@ -8,6 +8,8 @@ from discord.ui import View, button, Button, Modal, TextInput, Select
 
 from .dashboard import DashboardIntegration
 
+ITEMS_PER_PAGE = 10
+
 
 class Shop(DashboardIntegration, commands.Cog):
     """A shop cog with buttons, modals, and Red’s bank integration."""
@@ -1127,24 +1129,50 @@ class RemoveStockSelect(Select):
 
 
 class RemoveItemView(View):
-    def __init__(self, config: Config, guild_id: int, shop_name: str, *, timeout: float = 60):
+    def __init__(self, config: Config, guild_id: int, shop_name: str, *, page: int = 0, timeout: float = 60):
         super().__init__(timeout=timeout)
         self.config = config
         self.guild_id = guild_id
         self.shop_name = shop_name
+        self.page = page
 
     async def populate(self):
         guild_conf = self.config.guild_from_id(self.guild_id)
         shops = await guild_conf.shops()
         stock = shops[self.shop_name]["stock"]
+
+        items = list(stock.keys())
+        total_pages = max(1, (len(items) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
+        self.page = max(0, min(self.page, total_pages - 1))
+        start = self.page * ITEMS_PER_PAGE
+        page_items = items[start:start + ITEMS_PER_PAGE]
+
         options = [
             discord.SelectOption(label=item, value=item)
-            for item in stock.keys()
+            for item in page_items
         ]
         if options:
             self.add_item(
                 RemoveItemSelect(options, self.config, self.guild_id, self.shop_name)
             )
+
+        if len(items) > ITEMS_PER_PAGE:
+            prev_btn = Button(label="◀", style=discord.ButtonStyle.secondary, disabled=self.page == 0)
+            async def _prev(inter: discord.Interaction):
+                new_view = RemoveItemView(self.config, self.guild_id, self.shop_name, page=self.page - 1)
+                await new_view.populate()
+                await inter.response.edit_message(view=new_view)
+            prev_btn.callback = _prev
+            self.add_item(prev_btn)
+
+            next_btn = Button(label="▶", style=discord.ButtonStyle.secondary, disabled=self.page >= total_pages - 1)
+            async def _next(inter: discord.Interaction):
+                new_view = RemoveItemView(self.config, self.guild_id, self.shop_name, page=self.page + 1)
+                await new_view.populate()
+                await inter.response.edit_message(view=new_view)
+            next_btn.callback = _next
+            self.add_item(next_btn)
+
         cancel = Button(label="Cancel", style=discord.ButtonStyle.danger)
         cancel.callback = self._cancel
         self.add_item(cancel)
@@ -1303,35 +1331,8 @@ class ShopEmbedSelect(Select):
             return await interaction.response.send_message("This menu isn’t for you.", ephemeral=True)
 
         shop_name = self.values[0]
-        guild_conf = self.config.guild_from_id(self.guild_id)
-        shops_data = await guild_conf.shops()
-        shop = shops_data[shop_name]
         currency = await bank.get_currency_name(interaction.guild)
 
-        # build shop embed w/ header info
-        embed = discord.Embed(
-            title=f"💰 {shop_name}",
-            description=shop.get("description", "") or "No description.",
-            color=discord.Color.random()
-        )
-        thumb = shop.get("thumbnail", "").strip()
-        if thumb:
-            embed.set_thumbnail(url=thumb)
-
-        # ── Use one field per item ──
-        stock = shop.get("stock", {})
-        for item_name, entry in stock.items():
-            price = entry.get("price", 0)
-            amt = entry.get("amount")
-            left = "∞" if amt is None else str(amt)
-            desc = entry.get("description", "No description.")
-            embed.add_field(
-                name=f"🔶 {item_name} — {price} {currency}",
-                value=f"{desc}\n🗃️ Stock: {left}",
-                inline=False
-            )
-
-        # swap in Item dropdown view
         view = ItemEmbedView(
             self.config,
             self.guild_id,
@@ -1341,6 +1342,7 @@ class ShopEmbedSelect(Select):
             self.mode,
             cog=self.cog,
         )
+        embed = await view.build_embed()
         await view.populate_items()
         await interaction.response.edit_message(embed=embed, view=view)
 
@@ -1355,6 +1357,7 @@ class ItemEmbedView(View):
         currency: str,
         mode: str = "buy",
         *,
+        page: int = 0,
         cog: Optional["Shop"] = None,        
     ):
         super().__init__(timeout=60)
@@ -1364,6 +1367,7 @@ class ItemEmbedView(View):
         self.shop_name = shop_name
         self.currency = currency
         self.mode = mode
+        self.page = page
         self.cog = cog
         
     async def on_timeout(self):
@@ -1376,11 +1380,54 @@ class ItemEmbedView(View):
         except Exception:
             pass        
 
-    async def populate_items(self):
+    async def _get_stock(self):
         guild_conf = self.config.guild_from_id(self.guild_id)
-        stock = (await guild_conf.shops())[self.shop_name]["stock"]
+        return (await guild_conf.shops())[self.shop_name]["stock"]
+
+    def _paginate(self, stock: dict):
+        items = list(stock.items())
+        total_pages = max(1, (len(items) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
+        self.page = max(0, min(self.page, total_pages - 1))
+        start = self.page * ITEMS_PER_PAGE
+        return items[start:start + ITEMS_PER_PAGE], len(items), total_pages
+
+    async def build_embed(self):
+        guild_conf = self.config.guild_from_id(self.guild_id)
+        shop = (await guild_conf.shops())[self.shop_name]
+        stock = shop.get("stock", {})
+        page_items, total_items, total_pages = self._paginate(stock)
+
+        embed = discord.Embed(
+            title=f"💰 {self.shop_name}",
+            description=shop.get("description", "") or "No description.",
+            color=discord.Color.random()
+        )
+        thumb = shop.get("thumbnail", "").strip()
+        if thumb:
+            embed.set_thumbnail(url=thumb)
+
+        for item_name, entry in page_items:
+            price = entry.get("price", 0)
+            amt = entry.get("amount")
+            left = "∞" if amt is None else str(amt)
+            desc = entry.get("description", "No description.")
+            embed.add_field(
+                name=f"🔶 {item_name} — {price} {self.currency}",
+                value=f"{desc}\n🗃️ Stock: {left}",
+                inline=False
+            )
+
+        if total_items > ITEMS_PER_PAGE:
+            embed.set_footer(text=f"Page {self.page + 1}/{total_pages}")
+
+        return embed
+
+    async def populate_items(self):
+        stock = await self._get_stock()
+        page_items, total_items, total_pages = self._paginate(stock)
+
         options = []
-        for item_name, entry in stock.items():
+        for item_name, entry in page_items:
             amt = "∞" if entry.get("amount") is None else entry["amount"]
             label = f"{item_name} ({entry['price']} {self.currency}, {amt} left)"
             options.append(discord.SelectOption(label=label, value=item_name))
@@ -1396,6 +1443,35 @@ class ItemEmbedView(View):
                 cog=self.cog,
             )
         )
+
+        if total_items > ITEMS_PER_PAGE:
+            prev_btn = Button(label="◀", style=discord.ButtonStyle.secondary, disabled=self.page == 0)
+            async def _prev(inter: discord.Interaction):
+                if inter.user.id != self.user_id:
+                    return await inter.response.send_message("Not your menu.", ephemeral=True)
+                new_view = ItemEmbedView(
+                    self.config, self.guild_id, self.user_id, self.shop_name,
+                    self.currency, self.mode, page=self.page - 1, cog=self.cog,
+                )
+                embed = await new_view.build_embed()
+                await new_view.populate_items()
+                await inter.response.edit_message(embed=embed, view=new_view)
+            prev_btn.callback = _prev
+            self.add_item(prev_btn)
+
+            next_btn = Button(label="▶", style=discord.ButtonStyle.secondary, disabled=self.page >= total_pages - 1)
+            async def _next(inter: discord.Interaction):
+                if inter.user.id != self.user_id:
+                    return await inter.response.send_message("Not your menu.", ephemeral=True)
+                new_view = ItemEmbedView(
+                    self.config, self.guild_id, self.user_id, self.shop_name,
+                    self.currency, self.mode, page=self.page + 1, cog=self.cog,
+                )
+                embed = await new_view.build_embed()
+                await new_view.populate_items()
+                await inter.response.edit_message(embed=embed, view=new_view)
+            next_btn.callback = _next
+            self.add_item(next_btn)
 
         # Back button: return to the shop selection (ShopEmbedView)
         back = Button(label="Back", style=discord.ButtonStyle.success)
@@ -1607,11 +1683,12 @@ class DeleteConfirmationModal(Modal, title="Confirm Shop Deletion"):
             
 class AddStockChooseItemView(View):
     """After selecting a shop: choose an existing item to edit, or use button to add new."""
-    def __init__(self, config: Config, guild_id: int, shop_name: str, *, timeout: float = 60):
+    def __init__(self, config: Config, guild_id: int, shop_name: str, *, page: int = 0, timeout: float = 60):
         super().__init__(timeout=timeout)
         self.config = config
         self.guild_id = guild_id
         self.shop_name = shop_name
+        self.page = page
         self.message: discord.Message | None = None
 
     async def populate(self):
@@ -1619,10 +1696,34 @@ class AddStockChooseItemView(View):
         shops = await guild_conf.shops()
         stock = shops.get(self.shop_name, {}).get("stock", {})
 
-        # Select for existing items only
-        options = [discord.SelectOption(label=name, value=name) for name in stock.keys()]
+        items = list(stock.keys())
+        total_pages = max(1, (len(items) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
+        self.page = max(0, min(self.page, total_pages - 1))
+        start = self.page * ITEMS_PER_PAGE
+        page_items = items[start:start + ITEMS_PER_PAGE]
+
+        options = [discord.SelectOption(label=name, value=name) for name in page_items]
         if options:
             self.add_item(AddStockItemSelect(options, self.config, self.guild_id, self.shop_name))
+
+        if len(items) > ITEMS_PER_PAGE:
+            prev_btn = Button(label="◀", style=discord.ButtonStyle.secondary, disabled=self.page == 0)
+            async def _prev(inter: discord.Interaction):
+                new_view = AddStockChooseItemView(self.config, self.guild_id, self.shop_name, page=self.page - 1)
+                await new_view.populate()
+                new_view.message = self.message
+                await inter.response.edit_message(view=new_view)
+            prev_btn.callback = _prev
+            self.add_item(prev_btn)
+
+            next_btn = Button(label="▶", style=discord.ButtonStyle.secondary, disabled=self.page >= total_pages - 1)
+            async def _next(inter: discord.Interaction):
+                new_view = AddStockChooseItemView(self.config, self.guild_id, self.shop_name, page=self.page + 1)
+                await new_view.populate()
+                new_view.message = self.message
+                await inter.response.edit_message(view=new_view)
+            next_btn.callback = _next
+            self.add_item(next_btn)
 
         # Add New Item button (separate from the select)
         add_btn = Button(label="➕ Add New Item", style=discord.ButtonStyle.success)
@@ -1681,4 +1782,4 @@ class AddStockItemSelect(Select):
                 existing_entry=existing,
             )
         )
-            
+            
