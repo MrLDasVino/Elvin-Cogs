@@ -22,6 +22,18 @@ async def _grant_owned_role(config: Config, user: discord.abc.User, guild_id: in
     await user_conf.owned_roles.set(owned)
 
 
+async def _get_role_item_names(config: Config, guild: discord.Guild):
+    guild_conf = config.guild(guild)
+    shops = await guild_conf.shops()
+    names = set()
+    for shop_data in shops.values():
+        stock = shop_data.get("stock", {})
+        for item_name, entry in stock.items():
+            if entry.get("role_id"):
+                names.add(item_name)
+    return names
+
+
 async def _get_valid_owned_roles(config: Config, guild: discord.Guild, user_id: int):
     user_conf = config.user_from_id(user_id)
     owned = await user_conf.owned_roles()
@@ -268,7 +280,7 @@ class Shop(DashboardIntegration, commands.Cog):
 # INVENTORY / EQUIP VIEWS
 # --------------------
 class InventoryView(View):
-    """Two-tab inventory embed (Items / Roles) navigated with arrow buttons."""
+    """Two-tab inventory embed (Items / Roles), each independently paginated, navigated with arrow buttons."""
 
     def __init__(
         self,
@@ -278,6 +290,8 @@ class InventoryView(View):
         viewer_id: int,
         *,
         tab: str = "items",
+        item_page: int = 0,
+        role_page: int = 0,
         timeout: float = 60,
     ):
         super().__init__(timeout=timeout)
@@ -286,6 +300,8 @@ class InventoryView(View):
         self.target = target
         self.viewer_id = viewer_id
         self.tab = tab
+        self.item_page = item_page
+        self.role_page = role_page
         self.message: discord.Message | None = None
 
     async def on_timeout(self):
@@ -304,37 +320,57 @@ class InventoryView(View):
         else:
             embed.set_author(name=self.target.display_name)
 
+        role_item_names = await _get_role_item_names(self.config, self.guild)
+
         if self.tab == "items":
             embed.title = f"{self.target.display_name}'s Inventory — Items"
             user_conf = self.config.user(self.target)
             inv = await user_conf.inventory()
-            if not inv:
+            filtered = [
+                (item_name, count) for item_name, count in inv.items()
+                if item_name not in role_item_names
+            ]
+            total_pages = max(1, (len(filtered) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
+            self.item_page = max(0, min(self.item_page, total_pages - 1))
+            start = self.item_page * ITEMS_PER_PAGE
+            page_entries = filtered[start:start + ITEMS_PER_PAGE]
+
+            if not filtered:
                 embed.description = "No items owned."
             else:
-                for item_name, count in inv.items():
+                for item_name, count in page_entries:
                     embed.add_field(
                         name=f"🔸 {item_name}",
                         value=f"Quantity: {count}",
                         inline=False,
                     )
+                if total_pages > 1:
+                    embed.set_footer(text=f"Page {self.item_page + 1}/{total_pages}")
         else:
             embed.title = f"{self.target.display_name}'s Inventory — Roles"
             roles = await _get_valid_owned_roles(self.config, self.guild, self.target.id)
+            total_pages = max(1, (len(roles) + ROLES_PER_PAGE - 1) // ROLES_PER_PAGE)
+            self.role_page = max(0, min(self.role_page, total_pages - 1))
+            start = self.role_page * ROLES_PER_PAGE
+            page_entries = roles[start:start + ROLES_PER_PAGE]
+
             if not roles:
                 embed.description = "No roles owned."
             else:
-                for role, equipped, name in roles:
+                for role, equipped, name in page_entries:
                     status = "✅ Equipped" if equipped else "⬜ Not equipped"
                     embed.add_field(name=f"🔹 {role.name}", value=status, inline=False)
+                if total_pages > 1:
+                    embed.set_footer(text=f"Page {self.role_page + 1}/{total_pages}")
 
         self.clear_items()
 
         if self.tab == "items":
-            prev_btn = Button(label="◀", style=discord.ButtonStyle.secondary, disabled=True)
-            next_btn = Button(label="Roles ▶", style=discord.ButtonStyle.secondary)
+            prev_tab_btn = Button(label="◀", style=discord.ButtonStyle.secondary, disabled=True, row=0)
+            next_tab_btn = Button(label="Roles ▶", style=discord.ButtonStyle.secondary, row=0)
         else:
-            prev_btn = Button(label="◀ Items", style=discord.ButtonStyle.secondary)
-            next_btn = Button(label="▶", style=discord.ButtonStyle.secondary, disabled=True)
+            prev_tab_btn = Button(label="◀ Items", style=discord.ButtonStyle.secondary, row=0)
+            next_tab_btn = Button(label="▶", style=discord.ButtonStyle.secondary, disabled=True, row=0)
 
         async def _to_items(inter: discord.Interaction):
             if inter.user.id != self.viewer_id:
@@ -350,10 +386,47 @@ class InventoryView(View):
             new_embed = await self.build()
             await inter.response.edit_message(embed=new_embed, view=self)
 
-        prev_btn.callback = _to_items
-        next_btn.callback = _to_roles
-        self.add_item(prev_btn)
-        self.add_item(next_btn)
+        prev_tab_btn.callback = _to_items
+        next_tab_btn.callback = _to_roles
+        self.add_item(prev_tab_btn)
+        self.add_item(next_tab_btn)
+
+        if total_pages > 1:
+            cur_page = self.item_page if self.tab == "items" else self.role_page
+            prev_page_btn = Button(
+                label="◀ Page", style=discord.ButtonStyle.primary, disabled=cur_page == 0, row=1
+            )
+            next_page_btn = Button(
+                label="Page ▶",
+                style=discord.ButtonStyle.primary,
+                disabled=cur_page >= total_pages - 1,
+                row=1,
+            )
+
+            async def _prev_page(inter: discord.Interaction):
+                if inter.user.id != self.viewer_id:
+                    return await inter.response.send_message("Not your menu.", ephemeral=True)
+                if self.tab == "items":
+                    self.item_page -= 1
+                else:
+                    self.role_page -= 1
+                new_embed = await self.build()
+                await inter.response.edit_message(embed=new_embed, view=self)
+
+            async def _next_page(inter: discord.Interaction):
+                if inter.user.id != self.viewer_id:
+                    return await inter.response.send_message("Not your menu.", ephemeral=True)
+                if self.tab == "items":
+                    self.item_page += 1
+                else:
+                    self.role_page += 1
+                new_embed = await self.build()
+                await inter.response.edit_message(embed=new_embed, view=self)
+
+            prev_page_btn.callback = _prev_page
+            next_page_btn.callback = _next_page
+            self.add_item(prev_page_btn)
+            self.add_item(next_page_btn)
 
         return embed
 
