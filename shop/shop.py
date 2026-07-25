@@ -9,6 +9,44 @@ from discord.ui import View, button, Button, Modal, TextInput, Select
 from .dashboard import DashboardIntegration
 
 ITEMS_PER_PAGE = 10
+ROLES_PER_PAGE = 25
+
+
+async def _grant_owned_role(config: Config, user: discord.abc.User, guild_id: int, role_id: int, item_name: str):
+    user_conf = config.user(user)
+    owned = await user_conf.owned_roles()
+    gid = str(guild_id)
+    guild_roles = owned.get(gid, {})
+    guild_roles[str(role_id)] = {"name": item_name, "equipped": True}
+    owned[gid] = guild_roles
+    await user_conf.owned_roles.set(owned)
+
+
+async def _get_valid_owned_roles(config: Config, guild: discord.Guild, user_id: int):
+    user_conf = config.user_from_id(user_id)
+    owned = await user_conf.owned_roles()
+    gid = str(guild.id)
+    guild_roles = owned.get(gid, {})
+    valid = {}
+    pruned = False
+    for role_id_str, data in guild_roles.items():
+        role = guild.get_role(int(role_id_str))
+        if role:
+            valid[role_id_str] = data
+        else:
+            pruned = True
+    if pruned:
+        if valid:
+            owned[gid] = valid
+        else:
+            owned.pop(gid, None)
+        await user_conf.owned_roles.set(owned)
+    result = []
+    for role_id_str, data in valid.items():
+        role = guild.get_role(int(role_id_str))
+        result.append((role, data.get("equipped", False), data.get("name", role.name)))
+    result.sort(key=lambda x: x[0].name.lower())
+    return result
 
 
 class Shop(DashboardIntegration, commands.Cog):
@@ -21,7 +59,7 @@ class Shop(DashboardIntegration, commands.Cog):
             "shops": {},
             "log_channel": None,  # channel ID to post shop logs in (or None)
         }  # shop_name → {description, stock: {item: {price, amount, role_id?}}}
-        default_user = {"inventory": {}}  # item_name → count
+        default_user = {"inventory": {}, "owned_roles": {}}  # item_name → count / guild_id → role_id → {name, equipped}
         self.config.register_guild(**default_guild)
         self.config.register_user(**default_user)
 
@@ -203,34 +241,280 @@ class Shop(DashboardIntegration, commands.Cog):
         
     @shop.command(name="inventory")
     async def inventory(self, ctx, member: discord.Member = None):
-        """Show the items you or another member have bought."""
+        """Show the items and equippable roles you or another member have bought."""
         target = member or ctx.author
-        user_conf = self.config.user(target)
-        inv = await user_conf.inventory()
-        if not inv:
-            return await ctx.send(f"❌ {target.display_name} has no items.")
+        view = InventoryView(self.config, ctx.guild, target, ctx.author.id)
+        embed = await view.build()
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
 
-        embed = discord.Embed(
-            title=f"{target.display_name}'s Inventory",
-            color=discord.Color.random()
+    @shop.command(name="equip")
+    async def equip(self, ctx):
+        """Equip or unequip roles you've bought from the shop."""
+        roles = await _get_valid_owned_roles(self.config, ctx.guild, ctx.author.id)
+        if not roles:
+            return await ctx.send("❌ You don't own any equippable roles.")
+
+        view = EquipRolesView(self.config, ctx.guild, ctx.author.id)
+        await view.populate()
+        msg = await ctx.send(
+            "Select roles to equip or unequip below. Selecting an equipped role again unequips it.",
+            view=view,
         )
-        # show avatar next to the embed title
-        if target.avatar:
-            embed.set_author(name=target.display_name, icon_url=target.avatar.url)
-        else:
-            embed.set_author(name=target.display_name)
-
-        # one field per item
-        for item_name, count in inv.items():
-            embed.add_field(
-                name=f"🔸 {item_name}",
-                value=f"Quantity: {count}",
-                inline=False
-            )
-
-        await ctx.send(embed=embed)        
+        view.message = msg        
      
         
+# --------------------
+# INVENTORY / EQUIP VIEWS
+# --------------------
+class InventoryView(View):
+    """Two-tab inventory embed (Items / Roles) navigated with arrow buttons."""
+
+    def __init__(
+        self,
+        config: Config,
+        guild: discord.Guild,
+        target: discord.Member,
+        viewer_id: int,
+        *,
+        tab: str = "items",
+        timeout: float = 60,
+    ):
+        super().__init__(timeout=timeout)
+        self.config = config
+        self.guild = guild
+        self.target = target
+        self.viewer_id = viewer_id
+        self.tab = tab
+        self.message: discord.Message | None = None
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+    async def build(self):
+        embed = discord.Embed(color=discord.Color.random())
+        if self.target.avatar:
+            embed.set_author(name=self.target.display_name, icon_url=self.target.avatar.url)
+        else:
+            embed.set_author(name=self.target.display_name)
+
+        if self.tab == "items":
+            embed.title = f"{self.target.display_name}'s Inventory — Items"
+            user_conf = self.config.user(self.target)
+            inv = await user_conf.inventory()
+            if not inv:
+                embed.description = "No items owned."
+            else:
+                for item_name, count in inv.items():
+                    embed.add_field(
+                        name=f"🔸 {item_name}",
+                        value=f"Quantity: {count}",
+                        inline=False,
+                    )
+        else:
+            embed.title = f"{self.target.display_name}'s Inventory — Roles"
+            roles = await _get_valid_owned_roles(self.config, self.guild, self.target.id)
+            if not roles:
+                embed.description = "No roles owned."
+            else:
+                for role, equipped, name in roles:
+                    status = "✅ Equipped" if equipped else "⬜ Not equipped"
+                    embed.add_field(name=f"🔹 {role.name}", value=status, inline=False)
+
+        self.clear_items()
+
+        if self.tab == "items":
+            prev_btn = Button(label="◀", style=discord.ButtonStyle.secondary, disabled=True)
+            next_btn = Button(label="Roles ▶", style=discord.ButtonStyle.secondary)
+        else:
+            prev_btn = Button(label="◀ Items", style=discord.ButtonStyle.secondary)
+            next_btn = Button(label="▶", style=discord.ButtonStyle.secondary, disabled=True)
+
+        async def _to_items(inter: discord.Interaction):
+            if inter.user.id != self.viewer_id:
+                return await inter.response.send_message("Not your menu.", ephemeral=True)
+            self.tab = "items"
+            new_embed = await self.build()
+            await inter.response.edit_message(embed=new_embed, view=self)
+
+        async def _to_roles(inter: discord.Interaction):
+            if inter.user.id != self.viewer_id:
+                return await inter.response.send_message("Not your menu.", ephemeral=True)
+            self.tab = "roles"
+            new_embed = await self.build()
+            await inter.response.edit_message(embed=new_embed, view=self)
+
+        prev_btn.callback = _to_items
+        next_btn.callback = _to_roles
+        self.add_item(prev_btn)
+        self.add_item(next_btn)
+
+        return embed
+
+
+class EquipRolesView(View):
+    """Paginated multi-select for equipping/unequipping owned roles."""
+
+    def __init__(
+        self,
+        config: Config,
+        guild: discord.Guild,
+        user_id: int,
+        *,
+        page: int = 0,
+        timeout: float = 60,
+    ):
+        super().__init__(timeout=timeout)
+        self.config = config
+        self.guild = guild
+        self.user_id = user_id
+        self.page = page
+        self.message: discord.Message | None = None
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(content="⌛ Equip session expired.", view=self)
+            except Exception:
+                pass
+
+    async def populate(self):
+        roles = await _get_valid_owned_roles(self.config, self.guild, self.user_id)
+        total_pages = max(1, (len(roles) + ROLES_PER_PAGE - 1) // ROLES_PER_PAGE)
+        self.page = max(0, min(self.page, total_pages - 1))
+        start = self.page * ROLES_PER_PAGE
+        page_roles = roles[start:start + ROLES_PER_PAGE]
+
+        if not page_roles:
+            self.add_item(
+                Button(label="No roles owned", style=discord.ButtonStyle.secondary, disabled=True)
+            )
+        else:
+            options = [
+                discord.SelectOption(label=role.name[:100], value=str(role.id), default=equipped)
+                for role, equipped, name in page_roles
+            ]
+            self.add_item(EquipRolesSelect(options, self.config, self.guild, self.user_id))
+
+        if len(roles) > ROLES_PER_PAGE:
+            prev_btn = Button(label="◀", style=discord.ButtonStyle.secondary, disabled=self.page == 0)
+
+            async def _prev(inter: discord.Interaction):
+                if inter.user.id != self.user_id:
+                    return await inter.response.send_message("Not your menu.", ephemeral=True)
+                new_view = EquipRolesView(self.config, self.guild, self.user_id, page=self.page - 1)
+                await new_view.populate()
+                new_view.message = self.message
+                await inter.response.edit_message(view=new_view)
+
+            prev_btn.callback = _prev
+            self.add_item(prev_btn)
+
+            next_btn = Button(
+                label="▶", style=discord.ButtonStyle.secondary, disabled=self.page >= total_pages - 1
+            )
+
+            async def _next(inter: discord.Interaction):
+                if inter.user.id != self.user_id:
+                    return await inter.response.send_message("Not your menu.", ephemeral=True)
+                new_view = EquipRolesView(self.config, self.guild, self.user_id, page=self.page + 1)
+                await new_view.populate()
+                new_view.message = self.message
+                await inter.response.edit_message(view=new_view)
+
+            next_btn.callback = _next
+            self.add_item(next_btn)
+
+        done = Button(label="Done", style=discord.ButtonStyle.success)
+
+        async def _done(inter: discord.Interaction):
+            if inter.user.id != self.user_id:
+                return await inter.response.send_message("Not your menu.", ephemeral=True)
+            for c in self.children:
+                c.disabled = True
+            await inter.response.edit_message(view=self)
+
+        done.callback = _done
+        self.add_item(done)
+
+
+class EquipRolesSelect(Select):
+    def __init__(self, options, config: Config, guild: discord.Guild, user_id: int):
+        super().__init__(
+            placeholder="Select roles to equip/unequip…",
+            min_values=0,
+            max_values=len(options),
+            options=options,
+            custom_id="equip_roles_select",
+        )
+        self.config = config
+        self.guild = guild
+        self.user_id = user_id
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("This menu isn’t for you.", ephemeral=True)
+
+        selected_ids = set(self.values)
+        page_ids = {opt.value for opt in self.options}
+
+        user_conf = self.config.user_from_id(self.user_id)
+        owned = await user_conf.owned_roles()
+        gid = str(self.guild.id)
+        guild_roles = owned.get(gid, {})
+
+        to_add = []
+        to_remove = []
+        for role_id_str in page_ids:
+            data = guild_roles.get(role_id_str)
+            if not data:
+                continue
+            role = self.guild.get_role(int(role_id_str))
+            if not role:
+                continue
+            now_equipped = role_id_str in selected_ids
+            was_equipped = data.get("equipped", False)
+            if now_equipped and not was_equipped:
+                to_add.append(role)
+            elif was_equipped and not now_equipped:
+                to_remove.append(role)
+            data["equipped"] = now_equipped
+            guild_roles[role_id_str] = data
+
+        owned[gid] = guild_roles
+        await user_conf.owned_roles.set(owned)
+
+        try:
+            if to_add:
+                await interaction.user.add_roles(*to_add, reason="Shop role equip")
+            if to_remove:
+                await interaction.user.remove_roles(*to_remove, reason="Shop role unequip")
+        except discord.Forbidden:
+            return await interaction.response.send_message(
+                "❌ I don't have permission to manage one or more of those roles.", ephemeral=True
+            )
+
+        for opt in self.options:
+            opt.default = opt.value in selected_ids
+
+        summary_parts = []
+        if to_add:
+            summary_parts.append("Equipped: " + ", ".join(r.mention for r in to_add))
+        if to_remove:
+            summary_parts.append("Unequipped: " + ", ".join(r.mention for r in to_remove))
+        content = "\n".join(summary_parts) if summary_parts else "No changes."
+
+        await interaction.response.edit_message(content=content, view=self.view)
+
+
 # --------------------
 # BUTTON‐LAUNCH VIEW
 # --------------------
@@ -627,6 +911,7 @@ class GiftModal(Modal, title="Gift Item"):
             role = interaction.guild.get_role(entry["role_id"])
             if role:
                 await member.add_roles(role)
+                await _grant_owned_role(self.config, member, self.guild_id, role.id, self.item_name)
 
         # Decrement shop stock
         if entry.get("amount") is not None:
@@ -889,6 +1174,7 @@ class BuyModal(Modal, title="Buy Item"):
             role = interaction.guild.get_role(entry["role_id"])
             if role:
                 await interaction.user.add_roles(role)
+                await _grant_owned_role(self.config, interaction.user, self.guild_id, role.id, self.item_name)
 
         # Decrement shop stock
         if entry.get("amount") is not None:
