@@ -15,14 +15,14 @@ DEFAULT_DISCOVER_MSG = (
 )
 
 # Banner image URLs – replace these placeholders with your actual image links
-SEED_BANNER = "https://files.catbox.moe/i1787b.png"
-PLANT_BANNER = "https://files.catbox.moe/7btmdw.png"
-LIST_BANNER = "https://files.catbox.moe/43lzl6.png"
+SEED_BANNER = "https://files.catbox.moe/eayj32.png"
+PLANT_BANNER = "https://files.catbox.moe/wvf27j.png"
+LIST_BANNER = "https://files.catbox.moe/rn4git.png"
 REWARD_BANNERS = {
-    "currency": "https://files.catbox.moe/bn35ib.png",
-    "prompt":   "https://files.catbox.moe/6oqu0n.png",
-    "fortune":  "https://files.catbox.moe/z1gy0f.png",
-    "advice":   "https://files.catbox.moe/3nr7zo.png",
+    "currency": "https://files.catbox.moe/qc1h6u.png",
+    "prompt":   "https://files.catbox.moe/q04tqy.png",
+    "fortune":  "https://files.catbox.moe/4jbpxq.png",
+    "advice":   "https://files.catbox.moe/1gs6jr.png",
 }
 
 PROMPTS = [
@@ -656,6 +656,7 @@ class FortuneGarden(commands.Cog):
             "min_credits": MIN_CREDITS,
             "max_credits": MAX_CREDITS,
             "discover_message": None,  # None → fall back to DEFAULT_DISCOVER_MSG
+            "enabled": True,  # Server-wide toggle; admins can disable with fortunetoggle
         }
         default_member = {"seeds": 0, "last_earned": None, "opt_out": False}
         self.config.register_guild(**default_guild)
@@ -795,6 +796,11 @@ class FortuneGarden(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
+        # Respect server-wide toggle: do not award seeds if disabled for this guild
+        guild_conf = self.config.guild(message.guild)
+        if not await guild_conf.enabled():
+            return
+
         member_conf = self.config.member(message.author)
         data = await member_conf.all()
 
@@ -813,7 +819,6 @@ class FortuneGarden(commands.Cog):
             await member_conf.seeds.set(new_count)
             await member_conf.last_earned.set(now.isoformat())
 
-            guild_conf = self.config.guild(message.guild)
             template = await guild_conf.discover_message() or DEFAULT_DISCOVER_MSG
 
             # compute variables
@@ -999,6 +1004,49 @@ class FortuneGarden(commands.Cog):
         
         
     @commands.guild_only()
+    @commands.has_guild_permissions(manage_guild=True)
+    @commands.command(
+        name="fortunetoggle",
+        help="Enable or disable FortuneGarden seed drops for this entire server."
+    )
+    async def fortunetoggle(self, ctx, state: str = None):
+        """
+        fortunetoggle on     -> enable seed drops for this server
+        fortunetoggle off    -> disable seed drops for this server
+        fortunetoggle status -> show current state
+        """
+        guild_conf = self.config.guild(ctx.guild)
+        current = await guild_conf.enabled()
+
+        if state is None or state.lower() in ("help", "h"):
+            status = "enabled" if current else "disabled"
+            return await ctx.send(
+                f"FortuneGarden is currently **{status}** for this server.\n"
+                "Use `fortunetoggle on` or `fortunetoggle off` to change it."
+            )
+
+        state = state.lower()
+
+        if state in ("on", "true", "enable"):
+            if current:
+                return await ctx.send("✅ FortuneGarden is already enabled for this server.")
+            await guild_conf.enabled.set(True)
+            return await ctx.send("✅ FortuneGarden has been **enabled** for this server. Seeds will now be awarded.")
+
+        if state in ("off", "false", "disable"):
+            if not current:
+                return await ctx.send("🚫 FortuneGarden is already disabled for this server.")
+            await guild_conf.enabled.set(False)
+            return await ctx.send("🚫 FortuneGarden has been **disabled** for this server. No seeds will be awarded.")
+
+        if state == "status":
+            status = "enabled" if current else "disabled"
+            return await ctx.send(f"ℹ️ FortuneGarden is currently **{status}** for this server.")
+
+        return await ctx.send("⚠️ Invalid option. Use `fortunetoggle on`, `fortunetoggle off`, or `fortunetoggle status`.")
+        
+        
+    @commands.guild_only()
     @commands.command(
         name="seedopt",
         help="Manage receiving fortune seeds. Usage: seedopt off|on|status|help"
@@ -1045,5 +1093,3 @@ class FortuneGarden(commands.Cog):
             return await ctx.send(f"ℹ️ You are currently **{status}** of receiving fortune seeds.")
     
         return await ctx.send("⚠️ Invalid option. Use `seedopt help` for instructions.")
-
-        
