@@ -1,0 +1,15 @@
+{
+    "author": ["Elvin"],
+    "description": "ChatterBox learns from what your members say and randomly chimes in with saved messages after a configurable frequency, with a full button-based blacklist system so it never stores or repeats words you don't want it to.",
+    "install_msg": "Thanks for installing ChatterBox! Load it with [p]load chatterbox and configure it with [p]chatterbox.",
+    "short": "Learns from chat and randomly repeats saved messages.",
+    "end_user_data_statement": "This cog stores the raw text content of messages sent in channels where it is enabled, in order to randomly repeat them later. This stored text is not linked to any Discord user ID, username, or other identifying information, and cannot be looked up or removed on a per-user basis. Server administrators can permanently erase all stored text at any time using the purge command.",
+    "requirements": [],
+    "tags": [
+        "chat",
+        "fun",
+        "messages",
+        "random"
+    ],
+    "version": "1.0.0"
+}
