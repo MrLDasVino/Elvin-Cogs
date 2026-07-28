@@ -58,8 +58,17 @@ class MemeForge(commands.Cog):
 
     async def finalize_meme(self, interaction: discord.Interaction, template: dict, collected: dict) -> None:
         template_id = template.get("id") or template.get("name") or "unknown"
-        total_lines = template.get("lines", 0) or 0
-        lines = [collected.get(i, "") for i in range(total_lines)]
+        try:
+            total_lines = max(0, int(template.get("lines", 0) or 0))
+        except (TypeError, ValueError):
+            total_lines = 0
+        examples = (template.get("example") or {}).get("text") or []
+        lines = []
+        for i in range(total_lines):
+            value = collected.get(i, "")
+            if not value or not value.strip():
+                value = examples[i] if i < len(examples) else ""
+            lines.append(value)
         url = build_image_url(self.api_base, template_id, lines)
         embed = discord.Embed(
             title=template.get("name") or template_id,
