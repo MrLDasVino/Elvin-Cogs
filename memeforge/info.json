@@ -1,0 +1,15 @@
+{
+    "author": ["Elvin"],
+    "description": "Create memes from a huge, constantly updated library of templates. Browse templates through a paginated, searchable embed with buttons and a dropdown, then fill in the meme text through modals (chained automatically for templates that need more than 5 lines of text).",
+    "install_msg": "Thanks for installing MemeForge! Run `[p]memeforge` to browse templates and start creating memes. Templates are pulled live from memegen.link If you enjoy my cogs and wish to support me then please consider donating via [Ko-Fi](https://ko-fi.com/dasvino)!",
+    "requirements": [],
+    "short": "Create memes from countless templates using an interactive browser and modals.",
+    "tags": [
+        "memes",
+        "fun",
+        "image",
+        "templates",
+        "generator"
+    ],
+    "end_user_data_statement": "This cog does not store any end user data. The text you type into meme creation modals is sent to the third-party memegen.link API solely to generate the requested meme image URL, and is not persisted by this cog."
+}
