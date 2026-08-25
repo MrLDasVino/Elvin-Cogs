@@ -1,0 +1,20 @@
+{
+    "author": [
+        "Elvin"
+    ],
+    "name": "Chronicle",
+    "short": "Back up and restore your entire Red instance.",
+    "description": "Chronicle helps you move a Red instance to a new machine without redownloading every cog. It exports your installed Downloader repos, installed cogs, and full pip dependency list to a manifest and requirements file, can archive your whole data folder to disk, and on the new machine can automatically reinstall pip dependencies, re-add repos, reinstall cogs, and find and fix hardcoded absolute paths left over from the old install.",
+    "install_msg": "Thanks for installing Chronicle! Run `[p]chronicle` to see the available backup and restore tools. This cog is restricted to the bot owner.",
+    "end_user_data_statement": "This cog does not persistently store data about any Discord user. It only reads and writes files related to the bot's own installation (installed cogs, repositories, and Python dependencies) for backup and restore purposes.",
+    "requirements": [],
+    "tags": [
+        "tools",
+        "backup",
+        "restore",
+        "owner",
+        "utility",
+        "migration"
+    ],
+    "type": "COG"
+}
