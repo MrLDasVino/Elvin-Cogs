@@ -218,6 +218,160 @@ class ImageFilter(BaseCog):
         except Exception:
             return None
 
+    @staticmethod
+    def _is_upload_too_large(error: discord.HTTPException) -> bool:
+        return (
+            getattr(error, "status", None) == 413
+            or getattr(error, "code", None) == 40005
+            or "payload too large" in str(error).casefold()
+        )
+
+    @staticmethod
+    def _upload_limit(interaction: discord.Interaction) -> int:
+        limit = getattr(interaction, "filesize_limit", None)
+        if isinstance(limit, int) and limit > 0:
+            return limit
+        guild = getattr(interaction, "guild", None)
+        guild_limit = getattr(guild, "filesize_limit", None) if guild else None
+        standard_limit = 20 * 1024 * 1024
+        if isinstance(guild_limit, int) and guild_limit > 0:
+            return max(standard_limit, guild_limit)
+        return standard_limit
+
+    @staticmethod
+    def _compress_gif(data: bytes, quality: int) -> Optional[bytes]:
+        try:
+            from PIL import Image, ImageSequence
+        except ImportError:
+            return None
+
+        settings = (
+            (0.88, 256, 1),
+            (0.76, 192, 1),
+            (0.64, 128, 1),
+            (0.54, 96, 2),
+            (0.45, 80, 2),
+            (0.37, 64, 3),
+            (0.30, 48, 4),
+            (0.23, 32, 5),
+        )
+        if quality < 0 or quality >= len(settings):
+            return None
+
+        try:
+            source = Image.open(io.BytesIO(data))
+            scale, colors, frame_step = settings[quality]
+            width, height = source.size
+            size = (max(1, int(width * scale)), max(1, int(height * scale)))
+            durations = []
+            frames = []
+            frame_total = getattr(source, "n_frames", 1)
+            source_durations = []
+            for frame in ImageSequence.Iterator(source):
+                source_durations.append(max(20, int(frame.info.get("duration", source.info.get("duration", 100)))))
+            if not source_durations:
+                source_durations = [100]
+            selected_indices = list(range(0, frame_total, frame_step))
+            for index in selected_indices:
+                source.seek(index)
+                frame = source.convert("RGB")
+                resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", getattr(Image, "LANCZOS", 1))
+                quantize_modes = getattr(Image, "Quantize", Image)
+                quantize_method = getattr(quantize_modes, "MEDIANCUT", 0)
+                if frame.size != size:
+                    frame = frame.resize(size, resampling)
+                frame = frame.quantize(colors=colors, method=quantize_method)
+                frames.append(frame)
+                durations.append(sum(source_durations[index:min(index + frame_step, frame_total)]))
+            if not frames:
+                return None
+            output = io.BytesIO()
+            frames[0].save(
+                output,
+                format="GIF",
+                save_all=True,
+                append_images=frames[1:],
+                duration=durations,
+                loop=source.info.get("loop", 0),
+                optimize=True,
+                disposal=2,
+            )
+            return output.getvalue()
+        except Exception:
+            logger.exception("Could not compress generated GIF")
+            return None
+
+    async def _send_slash_result(self, interaction: discord.Interaction, effect_name: str, data: bytes) -> bool:
+        channel = interaction.channel
+        if channel is None or not hasattr(channel, "send"):
+            await interaction.followup.send(
+                "The effect finished, but I couldn't post the result in this channel.",
+                ephemeral=True,
+            )
+            return False
+
+        limit = self._upload_limit(interaction)
+        last_error = None
+        compressed_versions = 0
+        for attempt in range(9):
+            candidate = data if attempt == 0 else self._compress_gif(data, attempt - 1)
+            if candidate is None:
+                continue
+            if attempt > 0:
+                compressed_versions += 1
+            try:
+                await channel.send(
+                    file=discord.File(io.BytesIO(candidate), filename=f"{effect_name}.gif"),
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+                return True
+            except discord.HTTPException as error:
+                last_error = error
+                if not self._is_upload_too_large(error):
+                    logger.exception("Discord rejected the generated image for effect %s", effect_name)
+                    if getattr(error, "status", None) == 403 or getattr(error, "code", None) == 50013:
+                        message = (
+                            "I generated the image, but I don't have permission to upload files in this channel. "
+                            "Give the bot **Send Messages** and **Attach Files** permission (or **Send Messages in Threads** if this is a thread)."
+                        )
+                    else:
+                        message = (
+                            f"I generated the image, but Discord rejected the upload (HTTP {getattr(error, 'status', 'unknown')}, "
+                            f"error code {getattr(error, 'code', 'unknown')}). Check the channel permissions and server upload limit."
+                        )
+                    await interaction.followup.send(message, ephemeral=True)
+                    return False
+                if attempt == 0:
+                    logger.warning(
+                        "Image upload too large for effect %s: %s bytes; retrying with GIF compression (reported limit %s bytes)",
+                        effect_name,
+                        len(data),
+                        limit,
+                    )
+
+        if last_error is not None:
+            logger.error(
+                "Discord refused the generated image after compression for effect %s",
+                effect_name,
+                exc_info=(type(last_error), last_error, last_error.__traceback__),
+            )
+        original_mib = len(data) / (1024 * 1024)
+        limit_mib = limit / (1024 * 1024)
+        if compressed_versions:
+            message = (
+                f"I generated the image, but Discord still rejected it after trying smaller GIF versions. "
+                f"Original size: {original_mib:.1f} MiB; limit reported for this interaction: {limit_mib:.1f} MiB. "
+                "Check that the bot has **Attach Files** permission in this channel. If it does, this effect may need a smaller source image."
+            )
+        else:
+            message = (
+                f"I generated the image, but it is too large for Discord to upload ({original_mib:.1f} MiB; "
+                f"reported limit {limit_mib:.1f} MiB), and automatic GIF compression was unavailable. "
+                "Install Pillow in the Redbot environment and try again, or use a smaller source image."
+            )
+        await interaction.followup.send(message, ephemeral=True)
+        return False
+
     async def _run_slash_effect(self, interaction: discord.Interaction, effect: str, target: str = "", second_target: str = ""):
         effect_name = _normalise_effect_name(effect)
         if effect_name not in IMAGE_EFFECT_SET:
@@ -248,6 +402,25 @@ class ImageFilter(BaseCog):
                 ephemeral=True,
             )
             return
+
+        app_permissions = getattr(interaction, "app_permissions", None)
+        if app_permissions is not None:
+            channel = interaction.channel
+            is_thread = isinstance(channel, discord.Thread)
+            can_send = getattr(app_permissions, "send_messages_in_threads", False) if is_thread else getattr(app_permissions, "send_messages", False)
+            can_attach = getattr(app_permissions, "attach_files", False)
+            if not can_send or not can_attach:
+                missing = []
+                if not can_send:
+                    missing.append("Send Messages in Threads" if is_thread else "Send Messages")
+                if not can_attach:
+                    missing.append("Attach Files")
+                await interaction.response.send_message(
+                    "I can't post the finished image here because I am missing: **" + ", ".join(missing) + "**. "
+                    "Update the bot's permissions for this channel and run the command again.",
+                    ephemeral=True,
+                )
+                return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
 
@@ -325,26 +498,8 @@ class ImageFilter(BaseCog):
             )
             return
 
-        output = io.BytesIO(data)
-        output.seek(0)
-        channel = interaction.channel
-        if channel is None or not hasattr(channel, "send"):
-            await interaction.followup.send(
-                "The effect finished, but I couldn't post the result in this channel.",
-                ephemeral=True,
-            )
-            return
-        try:
-            await channel.send(
-                file=discord.File(output, filename=f"{effect_name}.gif"),
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-        except discord.HTTPException:
-            logger.exception("Discord could not upload the generated image for effect %s", effect_name)
-            await interaction.followup.send(
-                "The effect finished, but Discord could not upload the result. The image may exceed the upload limit or the bot may lack attachment permission.",
-                ephemeral=True,
-            )
+        uploaded = await self._send_slash_result(interaction, effect_name, data)
+        if not uploaded:
             return
         try:
             await interaction.delete_original_response()
