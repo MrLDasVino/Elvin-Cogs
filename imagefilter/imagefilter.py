@@ -1,13 +1,101 @@
 import io
 import logging
 import random
+import re
+from urllib.parse import urlparse
 from typing import Optional, Union
 
-from redbot.core import commands, Config
+from redbot.core import commands, Config, app_commands
 import aiohttp
 import discord
 
 logger = logging.getLogger("red.cogs.imagefilter")
+
+IMAGE_EFFECTS = ('blur', 'balls', 'abstract', '3d', 'ace', 'ads', 'bayer', 'bevel', 'billboard', 'blocks', 'boil', 'bomb', 'bonks', 'bubble', 'burn', 'canny', 'cartoon', 'cinema', 'clock', 'cloth', 'console', 'contour', 'cow', 'cracks', 'cube', 'dilate', 'dither', 'dizzy', 'dots', 'earthquake', 'emojify', 'endless', 'equations', 'explicit', 'fall', 'fan', 'fire', 'flag', 'flush', 'gallery', 'gameboy_camera', 'glitch', 'globe', 'half_invert', 'heart_diffraction', 'heart_locket', 'hearts', 'infinity', 'ipcam', 'kanye', 'knit', 'lamp', 'laundry', 'layers', 'letters', 'lines', 'liquefy', 'logoff', 'lsd', 'magnify', 'matrix', 'melt', 'minecraft', 'neon', 'optics', 'painting', 'paparazzi', 'patpat', 'pattern', 'phase', 'phone', 'pizza', 'plank', 'plates', 'poly', 'print', 'pyramid', 'quarter', 'radiate', 'rain', 'reflection', 'ripped', 'ripple', 'roll', 'scrapbook', 'sensitive', 'shear', 'shine', 'shock', 'shoot', 'shred', 'slice', 'soap', 'spikes', 'spin', 'stereo', 'stretch', 'tiles', 'tunnel', 'tv', 'wall', 'warp', 'wave', 'wiggle', 'zonk')
+IMAGE_EFFECT_SET = frozenset(IMAGE_EFFECTS)
+
+
+def _normalise_effect_name(value):
+    return re.sub(r"[\s-]+", "_", (value or "").strip().casefold())
+
+
+def _effect_label(value):
+    if value == "3d":
+        return "3D"
+    return value.replace("_", " ").title()
+
+
+async def _effect_autocomplete(interaction: discord.Interaction, current: str):
+    query = (current or "").strip().casefold().replace("_", " ").replace("-", " ")
+    names = list(IMAGE_EFFECTS)
+    if query:
+        def rank(name):
+            label = _effect_label(name).casefold()
+            normalised = name.replace("_", " ").casefold()
+            if label.startswith(query) or normalised.startswith(query):
+                return (0, name)
+            if query in label or query in normalised:
+                return (1, name)
+            return (2, name)
+        names = [name for name in names if query in _effect_label(name).casefold() or query in name.replace("_", " ").casefold()]
+        names.sort(key=rank)
+    else:
+        names.sort(key=lambda name: _effect_label(name).casefold())
+    return [app_commands.Choice(name=_effect_label(name), value=name) for name in names[:25]]
+
+
+def _make_modal_field(label, **kwargs):
+    if hasattr(discord.ui, "Label"):
+        field = discord.ui.TextInput(**kwargs)
+        return field, discord.ui.Label(text=label, component=field)
+    field = discord.ui.TextInput(label=label, **kwargs)
+    return field, field
+
+
+class ImageFilterModal(discord.ui.Modal):
+    def __init__(self, cog, owner_id: int, effect: str, default_target: str = ""):
+        super().__init__(title="Image Filter")
+        self.cog = cog
+        self.owner_id = owner_id
+        self.effect_input, effect_item = _make_modal_field(
+            "Filter / effect",
+            custom_id="imgmanip_effect",
+            default=effect,
+            placeholder="The effect you selected; you may edit it",
+            min_length=1,
+            max_length=80,
+            required=True,
+        )
+        self.target_input, target_item = _make_modal_field(
+            "Target user / ID / URL or text",
+            custom_id="imgmanip_target",
+            default=default_target or None,
+            placeholder="Mention, user ID, image URL; text for ace/scrapbook",
+            max_length=1000,
+            required=False,
+        )
+        self.second_target_input, second_target_item = _make_modal_field(
+            "Second target (heart_locket)",
+            custom_id="imgmanip_target_2",
+            placeholder="Optional; used by heart_locket",
+            max_length=200,
+            required=False,
+        )
+        self.add_item(effect_item)
+        self.add_item(target_item)
+        self.add_item(second_target_item)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("This form belongs to another user.", ephemeral=True)
+            return
+        await self.cog._run_slash_effect(
+            interaction,
+            self.effect_input.value,
+            self.target_input.value,
+            self.second_target_input.value,
+        )
+
 BaseCog = getattr(commands, "Cog", object)
 
 class ImageFilter(BaseCog):
@@ -17,6 +105,40 @@ class ImageFilter(BaseCog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         self.config.register_user(api_key=None)
+
+
+    @app_commands.command(name="imgmanip", description="Search for an image effect, then choose a target in a private form.")
+    @app_commands.describe(
+        effect="Search for a filter or effect",
+        target_user="Optional user to target; you can also enter an ID in the modal",
+    )
+    @app_commands.autocomplete(effect=_effect_autocomplete)
+    async def slash_imgmanip(
+        self,
+        interaction: discord.Interaction,
+        effect: str,
+        target_user: Optional[discord.User] = None,
+    ):
+        effect_name = _normalise_effect_name(effect)
+        if effect_name not in IMAGE_EFFECT_SET:
+            await interaction.response.send_message(
+                "Choose an effect from the autocomplete suggestions when typing the effect name.",
+                ephemeral=True,
+            )
+            return
+        api_key = await self.config.user(interaction.user).api_key()
+        if not api_key:
+            await interaction.response.send_message(
+                "Set your Jeyy API key first with the prefix command `[p]imgmanip setkey YOUR_KEY`, then run this slash command again.",
+                ephemeral=True,
+            )
+            return
+        default_target = ""
+        if target_user is not None and effect_name not in ("ace", "scrapbook"):
+            default_target = str(target_user.id)
+        await interaction.response.send_modal(
+            ImageFilterModal(self, interaction.user.id, effect_name, default_target=default_target)
+        )
 
     @commands.group(name="imgmanip", invoke_without_command=True)
     async def imgmanip(self, ctx):
@@ -55,6 +177,179 @@ class ImageFilter(BaseCog):
                         logger.warning(f"Jeyy POST /{endpoint} failed: {resp.status} {err}")
                         raise RuntimeError(f"HTTP {resp.status}")
                     return await resp.read()
+
+
+    async def _resolve_slash_image(self, interaction: discord.Interaction, target: Optional[str], default_to_author: bool = True) -> Optional[str]:
+        value = (target or "").strip()
+        if not value:
+            if not default_to_author:
+                return None
+            try:
+                return interaction.user.display_avatar.url
+            except Exception:
+                return None
+
+        parsed = urlparse(value)
+        if parsed.scheme.casefold() in ("http", "https") and parsed.netloc:
+            return value
+
+        mention = re.fullmatch(r"<@!?(\d+)>", value)
+        user_id = int(mention.group(1)) if mention else (int(value) if value.isdigit() else None)
+        if user_id is None:
+            return None
+
+        user = None
+        guild = interaction.guild
+        if guild is not None:
+            user = guild.get_member(user_id)
+        if user is None:
+            user = self.bot.get_user(user_id)
+        if user is None:
+            try:
+                user = await self.bot.fetch_user(user_id)
+            except (discord.HTTPException, discord.NotFound, discord.Forbidden):
+                user = None
+            except Exception:
+                user = None
+        if user is None:
+            return None
+        try:
+            return user.display_avatar.url
+        except Exception:
+            return None
+
+    async def _run_slash_effect(self, interaction: discord.Interaction, effect: str, target: str = "", second_target: str = ""):
+        effect_name = _normalise_effect_name(effect)
+        if effect_name not in IMAGE_EFFECT_SET:
+            matches = [name for name in IMAGE_EFFECTS if effect_name in name or name in effect_name] if effect_name else []
+            suggestions = ", ".join(_effect_label(name) for name in matches[:8])
+            message = "That effect was not found. Choose an effect from slash autocomplete."
+            if suggestions:
+                message += f" Possible matches: {suggestions}."
+            await interaction.response.send_message(message, ephemeral=True)
+            return
+
+        api_key = await self.config.user(interaction.user).api_key()
+        if not api_key:
+            await interaction.response.send_message(
+                "Your Jeyy API key is not set. Use `[p]imgmanip setkey YOUR_KEY` and try again.",
+                ephemeral=True,
+            )
+            return
+
+        target = (target or "").strip()
+        second_target = (second_target or "").strip()
+        if effect_name in ("ace", "scrapbook") and not target:
+            await interaction.response.send_message("This effect needs text in the first input field.", ephemeral=True)
+            return
+        if effect_name == "heart_locket" and (not target or not second_target):
+            await interaction.response.send_message(
+                "Heart Locket needs two targets. Enter a user mention, user ID, or image URL in each target field.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        try:
+            if effect_name == "ace":
+                attorneys = ["Jordan Blake", "Alexis Reed", "Taylor Quinn", "Morgan Flynn"]
+                prosecutors = ["Casey Vaughn", "Riley Carter", "Jamie Lee", "Dakota Shore"]
+                user = interaction.user
+                display_name = getattr(user, "display_name", None) or getattr(user, "global_name", None) or user.name
+                params = {
+                    "name": display_name,
+                    "attorney": random.choice(attorneys),
+                    "prosecutor": random.choice(prosecutors),
+                    "side": random.choice(["attorney", "prosecutor"]),
+                    "text": target,
+                }
+            elif effect_name == "scrapbook":
+                params = {"text": target}
+            elif effect_name == "heart_locket":
+                image_one = await self._resolve_slash_image(interaction, target, default_to_author=False)
+                image_two = await self._resolve_slash_image(interaction, second_target, default_to_author=False)
+                if not image_one or not image_two:
+                    await interaction.followup.send(
+                        "I couldn't resolve one of those targets. Use a valid mention, numeric user ID, or HTTP(S) image URL.",
+                        ephemeral=True,
+                    )
+                    return
+                params = {"image_url": image_one, "image_url_2": image_two}
+            else:
+                image_url = await self._resolve_slash_image(interaction, target, default_to_author=True)
+                if not image_url:
+                    await interaction.followup.send(
+                        "I couldn't resolve that target. Use a user mention, numeric user ID, or HTTP(S) image URL.",
+                        ephemeral=True,
+                    )
+                    return
+                params = {"image_url": image_url}
+                if effect_name == "bevel":
+                    params["level"] = random.randint(10, 30)
+                elif effect_name == "boil":
+                    params["level"] = random.randint(1, 5)
+                elif effect_name == "earthquake":
+                    params["level"] = random.randint(1, 10)
+                elif effect_name == "emojify":
+                    params["size"] = random.randint(16, 64)
+                elif effect_name == "glitch":
+                    params["level"] = random.randint(1, 10)
+                elif effect_name == "hearts":
+                    params["rainbow"] = random.choice(["true", "false"])
+                elif effect_name == "minecraft":
+                    params["size"] = random.randint(10, 100)
+                elif effect_name == "shear":
+                    params["axis"] = random.choice(["x", "X", "y", "Y"])
+                    params["x"] = round(random.uniform(-1.0, 1.0), 2)
+                    params["y"] = round(random.uniform(-1.0, 1.0), 2)
+                elif effect_name == "tiles":
+                    params["n_edges"] = random.choice(["3", "4", "5", "6", "7", "8"])
+                elif effect_name == "tunnel":
+                    params["direction"] = random.choice(["h", "v", "c", "r"])
+                elif effect_name == "wave":
+                    params["frequency"] = round(random.uniform(0.01, 0.2), 3)
+                    params["amplitude"] = random.choice(["1", "2", "3", "4", "5"])
+
+            data = await self._fetch(
+                endpoint=f"v2/image/{effect_name}",
+                api_key=api_key,
+                method="GET",
+                params=params,
+            )
+        except Exception:
+            logger.exception("Slash image effect failed: %s", effect_name)
+            await interaction.followup.send(
+                "I couldn't generate that effect. Check your Jeyy API key and try again.",
+                ephemeral=True,
+            )
+            return
+
+        output = io.BytesIO(data)
+        output.seek(0)
+        channel = interaction.channel
+        if channel is None or not hasattr(channel, "send"):
+            await interaction.followup.send(
+                "The effect finished, but I couldn't post the result in this channel.",
+                ephemeral=True,
+            )
+            return
+        try:
+            await channel.send(
+                file=discord.File(output, filename=f"{effect_name}.gif"),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException:
+            logger.exception("Discord could not upload the generated image for effect %s", effect_name)
+            await interaction.followup.send(
+                "The effect finished, but Discord could not upload the result. The image may exceed the upload limit or the bot may lack attachment permission.",
+                ephemeral=True,
+            )
+            return
+        try:
+            await interaction.delete_original_response()
+        except discord.HTTPException:
+            logger.debug("Could not remove the private processing response for effect %s", effect_name, exc_info=True)
 
     async def _resolve_image_url(
         self,
