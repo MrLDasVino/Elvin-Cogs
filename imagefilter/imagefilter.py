@@ -302,17 +302,28 @@ class ImageFilter(BaseCog):
             return None
 
     async def _send_slash_result(self, interaction: discord.Interaction, effect_name: str, data: bytes) -> bool:
-        channel = interaction.channel
-        if channel is None or not hasattr(channel, "send"):
-            await interaction.followup.send(
-                "The effect finished, but I couldn't post the result in this channel.",
-                ephemeral=True,
-            )
-            return False
-
         limit = self._upload_limit(interaction)
         last_error = None
         compressed_versions = 0
+
+        try:
+            await interaction.followup.send("\u200b", ephemeral=True)
+            try:
+                await interaction.delete_original_response()
+            except discord.HTTPException:
+                logger.debug("Could not delete the private processing response", exc_info=True)
+        except discord.HTTPException:
+            logger.exception("Could not prepare the interaction for public image delivery")
+            try:
+                await interaction.followup.send(
+                    "The effect finished, but Discord would not let me prepare the public image response. "
+                    "Check whether this server allows external apps to post publicly.",
+                    ephemeral=True,
+                )
+            except discord.HTTPException:
+                logger.exception("Could not report the public image delivery error")
+            return False
+
         for attempt in range(9):
             candidate = data if attempt == 0 else self._compress_gif(data, attempt - 1)
             if candidate is None:
@@ -320,8 +331,9 @@ class ImageFilter(BaseCog):
             if attempt > 0:
                 compressed_versions += 1
             try:
-                await channel.send(
+                await interaction.followup.send(
                     file=discord.File(io.BytesIO(candidate), filename=f"{effect_name}.gif"),
+                    ephemeral=False,
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
                 return True
@@ -331,15 +343,18 @@ class ImageFilter(BaseCog):
                     logger.exception("Discord rejected the generated image for effect %s", effect_name)
                     if getattr(error, "status", None) == 403 or getattr(error, "code", None) == 50013:
                         message = (
-                            "I generated the image, but I don't have permission to upload files in this channel. "
-                            "Give the bot **Send Messages** and **Attach Files** permission (or **Send Messages in Threads** if this is a thread)."
+                            "The image was generated, but Discord would not allow this app to post it publicly. "
+                            "Check the server's **Use External Apps** permission and your permission to send messages in this channel."
                         )
                     else:
                         message = (
-                            f"I generated the image, but Discord rejected the upload (HTTP {getattr(error, 'status', 'unknown')}, "
-                            f"error code {getattr(error, 'code', 'unknown')}). Check the channel permissions and server upload limit."
+                            f"The image was generated, but Discord rejected the public upload (HTTP {getattr(error, 'status', 'unknown')}, "
+                            f"error code {getattr(error, 'code', 'unknown')}). Check the server's external-app settings and upload limit."
                         )
-                    await interaction.followup.send(message, ephemeral=True)
+                    try:
+                        await interaction.followup.send(message, ephemeral=True)
+                    except discord.HTTPException:
+                        logger.exception("Could not report the public image upload error")
                     return False
                 if attempt == 0:
                     logger.warning(
@@ -361,7 +376,7 @@ class ImageFilter(BaseCog):
             message = (
                 f"I generated the image, but Discord still rejected it after trying smaller GIF versions. "
                 f"Original size: {original_mib:.1f} MiB; limit reported for this interaction: {limit_mib:.1f} MiB. "
-                "Check that the bot has **Attach Files** permission in this channel. If it does, this effect may need a smaller source image."
+                "Try a smaller source image or an effect with a smaller output."
             )
         else:
             message = (
@@ -369,7 +384,10 @@ class ImageFilter(BaseCog):
                 f"reported limit {limit_mib:.1f} MiB), and automatic GIF compression was unavailable. "
                 "Install Pillow in the Redbot environment and try again, or use a smaller source image."
             )
-        await interaction.followup.send(message, ephemeral=True)
+        try:
+            await interaction.followup.send(message, ephemeral=True)
+        except discord.HTTPException:
+            logger.exception("Could not report the image size error")
         return False
 
     async def _run_slash_effect(self, interaction: discord.Interaction, effect: str, target: str = "", second_target: str = ""):
@@ -402,25 +420,6 @@ class ImageFilter(BaseCog):
                 ephemeral=True,
             )
             return
-
-        app_permissions = getattr(interaction, "app_permissions", None)
-        if app_permissions is not None:
-            channel = interaction.channel
-            is_thread = isinstance(channel, discord.Thread)
-            can_send = getattr(app_permissions, "send_messages_in_threads", False) if is_thread else getattr(app_permissions, "send_messages", False)
-            can_attach = getattr(app_permissions, "attach_files", False)
-            if not can_send or not can_attach:
-                missing = []
-                if not can_send:
-                    missing.append("Send Messages in Threads" if is_thread else "Send Messages")
-                if not can_attach:
-                    missing.append("Attach Files")
-                await interaction.response.send_message(
-                    "I can't post the finished image here because I am missing: **" + ", ".join(missing) + "**. "
-                    "Update the bot's permissions for this channel and run the command again.",
-                    ephemeral=True,
-                )
-                return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
 
@@ -498,13 +497,7 @@ class ImageFilter(BaseCog):
             )
             return
 
-        uploaded = await self._send_slash_result(interaction, effect_name, data)
-        if not uploaded:
-            return
-        try:
-            await interaction.delete_original_response()
-        except discord.HTTPException:
-            logger.debug("Could not remove the private processing response for effect %s", effect_name, exc_info=True)
+        await self._send_slash_result(interaction, effect_name, data)
 
     async def _resolve_image_url(
         self,
