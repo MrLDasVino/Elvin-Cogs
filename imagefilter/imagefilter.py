@@ -125,6 +125,8 @@ class ImageFilter(BaseCog):
 
 
     @app_commands.command(name="imgmanip", description="Search for an image effect and apply it to a user or image.")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(
         effect="Search for a filter or effect",
         target_user="Optionally choose a Discord user",
