@@ -54,47 +54,64 @@ def _make_modal_field(label, **kwargs):
 
 class ImageFilterModal(discord.ui.Modal):
     def __init__(self, cog, owner_id: int, effect: str, default_target: str = ""):
-        super().__init__(title="Image Filter")
+        titles = {
+            "ace": "Ace Dialogue",
+            "scrapbook": "Scrapbook Text",
+            "heart_locket": "Heart Locket Targets",
+        }
+        super().__init__(title=titles[effect])
         self.cog = cog
         self.owner_id = owner_id
-        self.effect_input, effect_item = _make_modal_field(
-            "Filter / effect",
-            custom_id="imgmanip_effect",
-            default=effect,
-            placeholder="The effect you selected; you may edit it",
-            min_length=1,
-            max_length=80,
-            required=True,
-        )
-        self.target_input, target_item = _make_modal_field(
-            "Target user / ID / URL or text",
-            custom_id="imgmanip_target",
-            default=default_target or None,
-            placeholder="Mention, user ID, image URL; text for ace/scrapbook",
-            max_length=1000,
-            required=False,
-        )
-        self.second_target_input, second_target_item = _make_modal_field(
-            "Second target (heart_locket)",
-            custom_id="imgmanip_target_2",
-            placeholder="Optional; used by heart_locket",
-            max_length=200,
-            required=False,
-        )
-        self.add_item(effect_item)
-        self.add_item(target_item)
-        self.add_item(second_target_item)
+        self.effect = effect
+        self.target_input = None
+        self.second_target_input = None
+
+        if effect == "ace":
+            self.target_input, target_item = _make_modal_field(
+                "Text in the speech bubble",
+                custom_id="imgmanip_ace_text",
+                placeholder="Enter the dialogue for the Ace GIF",
+                min_length=1,
+                max_length=500,
+                required=True,
+            )
+            self.add_item(target_item)
+        elif effect == "scrapbook":
+            self.target_input, target_item = _make_modal_field(
+                "Scrapbook text",
+                custom_id="imgmanip_scrapbook_text",
+                placeholder="Enter the text for the scrapbook image",
+                min_length=1,
+                max_length=1000,
+                required=True,
+            )
+            self.add_item(target_item)
+        elif effect == "heart_locket":
+            self.target_input, target_item = _make_modal_field(
+                "First target (user ID or image URL)",
+                custom_id="imgmanip_locket_target_1",
+                default=default_target or None,
+                placeholder="User mention, user ID, or image URL",
+                max_length=500,
+                required=True,
+            )
+            self.second_target_input, second_target_item = _make_modal_field(
+                "Second target (user ID or image URL)",
+                custom_id="imgmanip_locket_target_2",
+                placeholder="Another user mention, user ID, or image URL",
+                max_length=500,
+                required=True,
+            )
+            self.add_item(target_item)
+            self.add_item(second_target_item)
 
     async def on_submit(self, interaction: discord.Interaction):
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message("This form belongs to another user.", ephemeral=True)
             return
-        await self.cog._run_slash_effect(
-            interaction,
-            self.effect_input.value,
-            self.target_input.value,
-            self.second_target_input.value,
-        )
+        target = self.target_input.value if self.target_input is not None else ""
+        second_target = self.second_target_input.value if self.second_target_input is not None else ""
+        await self.cog._run_slash_effect(interaction, self.effect, target, second_target)
 
 BaseCog = getattr(commands, "Cog", object)
 
@@ -107,10 +124,11 @@ class ImageFilter(BaseCog):
         self.config.register_user(api_key=None)
 
 
-    @app_commands.command(name="imgmanip", description="Search for an image effect, then choose a target in a private form.")
+    @app_commands.command(name="imgmanip", description="Search for an image effect and apply it to a user or image.")
     @app_commands.describe(
         effect="Search for a filter or effect",
-        target_user="Optional user to target; you can also enter an ID in the modal",
+        target_user="Optionally choose a Discord user",
+        target="Optional user mention, user ID, or image URL",
     )
     @app_commands.autocomplete(effect=_effect_autocomplete)
     async def slash_imgmanip(
@@ -118,6 +136,7 @@ class ImageFilter(BaseCog):
         interaction: discord.Interaction,
         effect: str,
         target_user: Optional[discord.User] = None,
+        target: Optional[str] = None,
     ):
         effect_name = _normalise_effect_name(effect)
         if effect_name not in IMAGE_EFFECT_SET:
@@ -126,6 +145,7 @@ class ImageFilter(BaseCog):
                 ephemeral=True,
             )
             return
+
         api_key = await self.config.user(interaction.user).api_key()
         if not api_key:
             await interaction.response.send_message(
@@ -133,12 +153,23 @@ class ImageFilter(BaseCog):
                 ephemeral=True,
             )
             return
-        default_target = ""
-        if target_user is not None and effect_name not in ("ace", "scrapbook"):
-            default_target = str(target_user.id)
-        await interaction.response.send_modal(
-            ImageFilterModal(self, interaction.user.id, effect_name, default_target=default_target)
-        )
+
+        target_value = (target or "").strip()
+        if not target_value and target_user is not None:
+            target_value = str(target_user.id)
+
+        if effect_name in ("ace", "scrapbook", "heart_locket"):
+            await interaction.response.send_modal(
+                ImageFilterModal(
+                    self,
+                    interaction.user.id,
+                    effect_name,
+                    default_target=target_value if effect_name == "heart_locket" else "",
+                )
+            )
+            return
+
+        await self._run_slash_effect(interaction, effect_name, target_value)
 
     @commands.group(name="imgmanip", invoke_without_command=True)
     async def imgmanip(self, ctx):
