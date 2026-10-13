@@ -198,6 +198,16 @@ class ImageFilter(BaseCog):
         self.config.register_user(api_key=None)
         self.config.register_global(api_key=None)
 
+    def cog_unload(self):
+        tree = getattr(self.bot, "tree", None)
+        if tree is None:
+            return
+        try:
+            current = tree.get_command("Image Effect", type=discord.AppCommandType.message)
+            if current is image_effect_context_menu:
+                tree.remove_command("Image Effect", type=discord.AppCommandType.message)
+        except Exception:
+            logger.debug("Could not remove Image Effect context menu during unload", exc_info=True)
 
     @app_commands.command(name="imgmanip", description="Search for an image effect and apply it to a user or image.")
     @app_commands.allowed_installs(guilds=True, users=True)
@@ -255,10 +265,7 @@ class ImageFilter(BaseCog):
         guild=True, user=True
     )
 
-    @app_commands.context_menu(name="Image Effect")
-    @app_commands.allowed_installs(guilds=True, users=True)
-    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
-    async def message_image_effect(self, interaction: discord.Interaction, message: discord.Message):
+    async def _handle_message_image_effect(self, interaction: discord.Interaction, message: discord.Message):
         target_url = self._message_image_url(message)
         if not target_url:
             try:
@@ -3521,5 +3528,16 @@ class ImageFilter(BaseCog):
         fp.seek(0)
         await ctx.send(file=discord.File(fp, "zonk.gif"))
 
-
+@app_commands.context_menu(name="Image Effect")
+@app_commands.allowed_installs(guilds=True, users=True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+async def image_effect_context_menu(interaction: discord.Interaction, message: discord.Message):
+    cog = interaction.client.get_cog("ImageFilter")
+    if cog is None:
+        await interaction.response.send_message(
+            "The ImageFilter cog is not currently loaded.",
+            ephemeral=True,
+        )
+        return
+    await cog._handle_message_image_effect(interaction, message)
 
