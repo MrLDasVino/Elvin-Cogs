@@ -203,9 +203,7 @@ class ImageFilter(BaseCog):
         if tree is None:
             return
         try:
-            current = tree.get_command("Image Effect", type=discord.AppCommandType.message)
-            if current is image_effect_context_menu:
-                tree.remove_command("Image Effect", type=discord.AppCommandType.message)
+            tree.remove_command("Image Effect", type=discord.AppCommandType.message)
         except Exception:
             logger.debug("Could not remove Image Effect context menu during unload", exc_info=True)
 

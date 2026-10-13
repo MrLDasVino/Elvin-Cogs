@@ -7,7 +7,9 @@ async def setup(bot):
     tree = getattr(bot, "tree", None)
     if tree is None:
         return
-    existing = tree.get_command("Image Effect", type=discord.AppCommandType.message)
-    if existing is not None:
-        tree.remove_command("Image Effect", type=discord.AppCommandType.message)
-    tree.add_command(image_effect_context_menu)
+    tree.remove_command("Image Effect", type=discord.AppCommandType.message)
+    image_effect_context_menu.extras["red_force_enable"] = True
+    tree.add_command(image_effect_context_menu, override=True)
+    red_check_enabled = getattr(tree, "red_check_enabled", None)
+    if red_check_enabled is not None:
+        await red_check_enabled()
