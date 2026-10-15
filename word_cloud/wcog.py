@@ -138,29 +138,24 @@ class WordCloudCog(commands.Cog):
         await self._shutdown()
 
     async def _shutdown(self):
-        task = getattr(self.autogen_loop, "_task", None)
-        try:
-            if self.autogen_loop.is_running():
-                self.autogen_loop.cancel()
-            elif task is not None and not task.done():
-                task.cancel()
-
-            if task is not None and task is not asyncio.current_task():
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    log.exception("Error while stopping the WordCloud autogeneration loop")
-        finally:
-            session = self._session
-            self._session = None
-            if session is not None and not session.closed:
-                try:
-                    await session.close()
-                except Exception:
-                    log.exception("Failed to close the WordCloud HTTP session")
-
+        loop = self.autogen_loop
+        if loop.is_running():
+            loop.cancel()
+        task = getattr(loop, "_task", None)
+        if task is not None and task is not asyncio.current_task():
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("Error while stopping the wordcloud autogeneration loop")
+        session = self._session
+        self._session = None
+        if session is not None and not session.closed:
+            try:
+                await session.close()
+            except Exception:
+                log.exception("Error while closing the wordcloud HTTP session")
 
     async def _ensure_db(self):
         # Create tables and add 'mask' column if missing

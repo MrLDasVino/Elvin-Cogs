@@ -32,13 +32,23 @@ class freegames(commands.Cog):
             "running": False,
         }
         self.config.register_guild(**default_guild)
-        self._tasks = {}  # guild_id -> asyncio.Task
+        self._tasks = {}
         self._session: Optional[aiohttp.ClientSession] = None
+        self._owns_session = False
 
-    def cog_unload(self):
-        for task in self._tasks.values():
+    async def cog_unload(self):
+        tasks = list(self._tasks.values())
+        self._tasks.clear()
+        for task in tasks:
             task.cancel()
-            
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        session = self._session
+        self._session = None
+        if self._owns_session and session is not None and not session.closed:
+            await session.close()
+        self._owns_session = False
+
     async def cog_load(self):
         # auto-resume tasks whenever this cog is (re)loaded
         for guild in self.bot.guilds:
@@ -57,12 +67,19 @@ class freegames(commands.Cog):
                 self._tasks[guild.id] = task
                 log.info("Resumed freegames polling for guild %s", guild.id)            
 
-    async def _get_session(self):
+    async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
+            shared_session = None
             try:
-                self._session = self.bot.http._HTTPClient__session  # type: ignore
+                shared_session = getattr(self.bot.http, "_HTTPClient__session", None)
             except Exception:
+                shared_session = None
+            if shared_session is not None and not shared_session.closed:
+                self._session = shared_session
+                self._owns_session = False
+            else:
                 self._session = aiohttp.ClientSession()
+                self._owns_session = True
         return self._session
 
     async def _fetch_giveaways(self, params: dict) -> List[dict]:

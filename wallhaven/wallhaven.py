@@ -436,21 +436,14 @@ class WallhavenCog(commands.Cog):
         self.config.register_guild(**DEFAULTS)
         self._http: Optional[aiohttp.ClientSession] = None
         self._cache: Dict[int, Dict[str, Any]] = {}
-        self._unloading = False
 
     async def cog_unload(self):
-        self._unloading = True
         session = self._http
         self._http = None
         if session is not None and not session.closed:
-            try:
-                await session.close()
-            except Exception:
-                logger.exception("Failed to close the Wallhaven HTTP session")
+            await session.close()
 
     async def _session(self) -> aiohttp.ClientSession:
-        if self._unloading:
-            raise commands.CommandError("Wallhaven is shutting down. Please try again later.")
         if not self._http or self._http.closed:
             self._http = aiohttp.ClientSession()
         return self._http
