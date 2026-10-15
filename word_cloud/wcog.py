@@ -134,47 +134,33 @@ class WordCloudCog(commands.Cog):
         self._session = aiohttp.ClientSession()
         self.autogen_loop.start()
 
-    def cog_unload(self):
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-    
-        if loop:
-            loop.create_task(self._shutdown())
-        else:
-            try:
-                if self.autogen_loop.is_running():
-                    self.autogen_loop.cancel()
-                    task = getattr(self.autogen_loop, "_task", None)
-                    if task:
-                        try:
-                            task.cancel()
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-    
+    async def cog_unload(self):
+        await self._shutdown()
+
     async def _shutdown(self):
+        task = getattr(self.autogen_loop, "_task", None)
         try:
             if self.autogen_loop.is_running():
                 self.autogen_loop.cancel()
-            task = getattr(self.autogen_loop, "_task", None)
-            if task:
+            elif task is not None and not task.done():
+                task.cancel()
+
+            if task is not None and task is not asyncio.current_task():
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
-        except Exception:
-            pass
-    
-        
-        if getattr(self, "_session", None) is not None:
-            try:
-                await self._session.close()
-            except Exception:
-                pass
-    
+                except Exception:
+                    log.exception("Error while stopping the WordCloud autogeneration loop")
+        finally:
+            session = self._session
+            self._session = None
+            if session is not None and not session.closed:
+                try:
+                    await session.close()
+                except Exception:
+                    log.exception("Failed to close the WordCloud HTTP session")
+
 
     async def _ensure_db(self):
         # Create tables and add 'mask' column if missing
