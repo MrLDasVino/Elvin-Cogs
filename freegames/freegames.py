@@ -137,64 +137,103 @@ class freegames(commands.Cog):
         log.info("Starting freegames poll loop for guild %s", gid)
         try:
             while True:
-                cfg = await self.config.guild(guild).all()
-                channel_id = cfg["channel_id"]
-                role_id = cfg["role_id"]
-                platforms = cfg["platforms"]
-                types = cfg["types"]
-                interval = cfg["interval"]
-                seen_ids = set(cfg["seen_ids"] or [])
-
-                if not channel_id or not role_id:
-                    await asyncio.sleep(interval)
-                    continue
-
-                params = {}
-                if platforms:
-                    params["platform"] = ".".join(platforms)
-                if types:
-                    params["type"] = ".".join(types)
-
+                interval = DEFAULT_INTERVAL
                 try:
+                    cfg = await self.config.guild(guild).all()
+                    channel_id = cfg.get("channel_id")
+                    role_id = cfg.get("role_id")
+                    platforms = cfg.get("platforms") or []
+                    types = cfg.get("types") or []
+                    interval = max(10, int(cfg.get("interval") or DEFAULT_INTERVAL))
+                    seen_ids = {str(value) for value in (cfg.get("seen_ids") or [])}
+
+                    if not channel_id or not role_id:
+                        await asyncio.sleep(interval)
+                        continue
+
+                    params = {}
+                    if platforms:
+                        params["platform"] = ".".join(platforms)
+                    if types:
+                        params["type"] = ".".join(types)
+
                     giveaways = await self._fetch_giveaways(params)
-                except Exception as e:
-                    log.exception("Error fetching giveaways for guild %s: %s", gid, e)
-                    giveaways = []
+                    if not isinstance(giveaways, list):
+                        log.warning(
+                            "GamerPower returned an unexpected response for guild %s: %s",
+                            gid,
+                            type(giveaways).__name__,
+                        )
+                        giveaways = []
 
-                new_items = []
-                for item in giveaways:
-                    gid_str = str(item.get("id") or item.get("giveaway_id") or item.get("title"))
-                    if gid_str not in seen_ids:
-                        new_items.append(item)
-                        seen_ids.add(gid_str)
+                    new_items = []
+                    for item in giveaways:
+                        if not isinstance(item, dict):
+                            continue
+                        giveaway_id = str(
+                            item.get("id")
+                            or item.get("giveaway_id")
+                            or item.get("title")
+                            or item.get("open_giveaway_url")
+                            or item.get("gamerpower_url")
+                            or ""
+                        )
+                        if giveaway_id and giveaway_id not in seen_ids:
+                            new_items.append((giveaway_id, item))
 
-                if new_items:
-                    channel = guild.get_channel(channel_id) or self.bot.get_channel(channel_id)
-                    if channel:
-                        allowed = discord.AllowedMentions(roles=True, users=False, everyone=False)
-                        mention = f"<@&{role_id}>"
-                        try:
-                            await channel.send(mention + " Check out this free stuff:", allowed_mentions=allowed)
-                        except Exception:
-                            log.exception("Failed to send role mention in guild %s", gid)
-                        for item in new_items[:MAX_EMBEDS_PER_POLL]:
-                            embed = self._make_embed_for_item(item)
-                            try:
-                                await channel.send(embed=embed)
-                            except Exception:
-                                log.exception(
-                                    "Failed to send embed in guild %s for %s",
-                                    gid,
-                                    item.get("title"),
+                    if new_items:
+                        channel = guild.get_channel(channel_id) or self.bot.get_channel(channel_id)
+                        if channel is None:
+                            log.warning(
+                                "Configured freegames channel %s could not be found for guild %s; giveaways were not marked as seen",
+                                channel_id,
+                                gid,
+                            )
+                        else:
+                            posted_ids = []
+                            for giveaway_id, item in new_items[:MAX_EMBEDS_PER_POLL]:
+                                try:
+                                    embed = self._make_embed_for_item(item)
+                                    await channel.send(embed=embed)
+                                    posted_ids.append(giveaway_id)
+                                except Exception:
+                                    log.exception(
+                                        "Failed to send embed in guild %s for %s",
+                                        gid,
+                                        item.get("title"),
+                                    )
+
+                            if posted_ids:
+                                allowed = discord.AllowedMentions(
+                                    roles=True, users=False, everyone=False
                                 )
-                    await self.config.guild(guild).seen_ids.set(list(seen_ids))
+                                mention = f"<@&{role_id}> Check out this free stuff:"
+                                try:
+                                    await channel.send(mention, allowed_mentions=allowed)
+                                except Exception:
+                                    log.exception(
+                                        "Failed to send role mention in guild %s", gid
+                                    )
+                                seen_ids.update(posted_ids)
+                                await self.config.guild(guild).seen_ids.set(list(seen_ids))
 
-                await asyncio.sleep(max(10, interval))
+                    await asyncio.sleep(interval)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    log.exception("Error during freegames poll for guild %s", gid)
+                    await asyncio.sleep(max(10, interval))
         except asyncio.CancelledError:
             log.info("Polling cancelled for guild %s", gid)
-        except Exception:
-            log.exception("Polling crashed for guild %s", gid)
-          
+        finally:
+            current_task = asyncio.current_task()
+            if self._tasks.get(gid) is current_task:
+                self._tasks.pop(gid, None)
+                try:
+                    await self.config.guild(guild).running.set(False)
+                except Exception:
+                    log.exception("Failed to update polling status for guild %s", gid)
+
 
     # Configuration commands
 
