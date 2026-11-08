@@ -800,6 +800,10 @@ class FortunePaginator(discord.ui.View):
 
 
 class FortuneGarden(commands.Cog):
+    @commands.command(name="fortunegarden", help="Show the FortuneGarden command list.")
+    async def fortunegarden(self, ctx):
+        await self.bot.send_help_for(ctx, self)
+
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=9876543210987)
@@ -1644,8 +1648,8 @@ class FortuneGarden(commands.Cog):
         await ctx.send(f"🌿 Fertilizer used! Your seed's bloom time was reduced by up to **{minutes_saved} minutes**, and its flower reward odds have improved.")
 
     @commands.guild_only()
-    @commands.command(name="garden", aliases=["mygarden"], help="View your personal FortuneGarden, level, collection and progress.")
-    async def garden(self, ctx, member: discord.Member = None):
+    @commands.command(name="forgarden", aliases=["mygarden"], help="View your personal FortuneGarden, level, collection and progress.")
+    async def forgarden(self, ctx, member: discord.Member = None):
         member = member or ctx.author
         lock = self._member_lock(ctx.guild.id, member.id)
         async with lock:
