@@ -676,30 +676,54 @@ FLOWERS = {
     "Clover": "Common",
     "Daisy": "Common",
     "Bluebell": "Common",
-    "Moonflower": "Uncommon",
-    "Foxglove": "Uncommon",
+    "Sunpetal": "Common",
+    "Snowdrop": "Common",
+    "Honeybell": "Uncommon",
     "Lavender": "Uncommon",
+    "Foxglove": "Uncommon",
+    "Silver Fern": "Uncommon",
+    "Amberleaf": "Uncommon",
+    "Nightshade Bell": "Uncommon",
+    "Moonflower": "Uncommon",
     "Crystal Rose": "Rare",
     "Star Lily": "Rare",
     "Firefly Orchid": "Rare",
+    "Glacier Peony": "Rare",
+    "Ruins Orchid": "Rare",
+    "Dreamrose": "Rare",
+    "Rainkissed Iris": "Rare",
+    "Dragonfruit Bloom": "Rare",
     "Celestial Lily": "Epic",
     "Aurora Bloom": "Epic",
+    "Nebula Rose": "Epic",
+    "Comet Blossom": "Epic",
+    "Prism Poppy": "Epic",
+    "Stormglass Iris": "Epic",
+    "Verdant Crown": "Epic",
+    "Emberheart Bloom": "Epic",
     "Eternal Blossom": "Legendary",
+    "Ghost Orchid": "Legendary",
+    "Starfall Peony": "Legendary",
+    "Elderlight Blossom": "Legendary",
+    "Cinder Lily": "Rare",
+    "Tideglass Lotus": "Rare",
+    "Deepsea Anemone": "Uncommon",
     "Frostbell": "Seasonal",
     "Sakura": "Seasonal",
     "Sunflare": "Seasonal",
     "Harvest Crown": "Seasonal",
-    "Glacier Peony": "Rare",
-    "Nebula Rose": "Epic",
-    "Ruins Orchid": "Rare",
-    "Silver Fern": "Uncommon",
+    "Springtide Bellflower": "Seasonal",
+    "Ember Tulip": "Seasonal",
 }
 BIOME_FLOWERS = {
-    "meadow": ["Dandelion", "Clover", "Daisy", "Bluebell"],
-    "moonlit": ["Moonflower", "Star Lily", "Firefly Orchid"],
-    "frozen": ["Frostbell", "Glacier Peony", "Bluebell"],
-    "celestial": ["Celestial Lily", "Aurora Bloom", "Nebula Rose"],
-    "ruins": ["Ruins Orchid", "Silver Fern", "Foxglove"],
+    "meadow": ["Dandelion", "Clover", "Daisy", "Bluebell", "Sunpetal", "Honeybell", "Amberleaf"],
+    "moonlit": ["Moonflower", "Star Lily", "Firefly Orchid", "Dreamrose", "Nightshade Bell", "Ghost Orchid"],
+    "frozen": ["Frostbell", "Glacier Peony", "Bluebell", "Snowdrop", "Aurora Bloom", "Ember Tulip"],
+    "celestial": ["Celestial Lily", "Aurora Bloom", "Nebula Rose", "Comet Blossom", "Starfall Peony", "Prism Poppy"],
+    "ruins": ["Ruins Orchid", "Silver Fern", "Foxglove", "Dragonfruit Bloom", "Ghost Orchid", "Stormglass Iris", "Elderlight Blossom"],
+    "enchanted": ["Honeybell", "Verdant Crown", "Elderlight Blossom", "Dreamrose", "Foxglove", "Sunpetal"],
+    "volcanic": ["Cinder Lily", "Emberheart Bloom", "Sunflare", "Dragonfruit Bloom", "Stormglass Iris"],
+    "tidal": ["Tideglass Lotus", "Deepsea Anemone", "Rainkissed Iris", "Bluebell", "Moonflower"],
 }
 SEASONAL_EVENTS = {
     "winter": {"name": "Winter's Frost", "flower": "Frostbell", "emoji": "❄️"},
@@ -714,17 +738,119 @@ DECORATION_UNLOCKS = {
     5: "Moonlit Arch",
     8: "Starfall Pond",
     12: "Celestial Gazebo",
+    16: "Moonwell Fountain",
+    20: "Ancient Rune Circle",
+    25: "Enchanted Treehouse",
+    30: "Emberglass Conservatory",
+    35: "Tideglass Pavilion",
 }
 ACHIEVEMENT_DESCRIPTIONS = {
     "First Plant": "Plant your first fortune seed.",
     "First Bloom": "Receive your first bloom.",
     "Dedicated Gardener": "Grow 10 seeds.",
     "Master Gardener": "Grow 50 seeds.",
+    "Evergreen Heart": "Grow 100 seeds.",
+    "Seed Sower": "Plant 10 seeds.",
+    "Seed Artisan": "Plant 50 seeds.",
+    "Seed Legend": "Plant 100 seeds.",
     "Green Thumb": "Reach garden level 5.",
+    "Verdant Master": "Reach garden level 10.",
+    "Garden Legend": "Reach garden level 25.",
     "Botanist": "Collect 5 different flowers.",
     "Collector's Pride": "Collect 10 different flowers.",
-    "Once in a Lifetime": "Discover a legendary flower.",
+    "Living Herbarium": "Collect 20 different flowers.",
+    "Bouquet Maker": "Collect 50 flowers in total.",
+    "Rare Discovery": "Discover a Rare flower.",
+    "Beyond the Ordinary": "Discover an Epic flower.",
+    "Once in a Lifetime": "Discover a Legendary flower.",
     "Faithful Waterer": "Reach a seven-day watering streak.",
+    "Rainkeeper": "Reach a fourteen-day watering streak.",
+    "Water Bearer": "Water 100 growing seeds over time.",
+    "Alchemist's Apprentice": "Craft your first potion.",
+    "Master Alchemist": "Craft 10 potions.",
+    "Grand Alchemist": "Craft 50 potions.",
+    "First Expedition": "Complete your first expedition.",
+    "Pathfinder": "Complete 10 expeditions.",
+    "World Wanderer": "Complete 25 expeditions.",
+    "Friendly Face": "Visit 5 other gardens.",
+    "Garden Ambassador": "Visit 25 other gardens.",
+    "Beloved Garden": "Receive 10 garden visits.",
+    "Generous Gardener": "Gift 10 flowers to other gardeners.",
+    "Fair Trader": "Complete 5 player trades.",
+    "Festival Friend": "Earn 5 seasonal or festival bloom points.",
+    "Festival Legend": "Earn 30 seasonal or festival bloom points.",
+    "Companion Keeper": "Discover 3 garden companions.",
+    "Menagerie": "Discover every garden companion.",
+    "Biome Explorer": "Unlock 3 garden biomes.",
+    "World Traveller": "Unlock every garden biome.",
+    "Decorative Touch": "Unlock 5 garden decorations.",
+    "Quest Collector": "Claim 10 daily or weekly quests.",
+    "Community Roots": "Contribute 250 points to a community garden.",
+    "Heart of the Village": "Contribute 1,000 points to a community garden.",
+    "World Tree Keeper": "Grow your World Tree to level 10.",
+    "Prestigious": "Reach your first garden prestige.",
+    "Fivefold Prestige": "Reach garden prestige 5.",
+    "Weather Watcher": "Experience 6 different kinds of garden weather.",
+    "Market Regular": "Buy 10 items from the garden market.",
+    "Master Explorer": "Complete 50 expeditions.",
+    "Seasonal Collector": "Collect 4 different seasonal flowers.",
+    "Moon Phase Scholar": "Plant seeds under all 8 moon phases.",
+    "Garden Archivist": "Record 20 bloom rewards in your history.",
+    "Grand Host": "Welcome 50 visitors to your garden.",
+}
+ACHIEVEMENT_REWARDS = {
+    "First Plant": {"xp": 20, "seeds": {"common": 1}},
+    "First Bloom": {"xp": 25, "items": {"fertilizer": 1}},
+    "Dedicated Gardener": {"xp": 50, "seeds": {"common": 2}},
+    "Master Gardener": {"xp": 100, "seeds": {"golden": 1}},
+    "Evergreen Heart": {"xp": 200, "seeds": {"moonlight": 1}},
+    "Seed Sower": {"xp": 35, "items": {"fertilizer": 1}},
+    "Seed Artisan": {"xp": 75, "potions": {"growth_potion": 1}},
+    "Seed Legend": {"xp": 150, "seeds": {"golden": 2}},
+    "Green Thumb": {"xp": 50, "items": {"fertilizer": 2}},
+    "Verdant Master": {"xp": 100, "potions": {"fortune_elixir": 1}},
+    "Garden Legend": {"xp": 250, "seeds": {"ancient": 1}},
+    "Botanist": {"xp": 40, "items": {"fertilizer": 1}},
+    "Collector's Pride": {"xp": 80, "potions": {"golden_fertilizer": 1}},
+    "Living Herbarium": {"xp": 160, "seeds": {"moonlight": 1}},
+    "Bouquet Maker": {"xp": 75, "potions": {"nectar_tonic": 1}},
+    "Rare Discovery": {"xp": 50, "items": {"fertilizer": 1}},
+    "Beyond the Ordinary": {"xp": 100, "potions": {"aurora_draught": 1}},
+    "Once in a Lifetime": {"xp": 250, "seeds": {"ancient": 1}},
+    "Faithful Waterer": {"xp": 75, "items": {"fertilizer": 2}},
+    "Rainkeeper": {"xp": 150, "potions": {"dew_of_renewal": 1}},
+    "Water Bearer": {"xp": 180, "potions": {"golden_fertilizer": 2}},
+    "Alchemist's Apprentice": {"xp": 35, "potions": {"growth_potion": 1}},
+    "Master Alchemist": {"xp": 100, "potions": {"fortune_elixir": 1}},
+    "Grand Alchemist": {"xp": 250, "seeds": {"golden": 1}},
+    "First Expedition": {"xp": 40, "items": {"fertilizer": 1}},
+    "Pathfinder": {"xp": 100, "seeds": {"moonlight": 1}},
+    "World Wanderer": {"xp": 200, "seeds": {"ancient": 1}},
+    "Friendly Face": {"xp": 40, "items": {"fertilizer": 1}},
+    "Garden Ambassador": {"xp": 100, "potions": {"pollinator_charm": 1}},
+    "Beloved Garden": {"xp": 100, "seeds": {"golden": 1}},
+    "Generous Gardener": {"xp": 100, "potions": {"nectar_tonic": 1}},
+    "Fair Trader": {"xp": 100, "seeds": {"golden": 1}},
+    "Festival Friend": {"xp": 60, "items": {"fertilizer": 2}},
+    "Festival Legend": {"xp": 180, "seeds": {"moonlight": 1}},
+    "Companion Keeper": {"xp": 75, "potions": {"rootbound_brew": 1}},
+    "Menagerie": {"xp": 200, "seeds": {"ancient": 1}},
+    "Biome Explorer": {"xp": 75, "potions": {"aurora_draught": 1}},
+    "World Traveller": {"xp": 200, "seeds": {"ancient": 1}},
+    "Decorative Touch": {"xp": 75, "items": {"fertilizer": 2}},
+    "Quest Collector": {"xp": 100, "potions": {"fortune_elixir": 1}},
+    "Community Roots": {"xp": 75, "seeds": {"golden": 1}},
+    "Heart of the Village": {"xp": 200, "seeds": {"ancient": 1}},
+    "World Tree Keeper": {"xp": 150, "potions": {"rootbound_brew": 1}},
+    "Prestigious": {"xp": 100, "seeds": {"ancient": 1}},
+    "Fivefold Prestige": {"xp": 300, "potions": {"prism_philter": 2}},
+    "Weather Watcher": {"xp": 75, "potions": {"stargazer_serum": 1}},
+    "Market Regular": {"xp": 50, "items": {"fertilizer": 2}},
+    "Master Explorer": {"xp": 300, "seeds": {"ancient": 1}},
+    "Seasonal Collector": {"xp": 120, "potions": {"sunfire_syrup": 1}},
+    "Moon Phase Scholar": {"xp": 180, "potions": {"moonlight_essence": 2}},
+    "Garden Archivist": {"xp": 100, "potions": {"dreamweaver_elixir": 1}},
+    "Grand Host": {"xp": 200, "seeds": {"golden": 1}},
 }
 
 
@@ -735,6 +861,11 @@ COMPANIONS = {
     "owl": {"label": "Wisdom Owl", "emoji": "🦉", "description": "Grants 10% more garden experience.", "cost": {"flower": "Bluebell", "count": 3}},
     "firefly": {"label": "Moonfire Firefly", "emoji": "✨", "description": "Shortens growing times by 10%.", "cost": {"flower": "Lavender", "count": 2}},
     "spirit": {"label": "Ancient Forest Spirit", "emoji": "🌳", "description": "Improves rare finds and expedition rewards.", "cost": {"flower": "Star Lily", "count": 1}},
+    "bee": {"label": "Honeybee Familiar", "emoji": "🐝", "description": "Improves uncommon and rare flower discoveries.", "cost": {"flower": "Honeybell", "count": 3}},
+    "turtle": {"label": "Mossback Turtle", "emoji": "🐢", "description": "Reduces growing times by 8%.", "cost": {"flower": "Silver Fern", "count": 2}},
+    "phoenix": {"label": "Ember Phoenix", "emoji": "🔥", "description": "Grants 15% more garden XP from blooms.", "cost": {"flower": "Emberheart Bloom", "count": 1}},
+    "dragon": {"label": "Gilded Dragonling", "emoji": "🐉", "description": "Improves the chance of a flower or jackpot reward.", "cost": {"flower": "Dragonfruit Bloom", "count": 2}},
+    "koi": {"label": "Moonpool Koi", "emoji": "🐟", "description": "Seeds grow 10% faster on rainy days and moonlit nights.", "cost": {"flower": "Tideglass Lotus", "count": 1}},
 }
 BIOMES = {
     "meadow": {"label": "Wildflower Meadow", "level": 1, "description": "A gentle green starting garden."},
@@ -742,6 +873,9 @@ BIOMES = {
     "frozen": {"label": "Frostbound Sanctuary", "level": 10, "description": "A quiet garden of snow and crystal."},
     "celestial": {"label": "Celestial Garden", "level": 15, "description": "A garden among the stars."},
     "ruins": {"label": "Ancient Ruins", "level": 20, "description": "An overgrown sanctuary from a forgotten age."},
+    "enchanted": {"label": "Whispering Enclave", "level": 25, "description": "A woodland where the leaves remember every story ever told."},
+    "volcanic": {"label": "Emberwild Crater", "level": 30, "description": "A warm volcanic garden where fire-resistant flowers thrive."},
+    "tidal": {"label": "Tideglass Sanctuary", "level": 35, "description": "A submerged garden illuminated by drifting sea-glass lights."},
 }
 DESIGN_OPTIONS = {
     "layout": {"cottage": "Cottage", "formal": "Formal", "wild": "Wild", "zen": "Zen"},
@@ -750,15 +884,27 @@ DESIGN_OPTIONS = {
 }
 RECIPES = {
     "growth_potion": {"label": "Growth Potion", "ingredients": {"Dandelion": 2, "Clover": 1}, "description": "Reduces a growing seed's timer by two hours."},
-    "golden_fertilizer": {"label": "Golden Fertilizer", "ingredients": {"Moonflower": 1, "Lavender": 2}, "description": "Fertilizes a seed and boosts its flower chances."},
-    "fortune_elixir": {"label": "Fortune Elixir", "ingredients": {"Daisy": 2, "Crystal Rose": 1}, "description": "Adds a luck bonus to the next bloom reward."},
-    "moonlight_essence": {"label": "Moonlight Essence", "ingredients": {"Moonflower": 2, "Star Lily": 1}, "description": "Empowers the next seed with moonlight flower luck."},
+    "golden_fertilizer": {"label": "Golden Fertilizer", "ingredients": {"Moonflower": 1, "Lavender": 2}, "description": "Fertilizes a seed and improves its flower rarity."},
+    "fortune_elixir": {"label": "Fortune Elixir", "ingredients": {"Daisy": 2, "Crystal Rose": 1}, "description": "Improves the next bloom's chance of a flower or jackpot reward."},
+    "moonlight_essence": {"label": "Moonlight Essence", "ingredients": {"Moonflower": 2, "Star Lily": 1}, "description": "Improves the next bloom's moonlit flower chances and growth speed."},
+    "nectar_tonic": {"label": "Nectar Tonic", "ingredients": {"Honeybell": 2, "Lavender": 1}, "description": "Adds a generous experience bonus to the next bloom."},
+    "pollinator_charm": {"label": "Pollinator Charm", "ingredients": {"Clover": 2, "Firefly Orchid": 1}, "description": "Guarantees a flower reward from the next bloom."},
+    "dew_of_renewal": {"label": "Dew of Renewal", "ingredients": {"Rainkissed Iris": 2, "Daisy": 1}, "description": "Reduces a growing seed's timer by four hours."},
+    "aurora_draught": {"label": "Aurora Draught", "ingredients": {"Aurora Bloom": 1, "Frostbell": 1, "Star Lily": 1}, "description": "Fertilizes a seed and gives it an extra chance at rare flowers."},
+    "rootbound_brew": {"label": "Rootbound Brew", "ingredients": {"Silver Fern": 2, "Ruins Orchid": 1}, "description": "Grants a large garden XP bonus when the seed blooms."},
+    "sunfire_syrup": {"label": "Sunfire Syrup", "ingredients": {"Sunpetal": 2, "Sunflare": 1}, "description": "Increases the next currency or jackpot reward by 35%."},
+    "prism_philter": {"label": "Prism Philter", "ingredients": {"Prism Poppy": 1, "Crystal Rose": 1}, "description": "Greatly improves the next bloom's fortune and flower chances."},
+    "dreamweaver_elixir": {"label": "Dreamweaver Elixir", "ingredients": {"Dreamrose": 1, "Moonflower": 1, "Nightshade Bell": 1}, "description": "Guarantees a writing prompt reward from the next bloom."},
+    "stargazer_serum": {"label": "Stargazer Serum", "ingredients": {"Comet Blossom": 1, "Nebula Rose": 1}, "description": "Adds bonus XP and a chance of an extra flower to the next bloom."},
 }
 EXPEDITIONS = {
     "whispering_woods": {"label": "Whispering Woods", "hours": 1, "description": "A short journey through an ancient forest."},
     "forgotten_ruins": {"label": "Forgotten Ruins", "hours": 3, "description": "Search a lost sanctuary for rare treasures."},
     "crystal_caverns": {"label": "Crystal Caverns", "hours": 2, "description": "Mine sparkling crystals and magical fertilizer."},
     "moonlit_lake": {"label": "Moonlit Lake", "hours": 2, "description": "Explore a lake that reflects the stars."},
+    "ember_citadel": {"label": "Ember Citadel", "hours": 4, "description": "Search a volcanic fortress for heat-born flowers and treasures."},
+    "sunken_grotto": {"label": "Sunken Grotto", "hours": 3, "description": "Dive into a hidden underwater garden of glassy petals."},
+    "dreamwood": {"label": "Dreamwood", "hours": 5, "description": "Follow a drifting dream-path through a forest that changes at dusk."},
 }
 MARKET_ITEMS = {
     "fertilizer": {"label": "Fertilizer", "price": 80, "description": "Speeds up a seed and improves flower odds."},
@@ -766,6 +912,15 @@ MARKET_ITEMS = {
     "fortune_elixir": {"label": "Fortune Elixir", "price": 220, "description": "Improves the next bloom's bonus rewards."},
     "common_seed": {"label": "Common Seed", "price": 120, "description": "A reliable seed for your garden."},
     "golden_seed": {"label": "Golden Seed", "price": 450, "description": "A valuable seed with improved reward odds."},
+    "nectar_tonic": {"label": "Nectar Tonic", "price": 260, "description": "Adds bonus garden XP to the next bloom."},
+    "pollinator_charm": {"label": "Pollinator Charm", "price": 340, "description": "Guarantees a flower reward on the next bloom."},
+    "dew_of_renewal": {"label": "Dew of Renewal", "price": 300, "description": "Reduces one seed's timer by four hours."},
+    "aurora_draught": {"label": "Aurora Draught", "price": 520, "description": "Improves the next seed's rare flower chances."},
+    "rootbound_brew": {"label": "Rootbound Brew", "price": 400, "description": "Adds a large XP reward to the next bloom."},
+    "sunfire_syrup": {"label": "Sunfire Syrup", "price": 380, "description": "Boosts the next currency reward."},
+    "prism_philter": {"label": "Prism Philter", "price": 600, "description": "Improves the next bloom's fortune."},
+    "dreamweaver_elixir": {"label": "Dreamweaver Elixir", "price": 320, "description": "Guarantees a writing prompt on the next bloom."},
+    "stargazer_serum": {"label": "Stargazer Serum", "price": 480, "description": "Adds XP and a chance of an extra flower."},
 }
 DAILY_QUEST_POOL = [
     {"id": "plant", "description": "Plant 2 seeds", "target": 2, "xp": 35, "item": "fertilizer", "amount": 1},
@@ -774,6 +929,10 @@ DAILY_QUEST_POOL = [
     {"id": "flower", "description": "Discover 1 flower", "target": 1, "xp": 35, "item": "fertilizer", "amount": 1},
     {"id": "visit", "description": "Visit 1 garden", "target": 1, "xp": 25, "item": "common_seed", "amount": 1},
     {"id": "expedition", "description": "Complete 1 expedition", "target": 1, "xp": 45, "item": "fertilizer", "amount": 1},
+    {"id": "craft", "description": "Craft 1 alchemy item", "target": 1, "xp": 40, "item": "growth_potion", "amount": 1},
+    {"id": "community", "description": "Contribute to the community garden", "target": 1, "xp": 35, "item": "fertilizer", "amount": 1},
+    {"id": "gift", "description": "Gift a flower to another gardener", "target": 1, "xp": 35, "item": "common_seed", "amount": 1},
+    {"id": "festival", "description": "Bloom 1 seed during this week's festival", "target": 1, "xp": 35, "item": "fortune_elixir", "amount": 1},
 ]
 WEEKLY_QUEST_POOL = [
     {"id": "plant", "description": "Plant 10 seeds", "target": 10, "xp": 150, "item": "golden_seed", "amount": 1},
@@ -783,7 +942,43 @@ WEEKLY_QUEST_POOL = [
     {"id": "visit", "description": "Visit 5 gardens", "target": 5, "xp": 120, "item": "growth_potion", "amount": 1},
     {"id": "expedition", "description": "Complete 4 expeditions", "target": 4, "xp": 180, "item": "golden_seed", "amount": 1},
     {"id": "craft", "description": "Craft 2 alchemy items", "target": 2, "xp": 140, "item": "fertilizer", "amount": 3},
+    {"id": "community", "description": "Contribute 5 times to the community garden", "target": 5, "xp": 160, "item": "aurora_draught", "amount": 1},
+    {"id": "gift", "description": "Gift 3 flowers to other gardeners", "target": 3, "xp": 150, "item": "nectar_tonic", "amount": 1},
+    {"id": "trade", "description": "Complete 2 player trades", "target": 2, "xp": 150, "item": "golden_seed", "amount": 1},
+    {"id": "festival", "description": "Bloom 10 seeds during weekly festivals", "target": 10, "xp": 200, "item": "stargazer_serum", "amount": 1},
 ]
+
+FESTIVAL_EVENTS = {
+    "firefly_nights": {"name": "Firefly Nights", "flower": "Firefly Orchid", "emoji": "✨", "description": "Follow tiny lights through the midnight garden."},
+    "rain_dance": {"name": "Rain Dance Week", "flower": "Rainkissed Iris", "emoji": "🌧️", "description": "Celebrate the nourishing summer rain."},
+    "stargazer_week": {"name": "Stargazer Week", "flower": "Comet Blossom", "emoji": "☄️", "description": "Watch the skies for rare celestial petals."},
+    "pollinator_parade": {"name": "Pollinator Parade", "flower": "Honeybell", "emoji": "🐝", "description": "Welcome bees, butterflies and busy little helpers."},
+    "dream_tide": {"name": "Dream Tide", "flower": "Dreamrose", "emoji": "🌙", "description": "Collect flowers touched by sleeping dreams."},
+    "crystal_week": {"name": "Crystal Bloom Week", "flower": "Crystal Rose", "emoji": "💎", "description": "The garden crystals are humming with energy."},
+    "aurora_festival": {"name": "Aurora Festival", "flower": "Aurora Bloom", "emoji": "🌌", "description": "A ribbon of aurora light awakens rare blossoms."},
+    "ancient_echoes": {"name": "Ancient Echoes", "flower": "Ghost Orchid", "emoji": "🏛️", "description": "Forgotten seeds whisper beneath the old ruins."},
+}
+
+WEATHER_EFFECTS = {
+    "Sunny": {"description": "Seeds grow 5% faster. Sunpetals may appear in the bloom.", "growth_multiplier": 0.95, "flower_bonus": 1.0, "xp_bonus": 0, "special_flower": "Sunpetal", "special_chance": 0.08},
+    "Rainy": {"description": "Seeds grow 10% faster. Rainkissed Irises may appear, and a little fertilizer can wash into the garden.", "growth_multiplier": 0.90, "flower_bonus": 1.04, "xp_bonus": 2, "special_flower": "Rainkissed Iris", "special_chance": 0.10, "bonus_fertilizer_chance": 0.05},
+    "Foggy": {"description": "Rare and better flowers are slightly more likely.", "growth_multiplier": 1.02, "flower_bonus": 1.18, "xp_bonus": 0, "special_flower": "Ghost Orchid", "special_chance": 0.025},
+    "Breezy": {"description": "Seeds grow 4% faster and common blooms are lively.", "growth_multiplier": 0.96, "flower_bonus": 1.03, "xp_bonus": 0},
+    "Starry": {"description": "Moonlight seeds grow 12% faster and Comet Blossoms may appear.", "growth_multiplier": 1.0, "moonlight_multiplier": 0.88, "flower_bonus": 1.10, "xp_bonus": 3, "special_flower": "Comet Blossom", "special_chance": 0.08},
+    "Overcast": {"description": "A calm day with no special growing effect.", "growth_multiplier": 1.0, "flower_bonus": 1.0, "xp_bonus": 0},
+    "Thunderstorm": {"description": "Seeds take 5% longer, but blooms grant 12 bonus XP, may reveal Stormglass Irises and can uncover fertilizer.", "growth_multiplier": 1.05, "flower_bonus": 1.10, "xp_bonus": 12, "special_flower": "Stormglass Iris", "special_chance": 0.07, "bonus_fertilizer_chance": 0.12},
+    "Rainbow": {"description": "Seeds grow 8% faster and flower rarity improves.", "growth_multiplier": 0.92, "flower_bonus": 1.22, "xp_bonus": 5, "special_flower": "Prism Poppy", "special_chance": 0.08},
+    "Blossom Rain": {"description": "Seeds grow 10% faster and seasonal blossoms are more likely.", "growth_multiplier": 0.90, "flower_bonus": 1.12, "xp_bonus": 4, "special_flower": "Springtide Bellflower", "special_chance": 0.08},
+    "Meteor Shower": {"description": "Moonlight seeds grow 15% faster and Comet Blossoms may be found.", "growth_multiplier": 1.0, "moonlight_multiplier": 0.85, "flower_bonus": 1.16, "xp_bonus": 8, "special_flower": "Comet Blossom", "special_chance": 0.12},
+    "Aurora": {"description": "Rare flower chances improve and Aurora Blooms may appear.", "growth_multiplier": 0.98, "flower_bonus": 1.24, "xp_bonus": 6, "special_flower": "Aurora Bloom", "special_chance": 0.10},
+    "Drought": {"description": "Seeds grow 10% slower, but Sunflare blooms are more likely.", "growth_multiplier": 1.10, "flower_bonus": 1.08, "xp_bonus": 0, "special_flower": "Sunflare", "special_chance": 0.08},
+    "Snowy": {"description": "Seeds grow 5% slower. Frostbells and Snowdrops may appear.", "growth_multiplier": 1.05, "flower_bonus": 1.08, "xp_bonus": 2, "special_flower": "Frostbell", "special_chance": 0.10},
+    "Starlit": {"description": "Moonlight seeds grow 5% faster and celestial flowers are more likely.", "growth_multiplier": 1.0, "moonlight_multiplier": 0.95, "flower_bonus": 1.15, "xp_bonus": 5, "special_flower": "Starfall Peony", "special_chance": 0.025},
+    "Ashfall": {"description": "Seeds take 5% longer, but Emberheart Blooms and Cinder Lilies may emerge. Blooms grant 8 bonus XP.", "growth_multiplier": 1.05, "flower_bonus": 1.12, "xp_bonus": 8, "special_flower": "Cinder Lily", "special_chance": 0.12},
+    "High Tide": {"description": "Seeds grow 5% faster and Tideglass Lotuses may be discovered.", "growth_multiplier": 0.95, "flower_bonus": 1.10, "xp_bonus": 4, "special_flower": "Tideglass Lotus", "special_chance": 0.12},
+    "Sea Mist": {"description": "Rare flowers are more likely to appear in the cool sea mist.", "growth_multiplier": 1.02, "flower_bonus": 1.20, "xp_bonus": 3, "special_flower": "Deepsea Anemone", "special_chance": 0.10},
+}
+
 
 
 def quest_periods(now=None):
@@ -801,14 +996,42 @@ def weather_and_moon(now=None, biome="meadow"):
     lunar = (days % 29.530588) / 29.530588
     phases = ["New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous", "Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent"]
     phase = phases[int((lunar * 8) + 0.5) % 8]
-    weather_names = ["Sunny", "Rainy", "Foggy", "Breezy", "Starry", "Overcast"]
-    seed = sum(ord(char) for char in f"{now.date().isoformat()}:{biome}")
-    weather = weather_names[seed % len(weather_names)]
+    weather_names = ["Sunny", "Rainy", "Foggy", "Breezy", "Starry", "Overcast", "Thunderstorm", "Rainbow", "Blossom Rain", "Meteor Shower", "Aurora", "Drought"]
+    weights = [15, 14, 8, 10, 8, 10, 5, 3, 5, 4, 3, 5]
+    if biome == "frozen":
+        weather_names.extend(["Snowy", "Aurora"])
+        weights.extend([8, 4])
+    elif biome == "celestial":
+        weather_names.extend(["Starlit", "Meteor Shower", "Aurora"])
+        weights.extend([8, 6, 5])
+    elif biome == "moonlit":
+        weather_names.extend(["Starlit", "Foggy"])
+        weights.extend([5, 4])
+    elif biome == "volcanic":
+        weather_names.extend(["Ashfall", "Thunderstorm"])
+        weights.extend([9, 4])
+    elif biome == "tidal":
+        weather_names.extend(["High Tide", "Sea Mist"])
+        weights.extend([8, 6])
+    rng = random.Random(f"{now.date().isoformat()}:{biome}")
+    weather = rng.choices(weather_names, weights=weights, k=1)[0]
+    if biome == "celestial" and phase in ("New Moon", "Full Moon") and rng.random() < 0.5:
+        weather = "Starlit"
     if biome == "frozen" and weather == "Rainy":
         weather = "Snowy"
-    if biome == "celestial":
-        weather = "Starlit" if phase in ("New Moon", "Full Moon") else weather
     return weather, phase
+
+
+def current_festival_event(now=None):
+    now = now or datetime.utcnow()
+    iso = now.isocalendar()
+    keys = list(FESTIVAL_EVENTS)
+    key = keys[(iso.week - 1) % len(keys)]
+    event = dict(FESTIVAL_EVENTS[key])
+    event["key"] = f"{iso.year}-W{iso.week:02d}-{key}"
+    event["festival"] = key
+    event["week"] = iso.week
+    return event
 
 
 def create_garden(seed_count=0):
@@ -820,6 +1043,20 @@ def create_garden(seed_count=0):
         "garden_level": 1,
         "total_planted": 0,
         "total_blooms": 0,
+        "total_waterings": 0,
+        "total_crafted": 0,
+        "total_expeditions": 0,
+        "total_visits_made": 0,
+        "total_trades_completed": 0,
+        "total_gifts_sent": 0,
+        "total_quests_claimed": 0,
+        "total_community_points": 0,
+        "total_items_purchased": 0,
+        "event_blooms_total": 0,
+        "festival_blooms_total": 0,
+        "festival_history": [],
+        "weather_seen": [],
+        "moon_phases_seen": [],
         "reward_history": [],
         "achievements": [],
         "items": {"fertilizer": 0},
@@ -829,6 +1066,8 @@ def create_garden(seed_count=0):
         "last_water_date": None,
         "event_progress": {},
         "event_claims": [],
+        "festival_progress": {},
+        "festival_claims": [],
         "unlocked_decorations": [],
         "equipped_decoration": None,
         "companions": [],
@@ -849,7 +1088,7 @@ def create_garden(seed_count=0):
         "birthday": None,
         "birthday_claimed_year": None,
         "design": {"layout": "cottage", "background": "emerald", "path": "stone"},
-        "potions": {"growth_potion": 0, "golden_fertilizer": 0, "fortune_elixir": 0, "moonlight_essence": 0},
+        "potions": {key: 0 for key in RECIPES},
         "active_boosts": {},
     }
 
@@ -1147,6 +1386,7 @@ class GardenMenuView(discord.ui.View):
             self._add_action("Level Leaderboard", "gardenleaderboard", "level", emoji="🏅")
             self._add_action("Flower Leaderboard", "gardenleaderboard", "flowers", emoji="🌸")
             self._add_action("Seasonal Leaderboard", "gardenleaderboard", "seasonal", emoji="🍂")
+            self._add_action("Festival Leaderboard", "gardenleaderboard", "festival", emoji="🎪")
 
         elif self.section == "alchemy":
             self._add_action("View Recipes", "gardenbrew", "recipes", None, None, emoji="📖", style=discord.ButtonStyle.success)
@@ -1154,7 +1394,8 @@ class GardenMenuView(discord.ui.View):
                 self._add_action(f"Craft {recipe['label']}", "gardenbrew", "craft", key, None, emoji="⚗️")
             async def use_potion(interaction, values):
                 await self._call(interaction, "gardenbrew", "use", values["potion"], values["seed_id"])
-            self._add_modal("Use Potion", "Use a potion on a growing seed", [("potion", "Potion ID", "growth_potion / golden_fertilizer / fortune_elixir / moonlight_essence", True), ("seed_id", "Seed ID", "Paste the growing seed ID", True)], use_potion, emoji="🧪")
+            potion_keys = ", ".join(RECIPES)
+            self._add_modal("Use Potion", "Use a potion on a growing seed", [("potion", "Potion ID", potion_keys[:100], True), ("seed_id", "Seed ID", "Paste the growing seed ID", True)], use_potion, emoji="🧪")
 
         elif self.section == "companions":
             self._add_action("My Companions", "gardencompanion", "list", emoji="🐾", style=discord.ButtonStyle.success)
@@ -1560,26 +1801,85 @@ class FortuneGarden(commands.Cog):
         return new_level - old_level
 
     def _check_achievements(self, garden):
-        earned = set(garden.get("achievements", []))
-        flowers = garden.get("flowers", {})
-        unique_flowers = len([name for name, count in flowers.items() if count > 0])
-        flower_rarities = {FLOWERS.get(name, "Common") for name, count in flowers.items() if count > 0}
-        checks = {
-            "First Plant": garden.get("total_planted", 0) >= 1,
-            "First Bloom": garden.get("total_blooms", 0) >= 1,
-            "Dedicated Gardener": garden.get("total_blooms", 0) >= 10,
-            "Master Gardener": garden.get("total_blooms", 0) >= 50,
-            "Green Thumb": garden.get("garden_level", 1) >= 5,
-            "Botanist": unique_flowers >= 5,
-            "Collector's Pride": unique_flowers >= 10,
-            "Once in a Lifetime": "Legendary" in flower_rarities,
-            "Faithful Waterer": garden.get("water_streak", 0) >= 7,
-        }
         newly_earned = []
-        for name, condition in checks.items():
-            if condition and name not in earned:
-                garden.setdefault("achievements", []).append(name)
+        while True:
+            flowers = garden.get("flowers", {})
+            discovered = [name for name, count in flowers.items() if int(count) > 0]
+            unique_flowers = len(discovered)
+            total_flowers = sum(max(0, int(count)) for count in flowers.values())
+            rarities = {FLOWERS.get(name, "Common") for name in discovered}
+            achievements = garden.setdefault("achievements", [])
+            earned = set(achievements)
+            checks = {
+                "First Plant": int(garden.get("total_planted", 0)) >= 1,
+                "First Bloom": int(garden.get("total_blooms", 0)) >= 1,
+                "Dedicated Gardener": int(garden.get("total_blooms", 0)) >= 10,
+                "Master Gardener": int(garden.get("total_blooms", 0)) >= 50,
+                "Evergreen Heart": int(garden.get("total_blooms", 0)) >= 100,
+                "Seed Sower": int(garden.get("total_planted", 0)) >= 10,
+                "Seed Artisan": int(garden.get("total_planted", 0)) >= 50,
+                "Seed Legend": int(garden.get("total_planted", 0)) >= 100,
+                "Green Thumb": int(garden.get("garden_level", 1)) >= 5,
+                "Verdant Master": int(garden.get("garden_level", 1)) >= 10,
+                "Garden Legend": int(garden.get("garden_level", 1)) >= 25,
+                "Botanist": unique_flowers >= 5,
+                "Collector's Pride": unique_flowers >= 10,
+                "Living Herbarium": unique_flowers >= 20,
+                "Bouquet Maker": total_flowers >= 50,
+                "Rare Discovery": "Rare" in rarities,
+                "Beyond the Ordinary": "Epic" in rarities,
+                "Once in a Lifetime": "Legendary" in rarities,
+                "Faithful Waterer": int(garden.get("water_streak", 0)) >= 7,
+                "Rainkeeper": int(garden.get("water_streak", 0)) >= 14,
+                "Water Bearer": int(garden.get("total_waterings", 0)) >= 100,
+                "Alchemist's Apprentice": int(garden.get("total_crafted", 0)) >= 1,
+                "Master Alchemist": int(garden.get("total_crafted", 0)) >= 10,
+                "Grand Alchemist": int(garden.get("total_crafted", 0)) >= 50,
+                "First Expedition": int(garden.get("total_expeditions", 0)) >= 1,
+                "Pathfinder": int(garden.get("total_expeditions", 0)) >= 10,
+                "World Wanderer": int(garden.get("total_expeditions", 0)) >= 25,
+                "Master Explorer": int(garden.get("total_expeditions", 0)) >= 50,
+                "Friendly Face": int(garden.get("total_visits_made", 0)) >= 5,
+                "Garden Ambassador": int(garden.get("total_visits_made", 0)) >= 25,
+                "Beloved Garden": int(garden.get("visit_count", 0)) >= 10,
+                "Grand Host": int(garden.get("visit_count", 0)) >= 50,
+                "Generous Gardener": int(garden.get("total_gifts_sent", 0)) >= 10,
+                "Fair Trader": int(garden.get("total_trades_completed", 0)) >= 5,
+                "Festival Friend": int(garden.get("event_blooms_total", 0)) >= 5,
+                "Festival Legend": int(garden.get("event_blooms_total", 0)) >= 30,
+                "Companion Keeper": len(garden.get("companions", [])) >= 3,
+                "Menagerie": len(garden.get("companions", [])) >= len(COMPANIONS),
+                "Biome Explorer": len(garden.get("biomes", [])) >= 3,
+                "World Traveller": len(garden.get("biomes", [])) >= len(BIOMES),
+                "Decorative Touch": len(garden.get("unlocked_decorations", [])) >= 5,
+                "Quest Collector": int(garden.get("total_quests_claimed", 0)) >= 10,
+                "Community Roots": int(garden.get("total_community_points", 0)) >= 250,
+                "Heart of the Village": int(garden.get("total_community_points", 0)) >= 1000,
+                "World Tree Keeper": int(garden.get("world_tree_level", 1)) >= 10,
+                "Prestigious": int(garden.get("prestige", 0)) >= 1,
+                "Fivefold Prestige": int(garden.get("prestige", 0)) >= 5,
+                "Weather Watcher": len(garden.get("weather_seen", [])) >= 6,
+                "Market Regular": int(garden.get("total_items_purchased", 0)) >= 10,
+                "Seasonal Collector": len([name for name in discovered if FLOWERS.get(name) == "Seasonal"]) >= 4,
+                "Moon Phase Scholar": len(garden.get("moon_phases_seen", [])) >= 8,
+                "Garden Archivist": len(garden.get("reward_history", [])) >= 20,
+            }
+            fresh = [name for name, condition in checks.items() if condition and name not in earned]
+            if not fresh:
+                break
+            for name in fresh:
+                achievements.append(name)
                 newly_earned.append(name)
+                reward = ACHIEVEMENT_REWARDS.get(name, {})
+                self._add_xp(garden, int(reward.get("xp", 0)))
+                for seed_type, count in reward.get("seeds", {}).items():
+                    if seed_type in SEED_TYPES:
+                        garden.setdefault("seed_inventory", {})[seed_type] = int(garden["seed_inventory"].get(seed_type, 0)) + int(count)
+                for item, count in reward.get("items", {}).items():
+                    garden.setdefault("items", {})[item] = int(garden.get("items", {}).get(item, 0)) + int(count)
+                for potion, count in reward.get("potions", {}).items():
+                    garden.setdefault("potions", {})[potion] = int(garden.get("potions", {}).get(potion, 0)) + int(count)
+        garden["seeds"] = self._seed_count(garden)
         return newly_earned
 
     def _add_flower(self, garden, flower_name):
@@ -1591,7 +1891,7 @@ class FortuneGarden(commands.Cog):
         weights = [SEED_TYPES[name]["weight"] for name in names]
         return random.choices(names, weights=weights, k=1)[0]
 
-    def _choose_flower(self, seed_type, event, companion=None, biome="meadow"):
+    def _choose_flower(self, seed_type, event, companion=None, biome="meadow", weather=None):
         rarity_weights = {
             "common": [60, 25, 11, 3, 1],
             "golden": [45, 27, 18, 7, 3],
@@ -1607,6 +1907,21 @@ class FortuneGarden(commands.Cog):
         elif companion == "spirit":
             weights[3] *= 1.15
             weights[4] *= 1.5
+        elif companion == "bee":
+            weights[1] *= 1.25
+            weights[2] *= 1.10
+        elif companion == "phoenix":
+            weights[3] *= 1.10
+            weights[4] *= 1.10
+        weather_info = WEATHER_EFFECTS.get(weather or "", {})
+        flower_bonus = float(weather_info.get("flower_bonus", 1.0))
+        if flower_bonus > 1:
+            weights[2] *= flower_bonus
+            weights[3] *= flower_bonus
+            weights[4] *= flower_bonus
+        special_flower = weather_info.get("special_flower")
+        if special_flower and random.random() < float(weather_info.get("special_chance", 0)):
+            return special_flower, FLOWERS.get(special_flower, "Seasonal")
         rarity = random.choices(rarities, weights=weights, k=1)[0]
         biome_pool = set(BIOME_FLOWERS.get(biome, BIOME_FLOWERS["meadow"]))
         candidates = [name for name, flower_rarity in FLOWERS.items() if flower_rarity == rarity and name in biome_pool]
@@ -1618,7 +1933,7 @@ class FortuneGarden(commands.Cog):
             candidates = ["Dandelion"]
         return random.choice(candidates), rarity
 
-    def _make_reward(self, reward_type, seed_type, guild_data, event, companion=None, biome="meadow"):
+    def _make_reward(self, reward_type, seed_type, guild_data, event, companion=None, biome="meadow", weather=None):
         min_amt = max(0, int(guild_data.get("min_credits", MIN_CREDITS)))
         max_amt = max(min_amt, int(guild_data.get("max_credits", MAX_CREDITS)))
         if reward_type == "currency":
@@ -1631,7 +1946,7 @@ class FortuneGarden(commands.Cog):
         if reward_type == "advice":
             return {"kind": "advice", "text": random.choice(ADVICE)}
         if reward_type == "flower":
-            flower, rarity = self._choose_flower(seed_type, event, companion, biome)
+            flower, rarity = self._choose_flower(seed_type, event, companion, biome, weather)
             return {"kind": "flower", "flower": flower, "rarity": rarity}
         if reward_type == "seed":
             return {"kind": "seed", "seed_type": self._choose_seed_type()}
@@ -1648,7 +1963,7 @@ class FortuneGarden(commands.Cog):
             elif prize_type == "seed":
                 prize = {"kind": "seed", "seed_type": self._choose_seed_type()}
             elif prize_type == "flower":
-                flower, rarity = self._choose_flower(seed_type, event, companion, biome)
+                flower, rarity = self._choose_flower(seed_type, event, companion, biome, weather)
                 prize = {"kind": "flower", "flower": flower, "rarity": rarity}
             else:
                 prize = {"kind": "xp", "amount": random.randint(20, 45)}
@@ -1725,7 +2040,7 @@ class FortuneGarden(commands.Cog):
         elif kind == "xp":
             self._add_xp(garden, int(prize.get("amount", 0)))
 
-    async def _apply_member_bloom(self, member, fid, reward, reward_text, event, seed_limit):
+    async def _apply_member_bloom(self, member, fid, reward, reward_text, event, seed_limit, festival=None, weather=None, weather_bonus=0):
         lock = self._member_lock(member.guild.id, member.id)
         async with lock:
             member_conf = self.config.user(member)
@@ -1749,17 +2064,30 @@ class FortuneGarden(commands.Cog):
                 self._apply_prize(garden, reward.get("prize", {}), seed_limit)
 
             garden["total_blooms"] = int(garden.get("total_blooms", 0)) + 1
+            garden["event_blooms_total"] = int(garden.get("event_blooms_total", 0)) + 1
+            garden["festival_blooms_total"] = int(garden.get("festival_blooms_total", 0)) + 1
+            self._progress_quests(garden, "festival", 1)
             self._progress_quests(garden, "bloom", 1)
             if kind == "flower" or (kind == "mystery" and reward.get("prize", {}).get("kind") == "flower"):
                 self._progress_quests(garden, "flower", 1)
-            self._add_xp(garden, 25)
+            xp_gain = 25 + max(0, int(weather_bonus))
+            if info_bonus := int(reward.get("xp_bonus", 0)):
+                xp_gain += max(0, info_bonus)
+            self._add_xp(garden, xp_gain)
             self._add_world_tree_xp(garden, 5)
+            event_notes = []
+            if reward.get("extra_flower"):
+                extra_flower = reward["extra_flower"]
+                self._add_flower(garden, extra_flower)
+                event_notes.append(f"🌼 Weather blessing: an extra {extra_flower} bloomed")
+            if reward.get("bonus_fertilizer"):
+                garden.setdefault("items", {})["fertilizer"] = int(garden.get("items", {}).get("fertilizer", 0)) + int(reward["bonus_fertilizer"])
+                event_notes.append(f"🌿 Weather blessing: {reward['bonus_fertilizer']} Fertilizer found")
             event_progress = garden.setdefault("event_progress", {})
             event_key = event["key"]
             event_progress[event_key] = int(event_progress.get(event_key, 0)) + 1
             event_claims = garden.setdefault("event_claims", [])
             points = event_progress[event_key]
-            event_notes = []
             if points >= 5 and f"{event_key}:5" not in event_claims:
                 self._add_flower(garden, event["flower"])
                 event_claims.append(f"{event_key}:5")
@@ -1778,6 +2106,31 @@ class FortuneGarden(commands.Cog):
                     garden["unlocked_decorations"].append(decoration)
                     event_notes.append(f"🏮 Seasonal milestone: {decoration} unlocked")
                 event_claims.append(f"{event_key}:20")
+            if festival:
+                festival_key = festival["key"]
+                festival_progress = garden.setdefault("festival_progress", {})
+                festival_progress[festival_key] = int(festival_progress.get(festival_key, 0)) + 1
+                festival_claims = garden.setdefault("festival_claims", [])
+                festival_points = festival_progress[festival_key]
+                if festival_key not in garden.setdefault("festival_history", []):
+                    garden["festival_history"].append(festival_key)
+                if festival_points >= 3 and f"{festival_key}:3" not in festival_claims:
+                    self._add_flower(garden, festival["flower"])
+                    festival_claims.append(f"{festival_key}:3")
+                    event_notes.append(f"{festival['emoji']} Festival reward: {festival['flower']} discovered")
+                if festival_points >= 7 and f"{festival_key}:7" not in festival_claims:
+                    garden.setdefault("potions", {})["fortune_elixir"] = int(garden["potions"].get("fortune_elixir", 0)) + 1
+                    festival_claims.append(f"{festival_key}:7")
+                    event_notes.append("⚗️ Festival reward: Fortune Elixir earned")
+                if festival_points >= 14 and f"{festival_key}:14" not in festival_claims:
+                    decoration = f"{festival['name']} Keepsake"
+                    if decoration not in garden.setdefault("unlocked_decorations", []):
+                        garden["unlocked_decorations"].append(decoration)
+                        event_notes.append(f"🎀 Festival reward: {decoration} unlocked")
+                    else:
+                        self._add_xp(garden, 50)
+                        event_notes.append("⭐ Festival repeat reward: 50 garden XP")
+                    festival_claims.append(f"{festival_key}:14")
 
             garden.setdefault("reward_history", []).append({
                 "seed_id": fid,
@@ -1841,6 +2194,7 @@ class FortuneGarden(commands.Cog):
                 changed = False
                 seed_limit = int(guild_data.get("seed_limit", 20))
                 event = current_seasonal_event(now)
+                festival = current_festival_event(now)
 
                 for fid, info in list(fortunes.items()):
                     try:
@@ -1871,19 +2225,47 @@ class FortuneGarden(commands.Cog):
                     companion = member_garden.get("equipped_companion")
                     biome = member_garden.get("equipped_biome", "meadow")
                     if not isinstance(info.get("reward"), dict):
+                        weather = info.get("weather")
                         reward_type = self._roll_reward_type(guild_data, seed_type, bool(info.get("fertilized")))
-                        if info.get("fortune_boost"):
-                            reward_type = random.choices([reward_type, "flower", "jackpot"], weights=[70, 25, 5], k=1)[0]
-                        reward = self._make_reward(reward_type, seed_type, guild_data, event, companion, biome)
+                        if companion == "dragon":
+                            reward_type = random.choices([reward_type, "flower", "jackpot"], weights=[75, 20, 5], k=1)[0]
+                        if info.get("prism_boost"):
+                            reward_type = random.choices([reward_type, "flower", "jackpot"], weights=[35, 50, 15], k=1)[0]
+                        elif info.get("fortune_boost"):
+                            reward_type = random.choices([reward_type, "flower", "jackpot"], weights=[55, 35, 10], k=1)[0]
+                        if info.get("pollinator_boost"):
+                            reward_type = "flower"
+                        if info.get("dream_boost"):
+                            reward_type = "prompt"
+                        reward = self._make_reward(reward_type, seed_type, guild_data, event, companion, biome, weather)
+                        festival_flower_reward = reward if reward.get("kind") == "flower" else reward.get("prize", {}) if reward.get("kind") == "mystery" else {}
+                        if festival and festival_flower_reward.get("kind") == "flower" and random.random() < 0.18:
+                            festival_flower_reward["flower"] = festival["flower"]
+                            festival_flower_reward["rarity"] = FLOWERS.get(festival["flower"], "Seasonal")
                         if info.get("moonlight_boost") and reward.get("kind") == "flower":
-                            flower, rarity = self._choose_flower("moonlight", event, companion, biome)
+                            flower, rarity = self._choose_flower("moonlight", event, companion, biome, weather)
                             reward["flower"], reward["rarity"] = flower, rarity
-                        if info.get("fertilized"):
+                        if info.get("fertilized") or info.get("aurora_boost"):
                             flower_reward = reward if reward.get("kind") == "flower" else reward.get("prize", {}) if reward.get("kind") == "mystery" else {}
                             if flower_reward.get("kind") == "flower":
-                                flower, rarity = self._choose_flower("golden", event, companion, biome)
+                                flower, rarity = self._choose_flower("golden", event, companion, biome, weather)
                                 flower_reward["flower"] = flower
                                 flower_reward["rarity"] = rarity
+                        if info.get("sunfire_boost") and reward.get("kind") in ("currency", "jackpot"):
+                            reward["amount"] = int(reward.get("amount", 0) * 1.35)
+                        if info.get("stargazer_boost"):
+                            reward["xp_bonus"] = 30
+                            if reward.get("kind") != "flower" and random.random() < 0.20:
+                                reward["extra_flower"] = self._choose_flower("moonlight", event, companion, biome, weather)[0]
+                        if info.get("nectar_boost"):
+                            reward["xp_bonus"] = int(reward.get("xp_bonus", 0)) + 40
+                        if info.get("rootbound_boost"):
+                            reward["xp_bonus"] = int(reward.get("xp_bonus", 0)) + 60
+                        if info.get("pollinator_boost") and reward.get("kind") == "flower" and random.random() < 0.20:
+                            reward["extra_flower"] = self._choose_flower(seed_type, event, companion, biome, weather)[0]
+                        weather_info = WEATHER_EFFECTS.get(weather or "", {})
+                        if weather_info.get("bonus_fertilizer_chance") and random.random() < float(weather_info["bonus_fertilizer_chance"]):
+                            reward["bonus_fertilizer"] = 1
                         info["reward"] = reward
                         info["reward_created_at"] = now.isoformat()
                         changed = True
@@ -1918,7 +2300,9 @@ class FortuneGarden(commands.Cog):
 
                     if not info.get("member_applied"):
                         try:
-                            notes = await self._apply_member_bloom(member, fid, reward, reward_text, event, seed_limit)
+                            weather = info.get("weather")
+                            weather_bonus = int(WEATHER_EFFECTS.get(weather or "", {}).get("xp_bonus", 0))
+                            notes = await self._apply_member_bloom(member, fid, reward, reward_text, event, seed_limit, festival, weather, weather_bonus)
                             info["member_applied"] = True
                             info["bloom_notes"] = notes
                             changed = True
@@ -1943,7 +2327,7 @@ class FortuneGarden(commands.Cog):
                     if info.get("seed_name"):
                         embed.add_field(name="Plant Name", value=discord.utils.escape_markdown(str(info["seed_name"]))[:100], inline=True)
                     embed.set_image(url=REWARD_BANNERS.get(reward.get("kind"), REWARD_BANNERS["flower"]))
-                    embed.set_footer(text=f"Seed ID: {fid} • Event: {event['name']}")
+                    embed.set_footer(text=f"Seed ID: {fid} • {event['name']} • {festival['name']}")
 
                     targets = await self._resolve_delivery_targets(guild, member, info, guild_data)
                     delivery_error = None
@@ -2117,15 +2501,23 @@ class FortuneGarden(commands.Cog):
                     delay_hours *= 0.95
                 elif companion == "firefly":
                     delay_hours *= 0.90
+                elif companion == "turtle":
+                    delay_hours *= 0.92
                 weather, moon = weather_and_moon(biome=garden.get("equipped_biome", "meadow"))
-                if weather == "Rainy":
-                    delay_hours *= 0.95
-                elif weather == "Snowy":
-                    delay_hours *= 1.05
-                elif weather == "Starlit" and seed_type == "moonlight":
-                    delay_hours *= 0.95
+                weather_effect = WEATHER_EFFECTS.get(weather, {})
+                delay_hours *= float(weather_effect.get("growth_multiplier", 1.0))
+                if companion == "koi" and weather in ("Rainy", "Blossom Rain", "Starlit"):
+                    delay_hours *= 0.90
+                if seed_type == "moonlight":
+                    delay_hours *= float(weather_effect.get("moonlight_multiplier", 1.0))
                 if moon == "Full Moon" and seed_type == "moonlight":
                     delay_hours *= 0.90
+                seen_weather = garden.setdefault("weather_seen", [])
+                if weather not in seen_weather:
+                    seen_weather.append(weather)
+                seen_phases = garden.setdefault("moon_phases_seen", [])
+                if moon not in seen_phases:
+                    seen_phases.append(moon)
                 boosts = garden.setdefault("active_boosts", {})
                 if boosts.pop("moonlight_essence", False):
                     delay_hours *= 0.95
@@ -2142,6 +2534,9 @@ class FortuneGarden(commands.Cog):
                     "processed": False,
                     "seed_type": seed_type,
                     "seed_name": name,
+                    "weather": weather,
+                    "moon_phase": moon,
+                    "festival_key": current_festival_event(now)["key"],
                     "fertilized": False,
                     "attempts": 0,
                 }
@@ -2269,6 +2664,7 @@ class FortuneGarden(commands.Cog):
                 minutes_saved = max(1, int(guild_data.get("watering_minutes", 30)))
                 info["bloom_time"] = max(datetime.utcnow(), old_time - timedelta(minutes=minutes_saved)).isoformat()
                 garden["daily_water_date"] = today
+                garden["total_waterings"] = int(garden.get("total_waterings", 0)) + 1
                 last_water = garden.get("last_water_date")
                 yesterday = (datetime.utcnow().date() - timedelta(days=1)).isoformat()
                 garden["water_streak"] = int(garden.get("water_streak", 0)) + 1 if last_water == yesterday else 1
@@ -2370,11 +2766,28 @@ class FortuneGarden(commands.Cog):
         lock = self._member_lock(ctx.guild.id, member.id)
         async with lock:
             garden = await self._get_garden(self.config.user(member))
-        earned = garden.get("achievements", [])
-        lines = [f"🏅 **{name}** — {ACHIEVEMENT_DESCRIPTIONS.get(name, '')}" for name in earned]
-        remaining = [f"🔒 **{name}** — {description}" for name, description in ACHIEVEMENT_DESCRIPTIONS.items() if name not in earned]
-        embed = discord.Embed(title=f"🏆 {member.display_name}'s Achievements", description=("\n".join(lines) if lines else "No achievements unlocked yet.") + ("\n\n" + "\n".join(remaining) if remaining else ""), color=discord.Color.gold())
-        await ctx.send(embed=embed)
+        earned = set(garden.get("achievements", []))
+        lines = []
+        for name, description in ACHIEVEMENT_DESCRIPTIONS.items():
+            reward = ACHIEVEMENT_REWARDS.get(name, {})
+            rewards = []
+            if reward.get("xp"):
+                rewards.append(f"{reward['xp']} XP")
+            rewards.extend(f"{count} {SEED_TYPES[key]['label']}" for key, count in reward.get("seeds", {}).items() if key in SEED_TYPES)
+            rewards.extend(f"{count} {key.replace('_', ' ')}" for key, count in reward.get("items", {}).items())
+            rewards.extend(f"{count} {RECIPES[key]['label']}" for key, count in reward.get("potions", {}).items() if key in RECIPES)
+            reward_text = f" · Reward: {', '.join(rewards)}" if rewards else ""
+            marker = "🏅" if name in earned else "🔒"
+            lines.append(f"{marker} **{name}** — {description}{reward_text}")
+        pages = []
+        for start_index in range(0, len(lines), 7):
+            page_lines = lines[start_index:start_index + 7]
+            page_number = len(pages) + 1
+            pages.append(discord.Embed(title=f"🏆 {member.display_name}'s Achievements", description="\n\n".join(page_lines), color=discord.Color.gold()).set_footer(text=f"Unlocked {len(earned)}/{len(ACHIEVEMENT_DESCRIPTIONS)} · Page {page_number}"))
+        view = FortunePaginator(ctx.author.id, pages)
+        if len(pages) == 1:
+            return await ctx.send(embed=pages[0])
+        view.message = await ctx.send(embed=pages[0], view=view)
 
     async def fortunehistory(self, ctx, member: discord.Member = None):
         member = member or ctx.author
@@ -2398,9 +2811,14 @@ class FortuneGarden(commands.Cog):
         lock = self._member_lock(ctx.guild.id, ctx.author.id)
         async with lock:
             garden = await self._get_garden(self.config.user(ctx.author))
-        event = current_seasonal_event()
-        points = int(garden.get("event_progress", {}).get(event["key"], 0))
-        embed = discord.Embed(title=f"{event['emoji']} {event['name']}", description=f"Grow seeds during this seasonal event to earn exclusive rewards.\n\n**Your progress:** {points} event blooms\n**5 blooms:** {event['flower']}\n**10 blooms:** Golden Seed\n**20 blooms:** Seasonal Moon Lantern", color=discord.Color.random())
+        seasonal = current_seasonal_event()
+        seasonal_points = int(garden.get("event_progress", {}).get(seasonal["key"], 0))
+        festival = current_festival_event()
+        festival_points = int(garden.get("festival_progress", {}).get(festival["key"], 0))
+        embed = discord.Embed(title="🎪 FortuneGarden Events", description="Take part in the long-running seasonal celebration and the rotating weekly festival. Every seed bloom contributes to both.", color=discord.Color.random())
+        embed.add_field(name=f"{seasonal['emoji']} {seasonal['name']}", value=f"{seasonal.get('description', 'A seasonal celebration in your garden.') }\n**Your progress:** {seasonal_points} blooms\n**5 blooms:** {seasonal['flower']}\n**10 blooms:** Golden Seed\n**20 blooms:** Seasonal Moon Lantern", inline=False)
+        embed.add_field(name=f"{festival['emoji']} {festival['name']}", value=f"{festival['description']}\n**Your progress this week:** {festival_points}/14 blooms\n**3 blooms:** {festival['flower']}\n**7 blooms:** Fortune Elixir\n**14 blooms:** Festival keepsake decoration", inline=False)
+        embed.set_footer(text="Festival progress rotates every Monday; seasonal progress lasts for the full season.")
         await ctx.send(embed=embed)
 
     async def gardendecorate(self, ctx, *, decoration: str = "list"):
@@ -2419,8 +2837,9 @@ class FortuneGarden(commands.Cog):
             if not match:
                 return await ctx.send("You haven't unlocked that decoration. Use the FortuneGarden **Customize** menu to see your options.")
             garden["equipped_decoration"] = match
+            achievements = self._check_achievements(garden)
             await self._save_garden(member_conf, garden)
-        await ctx.send(f"🏡 **{match}** is now displayed in your garden.")
+        await ctx.send(f"🏡 **{match}** is now displayed in your garden." + (f"\n🏅 Unlocked: {', '.join(achievements)}" if achievements else ""))
 
     async def gardenquests(self, ctx):
         lock = self._member_lock(ctx.guild.id, ctx.author.id)
@@ -2451,6 +2870,7 @@ class FortuneGarden(commands.Cog):
             if int(task.get("progress", 0)) < int(task.get("target", 1)):
                 return await ctx.send("That quest isn't complete yet.")
             task["claimed"] = True
+            garden["total_quests_claimed"] = int(garden.get("total_quests_claimed", 0)) + 1
             self._add_xp(garden, int(task.get("xp", 0)))
             item = task.get("item")
             amount = int(task.get("amount", 1))
@@ -2487,10 +2907,13 @@ class FortuneGarden(commands.Cog):
                 for flower, count in recipe["ingredients"].items():
                     self._transfer_asset(garden, "flower", flower, count, add=False)
                 garden.setdefault("potions", {})[item] = int(garden["potions"].get(item, 0)) + 1
+                garden["total_crafted"] = int(garden.get("total_crafted", 0)) + 1
                 self._progress_quests(garden, "craft", 1)
                 self._add_xp(garden, 10)
+                achievements = self._check_achievements(garden)
                 await self._save_garden(member_conf, garden)
-            return await ctx.send(f"⚗️ Crafted **{recipe['label']}**! You now have {garden['potions'][item]}.")
+            note = f"\n🏅 Unlocked: {', '.join(achievements)}" if achievements else ""
+            return await ctx.send(f"⚗️ Crafted **{recipe['label']}**! You now have {garden['potions'][item]}.{note}")
         if not seed_id:
             return await ctx.send("Use the **Alchemy** section of the FortuneGarden menu to use a potion on a growing seed.")
         if item not in RECIPES:
@@ -2515,14 +2938,32 @@ class FortuneGarden(commands.Cog):
                     return await ctx.send("That seed has an invalid growing timer.")
                 if item == "growth_potion":
                     info["bloom_time"] = max(datetime.utcnow(), bloom_time - timedelta(hours=2)).isoformat()
-                elif item == "golden_fertilizer":
+                elif item == "dew_of_renewal":
+                    info["bloom_time"] = max(datetime.utcnow(), bloom_time - timedelta(hours=4)).isoformat()
+                elif item in ("golden_fertilizer", "aurora_draught"):
                     info["fertilized"] = True
                     info["bloom_time"] = max(datetime.utcnow(), bloom_time - timedelta(minutes=30)).isoformat()
-                elif item == "fortune_elixir":
+                    if item == "aurora_draught":
+                        info["aurora_boost"] = True
+                elif item in ("fortune_elixir", "prism_philter"):
                     info["fortune_boost"] = True
+                    if item == "prism_philter":
+                        info["prism_boost"] = True
                 elif item == "moonlight_essence":
                     info["moonlight_boost"] = True
-                potions[item] = int(potions[item]) - 1
+                elif item == "nectar_tonic":
+                    info["nectar_boost"] = True
+                elif item == "pollinator_charm":
+                    info["pollinator_boost"] = True
+                elif item == "rootbound_brew":
+                    info["rootbound_boost"] = True
+                elif item == "sunfire_syrup":
+                    info["sunfire_boost"] = True
+                elif item == "dreamweaver_elixir":
+                    info["dream_boost"] = True
+                elif item == "stargazer_serum":
+                    info["stargazer_boost"] = True
+                potions[item] = max(0, int(potions.get(item, 0)) - 1)
                 await self._save_garden(member_conf, garden)
                 await guild_conf.fortunes.set(fortunes)
         await ctx.send(f"✨ Used **{RECIPES[item]['label']}** on seed `{seed_id}`.")
@@ -2566,8 +3007,9 @@ class FortuneGarden(commands.Cog):
             self._transfer_asset(garden, "flower", flower, count, add=False)
             garden.setdefault("companions", []).append(key)
             self._add_xp(garden, 20)
+            achievements = self._check_achievements(garden)
             await self._save_garden(member_conf, garden)
-        await ctx.send(f"{COMPANIONS[key]['emoji']} You adopted **{COMPANIONS[key]['label']}**! You can equip it from the **Companions** section in the FortuneGarden menu.")
+        await ctx.send(f"{COMPANIONS[key]['emoji']} You adopted **{COMPANIONS[key]['label']}**! You can equip it from the **Companions** section in the FortuneGarden menu." + (f"\n🏅 Unlocked: {', '.join(achievements)}" if achievements else ""))
 
     async def gardenbiome(self, ctx, action: str = "list", biome: str = None):
         lock = self._member_lock(ctx.guild.id, ctx.author.id)
@@ -2588,8 +3030,9 @@ class FortuneGarden(commands.Cog):
             if key not in garden.setdefault("biomes", []):
                 garden["biomes"].append(key)
             garden["equipped_biome"] = key
+            achievements = self._check_achievements(garden)
             await self._save_garden(member_conf, garden)
-        await ctx.send(f"🌍 Your garden biome is now **{BIOMES[key]['label']}**.")
+        await ctx.send(f"🌍 Your garden biome is now **{BIOMES[key]['label']}**." + (f"\n🏅 Unlocked: {', '.join(achievements)}" if achievements else ""))
 
     async def gardenexpedition(self, ctx, action: str = "list", mission: str = None):
         action = action.lower()
@@ -2640,13 +3083,35 @@ class FortuneGarden(commands.Cog):
                     garden.setdefault("potions", {})["growth_potion"] += 1
                     reward_lines.extend(["45 garden XP", "1 Growth Potion"])
                     companion_chance = 0.10
-                else:
+                elif key == "moonlit_lake":
                     self._add_xp(garden, 50)
                     flower, rarity = self._choose_flower("moonlight", current_seasonal_event(), garden.get("equipped_companion"), garden.get("equipped_biome", "meadow"))
                     self._add_flower(garden, flower)
                     self._progress_quests(garden, "flower", 1)
                     reward_lines.extend(["50 garden XP", f"{rarity} {flower}"])
                     companion_chance = 0.15
+                elif key == "ember_citadel":
+                    self._add_xp(garden, 85)
+                    garden["seed_inventory"]["golden"] += 1
+                    flower = "Emberheart Bloom"
+                    self._add_flower(garden, flower)
+                    garden.setdefault("potions", {})["sunfire_syrup"] = int(garden["potions"].get("sunfire_syrup", 0)) + 1
+                    reward_lines.extend(["85 garden XP", "1 Golden Seed", flower, "1 Sunfire Syrup"])
+                    companion_chance = 0.25
+                elif key == "sunken_grotto":
+                    self._add_xp(garden, 70)
+                    flower = "Tideglass Lotus"
+                    self._add_flower(garden, flower)
+                    garden.setdefault("potions", {})["dew_of_renewal"] = int(garden["potions"].get("dew_of_renewal", 0)) + 1
+                    reward_lines.extend(["70 garden XP", flower, "1 Dew of Renewal"])
+                    companion_chance = 0.20
+                else:
+                    self._add_xp(garden, 100)
+                    flower = "Dreamrose"
+                    self._add_flower(garden, flower)
+                    garden.setdefault("potions", {})["stargazer_serum"] = int(garden["potions"].get("stargazer_serum", 0)) + 1
+                    reward_lines.extend(["100 garden XP", flower, "1 Stargazer Serum"])
+                    companion_chance = 0.25
                 if garden.get("equipped_companion") == "spirit":
                     companion_chance += 0.05
                 if roll < companion_chance:
@@ -2656,10 +3121,12 @@ class FortuneGarden(commands.Cog):
                         garden.setdefault("companions", []).append(found)
                         reward_lines.append(f"Discovered {COMPANIONS[found]['label']}")
                 garden["expedition"] = None
+                garden["total_expeditions"] = int(garden.get("total_expeditions", 0)) + 1
                 self._progress_quests(garden, "expedition", 1)
                 self._add_world_tree_xp(garden, 10)
+                achievements = self._check_achievements(garden)
                 await self._save_garden(member_conf, garden)
-                return await ctx.send("🧭 Expedition complete! You found:\n• " + "\n• ".join(reward_lines))
+                return await ctx.send("🧭 Expedition complete! You found:\n• " + "\n• ".join(reward_lines) + (f"\n🏅 Unlocked: {', '.join(achievements)}" if achievements else ""))
         await ctx.send("Open the FortuneGarden menu and choose **Explore** to manage expeditions.")
 
     async def gardenvisit(self, ctx, member: discord.Member, *, compliment: str = "Your garden is lovely!"):
@@ -2678,11 +3145,14 @@ class FortuneGarden(commands.Cog):
                 if visitor_garden.setdefault("last_visits", {}).get(str(member.id)) == today:
                     return await ctx.send("You've already visited this garden today.")
                 visitor_garden["last_visits"][str(member.id)] = today
+                visitor_garden["total_visits_made"] = int(visitor_garden.get("total_visits_made", 0)) + 1
                 owner_garden["visit_count"] = int(owner_garden.get("visit_count", 0)) + 1
                 owner_garden.setdefault("guestbook", []).append({"visitor_id": ctx.author.id, "message": discord.utils.escape_mentions(compliment[:160]), "timestamp": datetime.utcnow().isoformat()})
                 owner_garden["guestbook"] = owner_garden["guestbook"][-20:]
                 self._progress_quests(visitor_garden, "visit", 1)
                 self._add_xp(visitor_garden, 5)
+                visitor_achievements = self._check_achievements(visitor_garden)
+                owner_achievements = self._check_achievements(owner_garden)
                 await self._save_garden(owner_conf, owner_garden)
                 await self._save_garden(visitor_conf, visitor_garden)
         biome = owner_garden.get("equipped_biome", "meadow")
@@ -2727,9 +3197,14 @@ class FortuneGarden(commands.Cog):
                 if not found or int(sender["flowers"].get(found, 0)) < 1:
                     return await ctx.send("You don't have that flower to give.")
                 sender["flowers"][found] -= 1
+                sender["total_gifts_sent"] = int(sender.get("total_gifts_sent", 0)) + 1
                 receiver.setdefault("flowers", {})[found] = int(receiver["flowers"].get(found, 0)) + 1
                 sender["last_visit_gifts"][str(member.id)] = today
+                self._progress_quests(sender, "gift", 1)
+                self._progress_quests(receiver, "gift", 1)
                 self._add_xp(receiver, 5)
+                sender_achievements = self._check_achievements(sender)
+                receiver_achievements = self._check_achievements(receiver)
                 await self._save_garden(sender_conf, sender)
                 await self._save_garden(receiver_conf, receiver)
         await ctx.send(f"🎁 {ctx.author.mention} gifted **{found}** to {member.mention}!")
@@ -2796,9 +3271,11 @@ class FortuneGarden(commands.Cog):
                 garden["seed_inventory"][seed] = int(garden["seed_inventory"].get(seed, 0)) + amount
             else:
                 garden.setdefault("potions", {})[item] = int(garden["potions"].get(item, 0)) + amount
+            garden["total_items_purchased"] = int(garden.get("total_items_purchased", 0)) + amount
+            achievements = self._check_achievements(garden)
             await self._save_garden(member_conf, garden)
         currency = await bank.get_currency_name(ctx.guild)
-        await ctx.send(f"🛍️ Purchased **{amount} × {MARKET_ITEMS[item]['label']}** for **{total} {currency}**.")
+        await ctx.send(f"🛍️ Purchased **{amount} × {MARKET_ITEMS[item]['label']}** for **{total} {currency}**." + (f"\n🏅 Unlocked: {', '.join(achievements)}" if achievements else ""))
 
     async def gardenoffer(self, ctx, member: discord.Member, give_type: str, give_item: str, want_type: str, want_item: str, amount: int = 1):
         give_type, want_type = give_type.lower(), want_type.lower()
@@ -2862,6 +3339,12 @@ class FortuneGarden(commands.Cog):
                         self._transfer_asset(receiver_garden, give["type"], give["item"], int(give["amount"]), add=True)
                     except ValueError as exc:
                         return await ctx.send(f"Trade couldn't complete: {exc}")
+                    sender_garden["total_trades_completed"] = int(sender_garden.get("total_trades_completed", 0)) + 1
+                    receiver_garden["total_trades_completed"] = int(receiver_garden.get("total_trades_completed", 0)) + 1
+                    self._progress_quests(sender_garden, "trade", 1)
+                    self._progress_quests(receiver_garden, "trade", 1)
+                    self._check_achievements(sender_garden)
+                    self._check_achievements(receiver_garden)
                     await self._save_garden(sender_conf, sender_garden)
                     await self._save_garden(receiver_conf, receiver_garden)
                     offer["status"] = "accepted"
@@ -2885,8 +3368,9 @@ class FortuneGarden(commands.Cog):
                 return await ctx.send("You don't have that flower to nourish the tree.")
             garden["flowers"][found] -= 1
             self._add_world_tree_xp(garden, 25)
+            achievements = self._check_achievements(garden)
             await self._save_garden(member_conf, garden)
-        await ctx.send(f"🌳 Your World Tree absorbed **{found}** and gained 25 growth XP. It is now level **{garden['world_tree_level']}**.")
+        await ctx.send(f"🌳 Your World Tree absorbed **{found}** and gained 25 growth XP. It is now level **{garden['world_tree_level']}**." + (f"\n🏅 Unlocked: {', '.join(achievements)}" if achievements else ""))
 
     async def gardencommunity(self, ctx):
         data = await self.config.guild(ctx.guild).community_garden()
@@ -2935,6 +3419,12 @@ class FortuneGarden(commands.Cog):
                     return await ctx.send(str(exc))
             await self._save_garden(member_conf, garden)
         points = amount * (5 if kind == "flower" else 10 if kind == "seed" else 1)
+        async with lock:
+            garden = await self._get_garden(self.config.user(ctx.author))
+            garden["total_community_points"] = int(garden.get("total_community_points", 0)) + points
+            self._progress_quests(garden, "community", 1)
+            achievements = self._check_achievements(garden)
+            await self._save_garden(self.config.user(ctx.author), garden)
         guild_lock = self._guild_lock(ctx.guild.id)
         async with guild_lock:
             guild_conf = self.config.guild(ctx.guild)
@@ -2943,7 +3433,7 @@ class FortuneGarden(commands.Cog):
             data["level"] = 1 + data["xp"] // 250
             data.setdefault("contributions", {})[str(ctx.author.id)] = int(data["contributions"].get(str(ctx.author.id), 0)) + points
             await guild_conf.community_garden.set(data)
-        await ctx.send(f"🌱 Thank you for contributing! The community garden gained **{points}** growth points and is now level **{data['level']}**.")
+        await ctx.send(f"🌱 Thank you for contributing! The community garden gained **{points}** growth points and is now level **{data['level']}**." + (f"\n🏅 Unlocked: {', '.join(achievements)}" if achievements else ""))
 
     async def gardencommunityclaim(self, ctx):
         data = await self.config.guild(ctx.guild).community_garden()
@@ -3019,6 +3509,10 @@ class FortuneGarden(commands.Cog):
             elif category == "flowers":
                 score = sum(int(value) for value in garden.get("flowers", {}).values())
                 label = f"{score} flowers"
+            elif category == "festival":
+                festival = current_festival_event()
+                score = int(garden.get("festival_progress", {}).get(festival["key"], 0))
+                label = f"{score} {festival['name']} blooms"
             else:
                 score = int(garden.get("garden_level", 1))
                 label = f"Level {score}"
@@ -3026,19 +3520,43 @@ class FortuneGarden(commands.Cog):
         ranked.sort(key=lambda item: item[0], reverse=True)
         if not ranked:
             return await ctx.send("There are no member gardens to rank yet.")
-        title = "Seasonal Garden Leaderboard" if category == "seasonal" else "Flower Collection Leaderboard" if category == "flowers" else "Garden Level Leaderboard"
+        title = "Seasonal Garden Leaderboard" if category == "seasonal" else "Festival Garden Leaderboard" if category == "festival" else "Flower Collection Leaderboard" if category == "flowers" else "Garden Level Leaderboard"
         lines = [f"**{index}. {discord.utils.escape_markdown(name)}** — {label}" for index, (_, name, label) in enumerate(ranked[:10], 1)]
         await ctx.send(embed=discord.Embed(title=f"🏆 {title}", description="\n".join(lines), color=discord.Color.gold()))
 
     async def gardenweather(self, ctx):
-        garden = await self._get_garden(self.config.user(ctx.author))
-        biome = garden.get("equipped_biome", "meadow")
-        weather, moon = weather_and_moon(biome=biome)
-        effects = {"Rainy": "Growing seeds are 5% faster.", "Snowy": "Growing seeds take 5% longer.", "Starlit": "Moonlight seeds grow 5% faster."}
-        effect = effects.get(weather, "No direct growth modifier from today's weather.")
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            garden = await self._get_garden(self.config.user(ctx.author))
+        biome_key = garden.get("equipped_biome", "meadow")
+        biome = BIOMES.get(biome_key, BIOMES["meadow"])
+        weather, moon = weather_and_moon(biome=biome_key)
+        effect = WEATHER_EFFECTS.get(weather, {})
+        description = effect.get("description", "The garden is calm today.")
         if moon == "Full Moon":
-            effect += " Full moon: moonlight seeds grow 10% faster."
-        await ctx.send(embed=discord.Embed(title="🌦️ Garden Weather", description=f"**Biome:** {BIOMES.get(biome, BIOMES['meadow'])['label']}\n**Weather:** {weather}\n**Moon phase:** {moon}\n\n{effect}", color=discord.Color.blurple()))
+            description += " Full Moon also makes Moonlight Seeds grow 10% faster."
+        elif moon == "New Moon":
+            description += " New Moon favours mysterious and moonlit discoveries."
+        growth_bonus = int(round((1.0 - float(effect.get("growth_multiplier", 1.0))) * 100))
+        flower_bonus = int(round((float(effect.get("flower_bonus", 1.0)) - 1.0) * 100))
+        embed = discord.Embed(
+            title="🌦️ Garden Weather & Moon",
+            description=f"**Biome:** {biome['label']}\n**Weather:** {weather}\n**Moon phase:** {moon}\n\n{description}",
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(name="🌱 Growth Speed", value=f"{growth_bonus:+d}%", inline=True)
+        embed.add_field(name="🌸 Flower Chances", value=f"{flower_bonus:+d}%", inline=True)
+        embed.add_field(name="⭐ Bloom XP", value=f"+{int(effect.get('xp_bonus', 0))} XP", inline=True)
+        if effect.get("special_flower"):
+            embed.add_field(name="✨ Weather Flower", value=f"{effect['special_flower']} may appear during this weather.", inline=False)
+        if effect.get("bonus_fertilizer_chance"):
+            chance = int(round(float(effect["bonus_fertilizer_chance"]) * 100))
+            embed.add_field(name="🌿 Extra Supplies", value=f"{chance}% chance to find bonus Fertilizer when a seed blooms.", inline=False)
+        festival = current_festival_event()
+        festival_points = int(garden.get("festival_progress", {}).get(festival["key"], 0))
+        embed.add_field(name="🎪 Weekly Festival", value=f"{festival['emoji']} **{festival['name']}**\n{festival['description']}\nProgress: **{festival_points}/14 blooms** · Featured flower: **{festival['flower']}**", inline=False)
+        embed.set_footer(text="Weather and moon conditions are recorded when you plant a seed and influence that seed's next bloom.")
+        await ctx.send(embed=embed)
 
     async def gardenprestige(self, ctx, confirm: str = ""):
         lock = self._member_lock(ctx.guild.id, ctx.author.id)
@@ -3058,8 +3576,9 @@ class FortuneGarden(commands.Cog):
             if "Prestige Blossom" not in garden.setdefault("unlocked_decorations", []):
                 garden["unlocked_decorations"].append("Prestige Blossom")
             garden["equipped_decoration"] = "Prestige Blossom"
+            achievements = self._check_achievements(garden)
             await self._save_garden(member_conf, garden)
-        await ctx.send(f"🌟 Your garden reached prestige **{garden['prestige']}**! You earned an Ancient Seed, 3 Fertilizer and a permanent +{garden['permanent_xp_bonus']}% XP bonus.")
+        await ctx.send(f"🌟 Your garden reached prestige **{garden['prestige']}**! You earned an Ancient Seed, 3 Fertilizer and a permanent +{garden['permanent_xp_bonus']}% XP bonus." + (f"\n🏅 Unlocked: {', '.join(achievements)}" if achievements else ""))
 
     async def gardenbirthday(self, ctx, action: str = "claim", date_text: str = None):
         action = action.lower()
@@ -3103,7 +3622,16 @@ class FortuneGarden(commands.Cog):
             biome = garden.get("equipped_biome", "meadow")
             backgrounds = {"sunrise": (255, 219, 170), "emerald": (31, 92, 62), "twilight": (48, 48, 91), "starlight": (24, 32, 68)}
             bg = backgrounds.get(garden.get("design", {}).get("background", "emerald"), (31, 92, 62))
-            palettes = {"meadow": (76, 145, 80), "moonlit": (73, 91, 132), "frozen": (135, 190, 213), "celestial": (77, 70, 130), "ruins": (111, 116, 77)}
+            palettes = {
+                "meadow": (76, 145, 80),
+                "moonlit": (73, 91, 132),
+                "frozen": (135, 190, 213),
+                "celestial": (77, 70, 130),
+                "ruins": (111, 116, 77),
+                "enchanted": (49, 115, 75),
+                "volcanic": (142, 76, 55),
+                "tidal": (65, 132, 148),
+            }
             grass = palettes.get(biome, palettes["meadow"])
             image = Image.new("RGB", (width, height), bg)
             draw = ImageDraw.Draw(image)
@@ -3112,6 +3640,27 @@ class FortuneGarden(commands.Cog):
             title = f"{member.display_name}'s {BIOMES.get(biome, BIOMES['meadow'])['label']}"
             draw.text((55, 48), title[:64], fill=(255, 255, 255), font=font)
             draw.text((55, 72), f"Level {garden.get('garden_level', 1)}  |  Prestige {garden.get('prestige', 0)}  |  {garden.get('equipped_decoration') or 'Growing Garden'}", fill=(245, 245, 220), font=font)
+            companion_label = COMPANIONS.get(garden.get("equipped_companion"), {}).get("label", "No companion")
+            draw.text((55, 96), f"Companion: {companion_label}", fill=(245, 245, 220), font=font)
+            if biome == "enchanted":
+                for x in (105, 855):
+                    draw.rectangle((x, 132, x + 24, 245), fill=(76, 61, 43))
+                    draw.ellipse((x - 42, 105, x + 66, 205), fill=(39, 91, 60), outline=(130, 190, 120), width=3)
+                for x, y in ((220, 155), (745, 175), (875, 280), (130, 430)):
+                    draw.ellipse((x, y, x + 9, y + 9), fill=(245, 230, 130))
+            elif biome == "volcanic":
+                for points in (
+                    [(75, 280), (155, 315), (130, 355), (195, 395)],
+                    [(820, 250), (760, 305), (840, 360), (785, 430)],
+                    [(330, 500), (380, 465), (410, 520), (455, 490)],
+                ):
+                    draw.line(points, fill=(242, 130, 57), width=8)
+                    draw.line(points, fill=(255, 205, 105), width=3)
+            elif biome == "tidal":
+                for bounds in ((65, 300, 235, 395), (765, 150, 930, 245), (760, 430, 925, 520)):
+                    draw.ellipse(bounds, fill=(48, 112, 142), outline=(151, 220, 225), width=4)
+                    x1, y1, x2, y2 = bounds
+                    draw.arc((x1 + 25, y1 + 20, x2 - 25, y2 - 20), 15, 165, fill=(190, 235, 235), width=3)
             layout = garden.get("design", {}).get("layout", "cottage")
             path_color = {"stone": (184, 180, 160), "moss": (86, 116, 72), "crystal": (155, 214, 232), "wood": (133, 88, 55)}.get(garden.get("design", {}).get("path", "stone"), (184, 180, 160))
             draw.polygon([(470, 570), (530, 570), (650, 240), (350, 240)], fill=path_color)
