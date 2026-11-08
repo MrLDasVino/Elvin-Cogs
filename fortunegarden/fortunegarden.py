@@ -19,9 +19,15 @@ PLANT_BANNER = "https://files.catbox.moe/wvf27j.png"
 LIST_BANNER = "https://files.catbox.moe/rn4git.png"
 REWARD_BANNERS = {
     "currency": "https://files.catbox.moe/qc1h6u.png",
-    "prompt":   "https://files.catbox.moe/q04tqy.png",
-    "fortune":  "https://files.catbox.moe/4jbpxq.png",
-    "advice":   "https://files.catbox.moe/1gs6jr.png",
+    "jackpot": "https://files.catbox.moe/qc1h6u.png",
+    "prompt": "https://files.catbox.moe/q04tqy.png",
+    "fortune": "https://files.catbox.moe/4jbpxq.png",
+    "advice": "https://files.catbox.moe/1gs6jr.png",
+    "flower": PLANT_BANNER,
+    "seed": SEED_BANNER,
+    "mystery": PLANT_BANNER,
+    "xp": LIST_BANNER,
+    "fertilizer": PLANT_BANNER,
 }
 
 PROMPTS = [
@@ -2340,7 +2346,7 @@ class FortuneGarden(commands.Cog):
                         embed.add_field(name="Garden Discoveries", value="\n".join(info["bloom_notes"])[:1024], inline=False)
                     if info.get("seed_name"):
                         embed.add_field(name="Plant Name", value=discord.utils.escape_markdown(str(info["seed_name"]))[:100], inline=True)
-                    embed.set_image(url=REWARD_BANNERS.get(reward.get("kind"), REWARD_BANNERS["flower"]))
+                    embed.set_image(url=REWARD_BANNERS.get(reward.get("kind")) or PLANT_BANNER)
                     embed.set_footer(text=f"Seed ID: {fid} • {event['name']} • {festival['name']}")
 
                     targets = await self._resolve_delivery_targets(guild, member, info, guild_data)
