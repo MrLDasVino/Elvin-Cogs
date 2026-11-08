@@ -1280,6 +1280,12 @@ class GardenMenuView(discord.ui.View):
     async def _call(self, interaction, method, *args, _ephemeral=True, **kwargs):
         ctx = GardenInteractionContext(interaction, ephemeral=_ephemeral)
         try:
+            if self.cog._resetting:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("FortuneGarden is being reset by the bot owner. Please try again shortly.", ephemeral=True)
+                else:
+                    await interaction.followup.send("FortuneGarden is being reset by the bot owner. Please try again shortly.", ephemeral=True)
+                return
             if not interaction.response.is_done():
                 await interaction.response.defer(ephemeral=_ephemeral, thinking=True)
             await getattr(self.cog, method)(ctx, *args, **kwargs)
@@ -1562,6 +1568,14 @@ class FortuneGarden(commands.Cog):
         self._migration_lock = asyncio.Lock()
         self._migration_complete = False
         self._member_locks = {}
+        self._reset_lock = asyncio.Lock()
+        self._resetting = False
+
+    async def cog_check(self, ctx):
+        if self._resetting and ctx.command and ctx.command.name != "fortunereset":
+            await ctx.send("FortuneGarden is being reset by the bot owner. Please try again shortly.")
+            return False
+        return True
 
     async def _migrate_member_data(self):
         if self._migration_complete:
@@ -2363,6 +2377,8 @@ class FortuneGarden(commands.Cog):
 
     @tasks.loop(seconds=60.0)
     async def bloom_loop(self):
+        if self._resetting:
+            return
         try:
             await self._process_due_seeds()
         except Exception:
@@ -2374,6 +2390,8 @@ class FortuneGarden(commands.Cog):
         await self._migrate_member_data()
 
     async def on_message(self, message):
+        if self._resetting:
+            return
         if message.author.bot or message.webhook_id or not message.guild:
             return
         content = (message.content or "").strip()
@@ -3957,6 +3975,90 @@ class FortuneGarden(commands.Cog):
             info.pop("last_error", None)
             await guild_conf.fortunes.set(fortunes)
         await ctx.send("✅ Payout marked as already paid. The bloom will continue to delivery." if action == "paid" else "✅ Payout claim cleared. The bloom processor may retry the deposit.")
+
+    @commands.is_owner()
+    @commands.command(name="fortunereset", help="Reset every FortuneGarden user profile and all shared game progress. Bot owner only; requires confirmation.")
+    async def fortunereset(self, ctx, confirmation: str = None):
+        if (confirmation or "").lower() != "confirm":
+            users = await self.config.all_users()
+            legacy = await self.config.all_members()
+            guilds = await self.config.all_guilds()
+            profile_ids = {str(user_id) for user_id in users}
+            for members in legacy.values():
+                profile_ids.update(str(user_id) for user_id in members)
+            embed = discord.Embed(
+                title="⚠️ Reset All FortuneGarden Profiles",
+                description=(
+                    "This is a **global, irreversible reset**. It will erase every player's FortuneGarden profile across all servers, "
+                    "including seeds, planted seeds, flowers, items, potions, companions, quests, achievements, collections, "
+                    "garden levels, World Trees, prestige, birthdays, history and personal settings. It will also reset "
+                    "server community gardens and remove pending trade offers.\n\n"
+                    "Server configuration such as reward settings, channels, drop rates, ignored roles and custom discovery messages "
+                    "will be preserved. Red economy credit balances already deposited will **not** be changed.\n\n"
+                    f"Profiles found: **{len(profile_ids)}**\n"
+                    f"Configured servers found: **{len(guilds)}**\n\n"
+                    f"To proceed, run `{ctx.clean_prefix}fortunereset confirm`."
+                ),
+                color=discord.Color.red(),
+            )
+            embed.set_footer(text="Bot owner only • Confirmation required")
+            return await ctx.send(embed=embed)
+
+        if self._resetting or self._reset_lock.locked():
+            return await ctx.send("A FortuneGarden reset is already in progress.")
+        async with self._reset_lock:
+            if self._resetting:
+                return await ctx.send("A FortuneGarden reset is already in progress.")
+            self._resetting = True
+            try:
+                users = await self.config.all_users()
+                legacy = await self.config.all_members()
+                guilds = await self.config.all_guilds()
+                profile_ids = {str(user_id) for user_id in users}
+                legacy_count = 0
+                for guild_id, members in legacy.items():
+                    for user_id in members:
+                        legacy_count += 1
+                        profile_ids.add(str(user_id))
+
+                for user_id in users:
+                    await self.config.user_from_id(int(user_id)).clear()
+
+                for guild_id, members in legacy.items():
+                    for user_id in members:
+                        await self.config.member_from_ids(int(guild_id), int(user_id)).clear()
+
+                for guild_id in guilds:
+                    guild_conf = self.config.guild_from_id(int(guild_id))
+                    await guild_conf.fortunes.set({})
+                    await guild_conf.trade_offers.set({})
+                    await guild_conf.community_garden.set({
+                        "xp": 0,
+                        "level": 1,
+                        "contributions": {},
+                        "milestones": [],
+                    })
+
+                await self.config.member_migration_version.set(1)
+                self._migration_complete = True
+                log.warning(
+                    "FortuneGarden global reset completed by owner %s: %s profiles, %s legacy member records, %s guilds.",
+                    ctx.author.id, len(profile_ids), legacy_count, len(guilds)
+                )
+            except Exception:
+                log.exception("FortuneGarden global reset failed; some data may already have been cleared.")
+                return await ctx.send(
+                    "❌ The reset encountered an error. Some data may already have been cleared, so inspect the bot logs before retrying."
+                )
+            finally:
+                self._resetting = False
+
+        await ctx.send(
+            "✅ **FortuneGarden has been reset globally.**\n"
+            f"Cleared **{len(profile_ids)}** user profiles (including legacy records), planted seeds and pending reward schedules; "
+            f"reset community gardens in **{len(guilds)}** servers; and removed pending trade offers.\n"
+            "Server configuration and existing Red economy balances were preserved."
+        )
 
     @commands.guild_only()
     @commands.has_guild_permissions(manage_guild=True)
