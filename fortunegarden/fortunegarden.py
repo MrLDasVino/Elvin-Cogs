@@ -689,6 +689,17 @@ FLOWERS = {
     "Sakura": "Seasonal",
     "Sunflare": "Seasonal",
     "Harvest Crown": "Seasonal",
+    "Glacier Peony": "Rare",
+    "Nebula Rose": "Epic",
+    "Ruins Orchid": "Rare",
+    "Silver Fern": "Uncommon",
+}
+BIOME_FLOWERS = {
+    "meadow": ["Dandelion", "Clover", "Daisy", "Bluebell"],
+    "moonlit": ["Moonflower", "Star Lily", "Firefly Orchid"],
+    "frozen": ["Frostbell", "Glacier Peony", "Bluebell"],
+    "celestial": ["Celestial Lily", "Aurora Bloom", "Nebula Rose"],
+    "ruins": ["Ruins Orchid", "Silver Fern", "Foxglove"],
 }
 SEASONAL_EVENTS = {
     "winter": {"name": "Winter's Frost", "flower": "Frostbell", "emoji": "❄️"},
@@ -717,6 +728,89 @@ ACHIEVEMENT_DESCRIPTIONS = {
 }
 
 
+# Additional FortuneGarden systems
+COMPANIONS = {
+    "fairy": {"label": "Garden Fairy", "emoji": "🧚", "description": "Improves the chance of finding rarer flowers.", "cost": {"flower": "Moonflower", "count": 2}},
+    "fox": {"label": "Clover Fox", "emoji": "🦊", "description": "Shortens growing times by 5%.", "cost": {"flower": "Clover", "count": 3}},
+    "owl": {"label": "Wisdom Owl", "emoji": "🦉", "description": "Grants 10% more garden experience.", "cost": {"flower": "Bluebell", "count": 3}},
+    "firefly": {"label": "Moonfire Firefly", "emoji": "✨", "description": "Shortens growing times by 10%.", "cost": {"flower": "Lavender", "count": 2}},
+    "spirit": {"label": "Ancient Forest Spirit", "emoji": "🌳", "description": "Improves rare finds and expedition rewards.", "cost": {"flower": "Star Lily", "count": 1}},
+}
+BIOMES = {
+    "meadow": {"label": "Wildflower Meadow", "level": 1, "description": "A gentle green starting garden."},
+    "moonlit": {"label": "Moonlit Garden", "level": 5, "description": "A silver garden beneath a permanent twilight."},
+    "frozen": {"label": "Frostbound Sanctuary", "level": 10, "description": "A quiet garden of snow and crystal."},
+    "celestial": {"label": "Celestial Garden", "level": 15, "description": "A garden among the stars."},
+    "ruins": {"label": "Ancient Ruins", "level": 20, "description": "An overgrown sanctuary from a forgotten age."},
+}
+DESIGN_OPTIONS = {
+    "layout": {"cottage": "Cottage", "formal": "Formal", "wild": "Wild", "zen": "Zen"},
+    "background": {"sunrise": "Sunrise", "emerald": "Emerald", "twilight": "Twilight", "starlight": "Starlight"},
+    "path": {"stone": "Stone", "moss": "Moss", "crystal": "Crystal", "wood": "Wood"},
+}
+RECIPES = {
+    "growth_potion": {"label": "Growth Potion", "ingredients": {"Dandelion": 2, "Clover": 1}, "description": "Reduces a growing seed's timer by two hours."},
+    "golden_fertilizer": {"label": "Golden Fertilizer", "ingredients": {"Moonflower": 1, "Lavender": 2}, "description": "Fertilizes a seed and boosts its flower chances."},
+    "fortune_elixir": {"label": "Fortune Elixir", "ingredients": {"Daisy": 2, "Crystal Rose": 1}, "description": "Adds a luck bonus to the next bloom reward."},
+    "moonlight_essence": {"label": "Moonlight Essence", "ingredients": {"Moonflower": 2, "Star Lily": 1}, "description": "Empowers the next seed with moonlight flower luck."},
+}
+EXPEDITIONS = {
+    "whispering_woods": {"label": "Whispering Woods", "hours": 1, "description": "A short journey through an ancient forest."},
+    "forgotten_ruins": {"label": "Forgotten Ruins", "hours": 3, "description": "Search a lost sanctuary for rare treasures."},
+    "crystal_caverns": {"label": "Crystal Caverns", "hours": 2, "description": "Mine sparkling crystals and magical fertilizer."},
+    "moonlit_lake": {"label": "Moonlit Lake", "hours": 2, "description": "Explore a lake that reflects the stars."},
+}
+MARKET_ITEMS = {
+    "fertilizer": {"label": "Fertilizer", "price": 80, "description": "Speeds up a seed and improves flower odds."},
+    "growth_potion": {"label": "Growth Potion", "price": 180, "description": "Reduces one seed's timer by two hours."},
+    "fortune_elixir": {"label": "Fortune Elixir", "price": 220, "description": "Improves the next bloom's bonus rewards."},
+    "common_seed": {"label": "Common Seed", "price": 120, "description": "A reliable seed for your garden."},
+    "golden_seed": {"label": "Golden Seed", "price": 450, "description": "A valuable seed with improved reward odds."},
+}
+DAILY_QUEST_POOL = [
+    {"id": "plant", "description": "Plant 2 seeds", "target": 2, "xp": 35, "item": "fertilizer", "amount": 1},
+    {"id": "water", "description": "Water 1 seed", "target": 1, "xp": 25, "item": "fertilizer", "amount": 1},
+    {"id": "bloom", "description": "Bloom 1 seed", "target": 1, "xp": 40, "item": "common_seed", "amount": 1},
+    {"id": "flower", "description": "Discover 1 flower", "target": 1, "xp": 35, "item": "fertilizer", "amount": 1},
+    {"id": "visit", "description": "Visit 1 garden", "target": 1, "xp": 25, "item": "common_seed", "amount": 1},
+    {"id": "expedition", "description": "Complete 1 expedition", "target": 1, "xp": 45, "item": "fertilizer", "amount": 1},
+]
+WEEKLY_QUEST_POOL = [
+    {"id": "plant", "description": "Plant 10 seeds", "target": 10, "xp": 150, "item": "golden_seed", "amount": 1},
+    {"id": "water", "description": "Water 5 seeds", "target": 5, "xp": 120, "item": "fertilizer", "amount": 4},
+    {"id": "bloom", "description": "Bloom 8 seeds", "target": 8, "xp": 180, "item": "golden_seed", "amount": 1},
+    {"id": "flower", "description": "Discover 5 flowers", "target": 5, "xp": 160, "item": "fortune_elixir", "amount": 1},
+    {"id": "visit", "description": "Visit 5 gardens", "target": 5, "xp": 120, "item": "growth_potion", "amount": 1},
+    {"id": "expedition", "description": "Complete 4 expeditions", "target": 4, "xp": 180, "item": "golden_seed", "amount": 1},
+    {"id": "craft", "description": "Craft 2 alchemy items", "target": 2, "xp": 140, "item": "fertilizer", "amount": 3},
+]
+
+
+def quest_periods(now=None):
+    now = now or datetime.utcnow()
+    daily_key = now.date().isoformat()
+    iso = now.isocalendar()
+    weekly_key = f"{iso.year}-W{iso.week:02d}"
+    return daily_key, weekly_key
+
+
+def weather_and_moon(now=None, biome="meadow"):
+    now = now or datetime.utcnow()
+    epoch = datetime(2000, 1, 6)
+    days = (now.date() - epoch.date()).days
+    lunar = (days % 29.530588) / 29.530588
+    phases = ["New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous", "Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent"]
+    phase = phases[int((lunar * 8) + 0.5) % 8]
+    weather_names = ["Sunny", "Rainy", "Foggy", "Breezy", "Starry", "Overcast"]
+    seed = sum(ord(char) for char in f"{now.date().isoformat()}:{biome}")
+    weather = weather_names[seed % len(weather_names)]
+    if biome == "frozen" and weather == "Rainy":
+        weather = "Snowy"
+    if biome == "celestial":
+        weather = "Starlit" if phase in ("New Moon", "Full Moon") else weather
+    return weather, phase
+
+
 def create_garden(seed_count=0):
     return {
         "seeds": max(0, int(seed_count)),
@@ -737,6 +831,26 @@ def create_garden(seed_count=0):
         "event_claims": [],
         "unlocked_decorations": [],
         "equipped_decoration": None,
+        "companions": [],
+        "equipped_companion": None,
+        "biomes": ["meadow"],
+        "equipped_biome": "meadow",
+        "expedition": None,
+        "quest_state": {},
+        "world_tree_xp": 0,
+        "world_tree_level": 1,
+        "prestige": 0,
+        "permanent_xp_bonus": 0,
+        "community_claims": {},
+        "guestbook": [],
+        "visit_count": 0,
+        "last_visit_gifts": {},
+        "last_guestbook_posts": {},
+        "birthday": None,
+        "birthday_claimed_year": None,
+        "design": {"layout": "cottage", "background": "emerald", "path": "stone"},
+        "potions": {"growth_potion": 0, "golden_fertilizer": 0, "fortune_elixir": 0, "moonlight_essence": 0},
+        "active_boosts": {},
     }
 
 
@@ -825,15 +939,104 @@ class FortuneGarden(commands.Cog):
             min_message_length=8,
             watering_minutes=30,
             fertilizing_minutes=60,
+            trade_offers={},
+            community_garden={"xp": 0, "level": 1, "contributions": {}, "milestones": []},
         )
-        self.config.register_member(
-            seeds=0,
-            last_earned=None,
-            opt_out=False,
-            garden=None,
-        )
+        user_defaults = {
+            "seeds": 0,
+            "last_earned": None,
+            "opt_out": False,
+            "garden": None,
+        }
+        self.config.register_user(**user_defaults)
+        self.config.register_member(**user_defaults)
+        self.config.register_global(member_migration_version=0)
         self._guild_locks = {}
+        self._migration_lock = asyncio.Lock()
+        self._migration_complete = False
         self._member_locks = {}
+
+    async def _migrate_member_data(self):
+        if self._migration_complete:
+            return
+        async with self._migration_lock:
+            if self._migration_complete:
+                return
+            if int(await self.config.member_migration_version()) >= 1:
+                self._migration_complete = True
+                return
+            legacy = await self.config.all_members()
+            merged_rows = {}
+            for guild_members in legacy.values():
+                for user_id, data in guild_members.items():
+                    merged_rows.setdefault(str(user_id), []).append(data)
+            for user_id, rows in merged_rows.items():
+                user_conf = self.config.user_from_id(int(user_id))
+                current = await user_conf.all()
+                if isinstance(current.get("garden"), dict):
+                    continue
+                if int(current.get("seeds", 0)) > 0 or current.get("last_earned") or current.get("opt_out"):
+                    continue
+                combined = create_garden()
+                last_earned = []
+                opt_out = False
+                has_legacy_data = False
+                history = []
+                for row in rows:
+                    if row.get("last_earned"):
+                        last_earned.append(row["last_earned"])
+                    opt_out = opt_out or bool(row.get("opt_out"))
+                    source = row.get("garden")
+                    if not isinstance(source, dict):
+                        legacy_seeds = max(0, int(row.get("seeds", 0)))
+                        source = create_garden(legacy_seeds)
+                    inventory = source.get("seed_inventory") if isinstance(source.get("seed_inventory"), dict) else {"common": source.get("seeds", row.get("seeds", 0))}
+                    for seed_type in SEED_TYPES:
+                        combined["seed_inventory"][seed_type] += max(0, int(inventory.get(seed_type, 0)))
+                    for flower, count in source.get("flowers", {}).items():
+                        combined["flowers"][flower] = int(combined["flowers"].get(flower, 0)) + max(0, int(count))
+                    for item, count in (source.get("items") or {}).items():
+                        combined["items"][item] = int(combined["items"].get(item, 0)) + max(0, int(count))
+                    for item, count in (source.get("potions") or {}).items():
+                        combined["potions"][item] = int(combined["potions"].get(item, 0)) + max(0, int(count))
+                    for field in ("garden_xp", "world_tree_xp", "prestige", "water_streak", "visit_count"):
+                        combined[field] = max(int(combined.get(field, 0)), int(source.get(field, 0)))
+                    for field in ("total_planted", "total_blooms"):
+                        combined[field] += max(0, int(source.get(field, 0)))
+                    for field in ("achievements", "applied_reward_ids", "event_claims", "unlocked_decorations", "companions", "biomes"):
+                        for value in source.get(field, []) or []:
+                            if value not in combined[field]:
+                                combined[field].append(value)
+                    for guild_key, claimed_levels in (source.get("community_claims") or {}).items() if isinstance(source.get("community_claims"), dict) else []:
+                        combined["community_claims"].setdefault(str(guild_key), [])
+                        combined["community_claims"][str(guild_key)] = sorted(set(combined["community_claims"][str(guild_key)] + list(claimed_levels)))
+                    for event_key, value in (source.get("event_progress") or {}).items():
+                        combined["event_progress"][event_key] = int(combined["event_progress"].get(event_key, 0)) + int(value)
+                    history.extend(source.get("reward_history", []) or [])
+                    combined["guestbook"].extend(source.get("guestbook", []) or [])
+                    for field in ("last_water_date", "daily_water_date", "birthday", "birthday_claimed_year", "equipped_companion", "equipped_biome", "equipped_decoration", "expedition"):
+                        if source.get(field) and not combined.get(field):
+                            combined[field] = source[field]
+                    if source.get("design") and combined.get("design") == create_garden().get("design"):
+                        combined["design"] = source["design"]
+                    has_legacy_data = has_legacy_data or source != create_garden() or bool(row.get("seeds"))
+                combined["garden_level"] = 1 + int(combined["garden_xp"]) // 100
+                combined["world_tree_level"] = 1 + int(combined["world_tree_xp"]) // 100
+                combined["seeds"] = sum(combined["seed_inventory"].values())
+                combined["reward_history"] = sorted(history, key=lambda item: item.get("timestamp", ""))[-20:]
+                combined["guestbook"] = combined["guestbook"][-20:]
+                if not has_legacy_data and not last_earned and not opt_out:
+                    continue
+                await self._save_garden(user_conf, combined)
+                if last_earned:
+                    try:
+                        await user_conf.last_earned.set(max(last_earned, key=lambda value: datetime.fromisoformat(value)))
+                    except (TypeError, ValueError):
+                        await user_conf.last_earned.set(last_earned[-1])
+                await user_conf.opt_out.set(opt_out)
+            await self.config.member_migration_version.set(1)
+            self._migration_complete = True
+            log.info("FortuneGarden migrated legacy per-server member data to global user profiles.")
 
     def cog_load(self):
         if not self.bloom_loop.is_running():
@@ -849,7 +1052,7 @@ class FortuneGarden(commands.Cog):
         return self._guild_locks[guild_id]
 
     def _member_lock(self, guild_id, user_id):
-        key = (int(guild_id), int(user_id))
+        key = int(user_id)
         if key not in self._member_locks:
             self._member_locks[key] = asyncio.Lock()
         return self._member_locks[key]
@@ -865,6 +1068,8 @@ class FortuneGarden(commands.Cog):
         await member_conf.seeds.set(garden["seeds"])
 
     async def _get_garden(self, member_conf):
+        if not self._migration_complete and int(await self.config.member_migration_version()) < 1:
+            await self._migrate_member_data()
         garden = await member_conf.garden()
         if not isinstance(garden, dict):
             legacy_seeds = max(0, int(await member_conf.seeds()))
@@ -902,11 +1107,83 @@ class FortuneGarden(commands.Cog):
             await self._save_garden(member_conf, garden)
         return garden
 
+    def _refresh_quests(self, garden, now=None):
+        now = now or datetime.utcnow()
+        daily_key, weekly_key = quest_periods(now)
+        state = garden.setdefault("quest_state", {})
+        if state.get("daily_key") != daily_key:
+            rng = random.Random(daily_key + str(garden.get("quest_salt", 0)))
+            selected = rng.sample(DAILY_QUEST_POOL, 3)
+            state["daily_key"] = daily_key
+            state["daily"] = [{**task, "event": task["id"], "id": f"d_{task['id']}", "progress": 0, "claimed": False} for task in selected]
+        if state.get("weekly_key") != weekly_key:
+            rng = random.Random(weekly_key + str(garden.get("quest_salt", 0)))
+            selected = rng.sample(WEEKLY_QUEST_POOL, 3)
+            state["weekly_key"] = weekly_key
+            state["weekly"] = [{**task, "event": task["id"], "id": f"w_{task['id']}", "progress": 0, "claimed": False} for task in selected]
+
+    def _progress_quests(self, garden, event, amount=1):
+        self._refresh_quests(garden)
+        state = garden.setdefault("quest_state", {})
+        for period in ("daily", "weekly"):
+            for task in state.get(period, []):
+                if task.get("event", task.get("id")) == event and not task.get("claimed"):
+                    task["progress"] = min(int(task.get("target", 1)), int(task.get("progress", 0)) + int(amount))
+
+    def _add_world_tree_xp(self, garden, amount):
+        garden["world_tree_xp"] = max(0, int(garden.get("world_tree_xp", 0)) + int(amount))
+        garden["world_tree_level"] = 1 + garden["world_tree_xp"] // 100
+
+    def _asset_count(self, garden, asset_type, item):
+        if asset_type == "seed":
+            return int(garden.get("seed_inventory", {}).get(item, 0)) if item in SEED_TYPES else 0
+        if asset_type == "flower":
+            found = next((name for name in garden.get("flowers", {}) if name.lower() == item.lower()), None)
+            return int(garden.get("flowers", {}).get(found, 0)) if found else 0
+        if asset_type == "item":
+            if item == "fertilizer":
+                return int(garden.get("items", {}).get("fertilizer", 0))
+            return int(garden.get("potions", {}).get(item, 0))
+        return 0
+
+    def _transfer_asset(self, garden, asset_type, item, amount, add=False):
+        amount = int(amount)
+        if asset_type == "seed":
+            if item not in SEED_TYPES:
+                raise ValueError("Unknown seed type.")
+            key = item
+            store = garden.setdefault("seed_inventory", {})
+            if not add and int(store.get(key, 0)) < amount:
+                raise ValueError("Not enough of that seed.")
+            store[key] = max(0, int(store.get(key, 0)) + (amount if add else -amount))
+        elif asset_type == "flower":
+            key = next((name for name in garden.get("flowers", {}) if name.lower() == item.lower()), None)
+            if key is None:
+                key = next((name for name in FLOWERS if name.lower() == item.lower()), None)
+            if key is None and add:
+                key = item
+            if key is None or (not add and int(garden.get("flowers", {}).get(key, 0)) < amount):
+                raise ValueError("Not enough of that flower.")
+            flowers = garden.setdefault("flowers", {})
+            flowers[key] = max(0, int(flowers.get(key, 0)) + (amount if add else -amount))
+        elif asset_type == "item":
+            store = garden.setdefault("items", {}) if item == "fertilizer" else garden.setdefault("potions", {})
+            if item not in ("fertilizer", *RECIPES.keys()):
+                raise ValueError("Unknown garden item.")
+            if not add and int(store.get(item, 0)) < amount:
+                raise ValueError("Not enough of that item.")
+            store[item] = max(0, int(store.get(item, 0)) + (amount if add else -amount))
+        else:
+            raise ValueError("Asset type must be seed, flower or item.")
+
     def _seed_count(self, garden):
         return sum(max(0, int(value)) for value in garden.get("seed_inventory", {}).values())
 
     def _add_xp(self, garden, amount):
-        garden["garden_xp"] = max(0, int(garden.get("garden_xp", 0)) + int(amount))
+        multiplier = 1.0 + max(0, int(garden.get("permanent_xp_bonus", 0))) / 100.0
+        if garden.get("equipped_companion") == "owl":
+            multiplier += 0.10
+        garden["garden_xp"] = max(0, int(garden.get("garden_xp", 0)) + int(int(amount) * multiplier))
         new_level = 1 + garden["garden_xp"] // 100
         old_level = int(garden.get("garden_level", 1))
         garden["garden_level"] = new_level
@@ -948,7 +1225,7 @@ class FortuneGarden(commands.Cog):
         weights = [SEED_TYPES[name]["weight"] for name in names]
         return random.choices(names, weights=weights, k=1)[0]
 
-    def _choose_flower(self, seed_type, event):
+    def _choose_flower(self, seed_type, event, companion=None, biome="meadow"):
         rarity_weights = {
             "common": [60, 25, 11, 3, 1],
             "golden": [45, 27, 18, 7, 3],
@@ -956,16 +1233,26 @@ class FortuneGarden(commands.Cog):
             "ancient": [30, 25, 25, 14, 6],
         }
         rarities = ["Common", "Uncommon", "Rare", "Epic", "Legendary"]
-        weights = rarity_weights.get(seed_type, rarity_weights["common"])
+        weights = list(rarity_weights.get(seed_type, rarity_weights["common"]))
+        if companion == "fairy":
+            weights[2] *= 1.25
+            weights[3] *= 1.5
+            weights[4] *= 2
+        elif companion == "spirit":
+            weights[3] *= 1.15
+            weights[4] *= 1.5
         rarity = random.choices(rarities, weights=weights, k=1)[0]
-        candidates = [name for name, flower_rarity in FLOWERS.items() if flower_rarity == rarity]
+        biome_pool = set(BIOME_FLOWERS.get(biome, BIOME_FLOWERS["meadow"]))
+        candidates = [name for name, flower_rarity in FLOWERS.items() if flower_rarity == rarity and name in biome_pool]
+        if not candidates:
+            candidates = [name for name, flower_rarity in FLOWERS.items() if flower_rarity == rarity]
         if event and random.random() < 0.18:
             return event["flower"], "Seasonal"
         if not candidates:
             candidates = ["Dandelion"]
         return random.choice(candidates), rarity
 
-    def _make_reward(self, reward_type, seed_type, guild_data, event):
+    def _make_reward(self, reward_type, seed_type, guild_data, event, companion=None, biome="meadow"):
         min_amt = max(0, int(guild_data.get("min_credits", MIN_CREDITS)))
         max_amt = max(min_amt, int(guild_data.get("max_credits", MAX_CREDITS)))
         if reward_type == "currency":
@@ -978,7 +1265,7 @@ class FortuneGarden(commands.Cog):
         if reward_type == "advice":
             return {"kind": "advice", "text": random.choice(ADVICE)}
         if reward_type == "flower":
-            flower, rarity = self._choose_flower(seed_type, event)
+            flower, rarity = self._choose_flower(seed_type, event, companion, biome)
             return {"kind": "flower", "flower": flower, "rarity": rarity}
         if reward_type == "seed":
             return {"kind": "seed", "seed_type": self._choose_seed_type()}
@@ -995,7 +1282,7 @@ class FortuneGarden(commands.Cog):
             elif prize_type == "seed":
                 prize = {"kind": "seed", "seed_type": self._choose_seed_type()}
             elif prize_type == "flower":
-                flower, rarity = self._choose_flower(seed_type, event)
+                flower, rarity = self._choose_flower(seed_type, event, companion, biome)
                 prize = {"kind": "flower", "flower": flower, "rarity": rarity}
             else:
                 prize = {"kind": "xp", "amount": random.randint(20, 45)}
@@ -1075,7 +1362,7 @@ class FortuneGarden(commands.Cog):
     async def _apply_member_bloom(self, member, fid, reward, reward_text, event, seed_limit):
         lock = self._member_lock(member.guild.id, member.id)
         async with lock:
-            member_conf = self.config.member(member)
+            member_conf = self.config.user(member)
             garden = await self._get_garden(member_conf)
             applied = garden.setdefault("applied_reward_ids", [])
             if fid in applied:
@@ -1096,7 +1383,11 @@ class FortuneGarden(commands.Cog):
                 self._apply_prize(garden, reward.get("prize", {}), seed_limit)
 
             garden["total_blooms"] = int(garden.get("total_blooms", 0)) + 1
+            self._progress_quests(garden, "bloom", 1)
+            if kind == "flower" or (kind == "mystery" and reward.get("prize", {}).get("kind") == "flower"):
+                self._progress_quests(garden, "flower", 1)
             self._add_xp(garden, 25)
+            self._add_world_tree_xp(garden, 5)
             event_progress = garden.setdefault("event_progress", {})
             event_key = event["key"]
             event_progress[event_key] = int(event_progress.get(event_key, 0)) + 1
@@ -1210,13 +1501,21 @@ class FortuneGarden(commands.Cog):
                         continue
 
                     seed_type = info.get("seed_type", "common")
+                    member_garden = await self._get_garden(self.config.user(member))
+                    companion = member_garden.get("equipped_companion")
+                    biome = member_garden.get("equipped_biome", "meadow")
                     if not isinstance(info.get("reward"), dict):
                         reward_type = self._roll_reward_type(guild_data, seed_type, bool(info.get("fertilized")))
-                        reward = self._make_reward(reward_type, seed_type, guild_data, event)
+                        if info.get("fortune_boost"):
+                            reward_type = random.choices([reward_type, "flower", "jackpot"], weights=[70, 25, 5], k=1)[0]
+                        reward = self._make_reward(reward_type, seed_type, guild_data, event, companion, biome)
+                        if info.get("moonlight_boost") and reward.get("kind") == "flower":
+                            flower, rarity = self._choose_flower("moonlight", event, companion, biome)
+                            reward["flower"], reward["rarity"] = flower, rarity
                         if info.get("fertilized"):
                             flower_reward = reward if reward.get("kind") == "flower" else reward.get("prize", {}) if reward.get("kind") == "mystery" else {}
                             if flower_reward.get("kind") == "flower":
-                                flower, rarity = self._choose_flower("golden", event)
+                                flower, rarity = self._choose_flower("golden", event, companion, biome)
                                 flower_reward["flower"] = flower
                                 flower_reward["rarity"] = rarity
                         info["reward"] = reward
@@ -1322,6 +1621,7 @@ class FortuneGarden(commands.Cog):
     @bloom_loop.before_loop
     async def before_bloom(self):
         await self.bot.wait_until_ready()
+        await self._migrate_member_data()
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -1356,7 +1656,7 @@ class FortuneGarden(commands.Cog):
 
         lock = self._member_lock(message.guild.id, message.author.id)
         async with lock:
-            member_conf = self.config.member(message.author)
+            member_conf = self.config.user(message.author)
             member_data = await member_conf.all()
             if member_data.get("opt_out"):
                 return
@@ -1407,7 +1707,7 @@ class FortuneGarden(commands.Cog):
         member = member or ctx.author
         lock = self._member_lock(ctx.guild.id, member.id)
         async with lock:
-            garden = await self._get_garden(self.config.member(member))
+            garden = await self._get_garden(self.config.user(member))
         embed = discord.Embed(
             title="🌱 Fortune Seed Inventory",
             description=f"{member.mention} has **{garden['seeds']}** seed{'s' if garden['seeds'] != 1 else ''}.",
@@ -1430,7 +1730,7 @@ class FortuneGarden(commands.Cog):
         member_lock = self._member_lock(ctx.guild.id, ctx.author.id)
         async with guild_lock:
             async with member_lock:
-                member_conf = self.config.member(ctx.author)
+                member_conf = self.config.user(ctx.author)
                 garden = await self._get_garden(member_conf)
                 if garden["seed_inventory"].get(seed_type, 0) < 1:
                     available = ", ".join(f"{SEED_TYPES[key]['emoji']} {SEED_TYPES[key]['label']}: {value}" for key, value in garden["seed_inventory"].items() if value > 0)
@@ -1451,12 +1751,29 @@ class FortuneGarden(commands.Cog):
                     delay_hours *= 1.05
                 elif seed_type == "ancient":
                     delay_hours *= 1.15
+                companion = garden.get("equipped_companion")
+                if companion == "fox":
+                    delay_hours *= 0.95
+                elif companion == "firefly":
+                    delay_hours *= 0.90
+                weather, moon = weather_and_moon(biome=garden.get("equipped_biome", "meadow"))
+                if weather == "Rainy":
+                    delay_hours *= 0.95
+                elif weather == "Snowy":
+                    delay_hours *= 1.05
+                elif weather == "Starlit" and seed_type == "moonlight":
+                    delay_hours *= 0.95
+                if moon == "Full Moon" and seed_type == "moonlight":
+                    delay_hours *= 0.90
+                boosts = garden.setdefault("active_boosts", {})
+                if boosts.pop("moonlight_essence", False):
+                    delay_hours *= 0.95
                 now = datetime.utcnow()
                 bloom_time = now + timedelta(hours=delay_hours)
                 fortunes = guild_data.get("fortunes", {})
-                fid = f"{int(now.timestamp() * 1000)}-{random.randint(1000, 9999)}"
+                fid = f"{ctx.guild.id}-{int(now.timestamp() * 1000)}-{random.randint(1000, 9999)}"
                 while fid in fortunes:
-                    fid = f"{int(datetime.utcnow().timestamp() * 1000)}-{random.randint(1000, 9999)}"
+                    fid = f"{ctx.guild.id}-{int(datetime.utcnow().timestamp() * 1000)}-{random.randint(1000, 9999)}"
                 fortunes[fid] = {
                     "owner_id": ctx.author.id,
                     "channel_id": ctx.channel.id,
@@ -1469,6 +1786,7 @@ class FortuneGarden(commands.Cog):
                 }
                 garden["seed_inventory"][seed_type] -= 1
                 garden["total_planted"] = int(garden.get("total_planted", 0)) + 1
+                self._progress_quests(garden, "plant", 1)
                 self._add_xp(garden, 5)
                 achievements = self._check_achievements(garden)
                 await self._save_garden(member_conf, garden)
@@ -1558,7 +1876,7 @@ class FortuneGarden(commands.Cog):
                 return await ctx.send("The seed owner is not currently in the server, so the seed cannot safely be returned.")
             owner_lock = self._member_lock(ctx.guild.id, owner_id)
             async with owner_lock:
-                member_conf = self.config.member(owner)
+                member_conf = self.config.user(owner)
                 garden = await self._get_garden(member_conf)
                 seed_type = info.get("seed_type", "common")
                 if seed_type not in SEED_TYPES:
@@ -1583,7 +1901,7 @@ class FortuneGarden(commands.Cog):
                     return await ctx.send("You don't have a growing seed with that ID.")
                 if info.get("processed"):
                     return await ctx.send("That seed has already bloomed.")
-                member_conf = self.config.member(ctx.author)
+                member_conf = self.config.user(ctx.author)
                 garden = await self._get_garden(member_conf)
                 today = datetime.utcnow().date().isoformat()
                 if garden.get("daily_water_date") == today:
@@ -1601,6 +1919,7 @@ class FortuneGarden(commands.Cog):
                 garden["water_streak"] = int(garden.get("water_streak", 0)) + 1 if last_water == yesterday else 1
                 garden["last_water_date"] = today
                 self._add_xp(garden, 5)
+                self._progress_quests(garden, "water", 1)
                 bonus = None
                 if garden["water_streak"] % 7 == 0:
                     garden.setdefault("items", {})["fertilizer"] = int(garden.get("items", {}).get("fertilizer", 0)) + 1
@@ -1628,7 +1947,7 @@ class FortuneGarden(commands.Cog):
                     return await ctx.send("That seed has already bloomed.")
                 if info.get("fertilized"):
                     return await ctx.send("That seed has already been fertilized.")
-                member_conf = self.config.member(ctx.author)
+                member_conf = self.config.user(ctx.author)
                 garden = await self._get_garden(member_conf)
                 items = garden.setdefault("items", {})
                 if int(items.get("fertilizer", 0)) < 1:
@@ -1653,7 +1972,7 @@ class FortuneGarden(commands.Cog):
         member = member or ctx.author
         lock = self._member_lock(ctx.guild.id, member.id)
         async with lock:
-            garden = await self._get_garden(self.config.member(member))
+            garden = await self._get_garden(self.config.user(member))
         unique_flowers = sum(1 for count in garden.get("flowers", {}).values() if count > 0)
         total_flowers = sum(int(count) for count in garden.get("flowers", {}).values())
         xp = int(garden.get("garden_xp", 0))
@@ -1687,7 +2006,7 @@ class FortuneGarden(commands.Cog):
         member = member or ctx.author
         lock = self._member_lock(ctx.guild.id, member.id)
         async with lock:
-            garden = await self._get_garden(self.config.member(member))
+            garden = await self._get_garden(self.config.user(member))
         flowers = garden.get("flowers", {})
         if not flowers:
             return await ctx.send(f"{member.mention} hasn't discovered any flowers yet. Plant seeds and wait for them to bloom!")
@@ -1703,7 +2022,7 @@ class FortuneGarden(commands.Cog):
         member = member or ctx.author
         lock = self._member_lock(ctx.guild.id, member.id)
         async with lock:
-            garden = await self._get_garden(self.config.member(member))
+            garden = await self._get_garden(self.config.user(member))
         earned = garden.get("achievements", [])
         lines = [f"🏅 **{name}** — {ACHIEVEMENT_DESCRIPTIONS.get(name, '')}" for name in earned]
         remaining = [f"🔒 **{name}** — {description}" for name, description in ACHIEVEMENT_DESCRIPTIONS.items() if name not in earned]
@@ -1716,7 +2035,7 @@ class FortuneGarden(commands.Cog):
         member = member or ctx.author
         lock = self._member_lock(ctx.guild.id, member.id)
         async with lock:
-            garden = await self._get_garden(self.config.member(member))
+            garden = await self._get_garden(self.config.user(member))
         history = garden.get("reward_history", [])[-10:]
         if not history:
             return await ctx.send("You don't have any recorded bloom rewards yet.")
@@ -1735,7 +2054,7 @@ class FortuneGarden(commands.Cog):
     async def fortuneevent(self, ctx):
         lock = self._member_lock(ctx.guild.id, ctx.author.id)
         async with lock:
-            garden = await self._get_garden(self.config.member(ctx.author))
+            garden = await self._get_garden(self.config.user(ctx.author))
         event = current_seasonal_event()
         points = int(garden.get("event_progress", {}).get(event["key"], 0))
         embed = discord.Embed(title=f"{event['emoji']} {event['name']}", description=f"Grow seeds during this seasonal event to earn exclusive rewards.\n\n**Your progress:** {points} event blooms\n**5 blooms:** {event['flower']}\n**10 blooms:** Golden Seed\n**20 blooms:** Seasonal Moon Lantern", color=discord.Color.random())
@@ -1746,7 +2065,7 @@ class FortuneGarden(commands.Cog):
     async def gardendecorate(self, ctx, *, decoration: str = "list"):
         lock = self._member_lock(ctx.guild.id, ctx.author.id)
         async with lock:
-            member_conf = self.config.member(ctx.author)
+            member_conf = self.config.user(ctx.author)
             garden = await self._get_garden(member_conf)
             unlocked = garden.get("unlocked_decorations", [])
             if decoration.lower() == "list":
@@ -1761,6 +2080,789 @@ class FortuneGarden(commands.Cog):
             garden["equipped_decoration"] = match
             await self._save_garden(member_conf, garden)
         await ctx.send(f"🏡 **{match}** is now displayed in your garden.")
+
+    @commands.guild_only()
+    @commands.command(name="gardenquests", help="View your daily and weekly garden quests.")
+    async def gardenquests(self, ctx):
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            garden = await self._get_garden(self.config.user(ctx.author))
+            self._refresh_quests(garden)
+            await self._save_garden(self.config.user(ctx.author), garden)
+        lines = []
+        for period, label in (("daily", "Daily"), ("weekly", "Weekly")):
+            lines.append(f"**{label} quests**")
+            for task in garden["quest_state"].get(period, []):
+                status = "✅ Claimed" if task.get("claimed") else f"{min(task.get('progress', 0), task['target'])}/{task['target']}"
+                lines.append(f"`{task['id']}` — {task['description']} ({status}) · {task['xp']} XP")
+        await ctx.send(embed=discord.Embed(title="📜 Garden Quest Board", description="\n".join(lines), color=discord.Color.green()).set_footer(text="Claim completed quests with gardenquestclaim <d_quest or w_quest>"))
+
+    @commands.guild_only()
+    @commands.command(name="gardenquestclaim", help="Claim a completed daily or weekly quest by its ID.")
+    async def gardenquestclaim(self, ctx, quest_id: str):
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            self._refresh_quests(garden)
+            match = next(((period, task) for period in ("daily", "weekly") for task in garden["quest_state"].get(period, []) if task["id"] == quest_id.lower()), None)
+            if not match:
+                return await ctx.send("I couldn't find that quest ID. Use `gardenquests` to view your current quests.")
+            period, task = match
+            if task.get("claimed"):
+                return await ctx.send("You've already claimed that quest.")
+            if int(task.get("progress", 0)) < int(task.get("target", 1)):
+                return await ctx.send("That quest isn't complete yet.")
+            task["claimed"] = True
+            self._add_xp(garden, int(task.get("xp", 0)))
+            item = task.get("item")
+            amount = int(task.get("amount", 1))
+            if item == "fertilizer":
+                garden.setdefault("items", {})["fertilizer"] = int(garden["items"].get("fertilizer", 0)) + amount
+            elif item in ("common_seed", "golden_seed"):
+                seed = item.replace("_seed", "")
+                garden["seed_inventory"][seed] = int(garden["seed_inventory"].get(seed, 0)) + amount
+            elif item in RECIPES:
+                garden.setdefault("potions", {})[item] = int(garden["potions"].get(item, 0)) + amount
+            achievements = self._check_achievements(garden)
+            await self._save_garden(member_conf, garden)
+        await ctx.send(f"🎉 Claimed **{task['description']}**! You received **{task['xp']} XP** and **{amount} {item.replace('_', ' ') if item else 'bonus'}**." + (f"\n🏅 Unlocked: {', '.join(achievements)}" if achievements else ""))
+
+    @commands.guild_only()
+    @commands.command(name="gardenbrew", help="View recipes, craft alchemy items, or use a potion on a growing seed.")
+    async def gardenbrew(self, ctx, action: str = "recipes", item: str = None, seed_id: str = None):
+        action = action.lower()
+        if action in ("recipes", "list"):
+            lines = [f"**{key} — {recipe['label']}**\n{recipe['description']}\nIngredients: " + ", ".join(f"{name} ×{count}" for name, count in recipe["ingredients"].items()) for key, recipe in RECIPES.items()]
+            return await ctx.send(embed=discord.Embed(title="⚗️ Garden Alchemy", description="\n\n".join(lines), color=discord.Color.purple()))
+        if action not in ("craft", "use") or not item:
+            return await ctx.send("Use `gardenbrew recipes`, `gardenbrew craft <recipe>`, or `gardenbrew use <potion> <seed_id>`.")
+        item = item.lower()
+        if action == "craft":
+            if item not in RECIPES:
+                return await ctx.send("Unknown recipe. Use `gardenbrew recipes`.")
+            lock = self._member_lock(ctx.guild.id, ctx.author.id)
+            async with lock:
+                member_conf = self.config.user(ctx.author)
+                garden = await self._get_garden(member_conf)
+                recipe = RECIPES[item]
+                for flower, count in recipe["ingredients"].items():
+                    if self._asset_count(garden, "flower", flower) < count:
+                        return await ctx.send(f"You need **{count} {flower}** to craft {recipe['label']}.")
+                for flower, count in recipe["ingredients"].items():
+                    self._transfer_asset(garden, "flower", flower, count, add=False)
+                garden.setdefault("potions", {})[item] = int(garden["potions"].get(item, 0)) + 1
+                self._progress_quests(garden, "craft", 1)
+                self._add_xp(garden, 10)
+                await self._save_garden(member_conf, garden)
+            return await ctx.send(f"⚗️ Crafted **{recipe['label']}**! You now have {garden['potions'][item]}.")
+        if not seed_id:
+            return await ctx.send("Provide the growing seed ID: `gardenbrew use <potion> <seed_id>`.")
+        if item not in RECIPES:
+            return await ctx.send("Unknown potion. Use `gardenbrew recipes`.")
+        guild_lock = self._guild_lock(ctx.guild.id)
+        member_lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with guild_lock:
+            async with member_lock:
+                guild_conf = self.config.guild(ctx.guild)
+                fortunes = await guild_conf.fortunes()
+                info = fortunes.get(seed_id)
+                if not info or int(info.get("owner_id", 0)) != ctx.author.id or info.get("processed"):
+                    return await ctx.send("That isn't one of your growing seeds.")
+                member_conf = self.config.user(ctx.author)
+                garden = await self._get_garden(member_conf)
+                potions = garden.setdefault("potions", {})
+                if int(potions.get(item, 0)) < 1:
+                    return await ctx.send(f"You don't have a {RECIPES[item]['label']}.")
+                try:
+                    bloom_time = datetime.fromisoformat(info["bloom_time"])
+                except (KeyError, ValueError, TypeError):
+                    return await ctx.send("That seed has an invalid growing timer.")
+                if item == "growth_potion":
+                    info["bloom_time"] = max(datetime.utcnow(), bloom_time - timedelta(hours=2)).isoformat()
+                elif item == "golden_fertilizer":
+                    info["fertilized"] = True
+                    info["bloom_time"] = max(datetime.utcnow(), bloom_time - timedelta(minutes=30)).isoformat()
+                elif item == "fortune_elixir":
+                    info["fortune_boost"] = True
+                elif item == "moonlight_essence":
+                    info["moonlight_boost"] = True
+                potions[item] = int(potions[item]) - 1
+                await self._save_garden(member_conf, garden)
+                await guild_conf.fortunes.set(fortunes)
+        await ctx.send(f"✨ Used **{RECIPES[item]['label']}** on seed `{seed_id}`.")
+
+    @commands.guild_only()
+    @commands.command(name="gardencompanion", help="View your companions or equip one you have discovered.")
+    async def gardencompanion(self, ctx, action: str = "list", *, companion: str = None):
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            discovered = garden.get("companions", [])
+            if action.lower() == "list":
+                lines = [f"{COMPANIONS[key]['emoji']} **{COMPANIONS[key]['label']}** — {COMPANIONS[key]['description']}" for key in discovered if key in COMPANIONS]
+                lines.append(f"\nEquipped: **{COMPANIONS.get(garden.get('equipped_companion'), {}).get('label', 'None')}**")
+                lines.append("Adopt companions with `gardenadopt <fairy|fox|owl|firefly|spirit>`.")
+                return await ctx.send(embed=discord.Embed(title="🐾 Garden Companions", description="\n".join(lines), color=discord.Color.green()))
+            if action.lower() == "equip":
+                key = (companion or "").lower().replace(" ", "_")
+                aliases = {value["label"].lower().replace(" ", "_"): name for name, value in COMPANIONS.items()}
+                key = aliases.get(key, key)
+                if key not in discovered:
+                    return await ctx.send("You haven't discovered that companion yet. Use `gardencompanion list`.")
+                garden["equipped_companion"] = key
+                await self._save_garden(member_conf, garden)
+                return await ctx.send(f"{COMPANIONS[key]['emoji']} **{COMPANIONS[key]['label']}** is now accompanying your garden.")
+        await ctx.send("Use `gardencompanion list` or `gardencompanion equip <name>`.")
+
+    @commands.guild_only()
+    @commands.command(name="gardenadopt", help="Adopt a companion by exchanging the required flowers.")
+    async def gardenadopt(self, ctx, companion: str):
+        key = companion.lower().replace(" ", "_")
+        if key not in COMPANIONS:
+            return await ctx.send("Available companions: " + ", ".join(COMPANIONS))
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            if key in garden.get("companions", []):
+                return await ctx.send("You already have that companion.")
+            cost = COMPANIONS[key]["cost"]
+            flower, count = cost["flower"], cost["count"]
+            if self._asset_count(garden, "flower", flower) < count:
+                return await ctx.send(f"You need **{count} {flower}** to adopt {COMPANIONS[key]['label']}.")
+            self._transfer_asset(garden, "flower", flower, count, add=False)
+            garden.setdefault("companions", []).append(key)
+            self._add_xp(garden, 20)
+            await self._save_garden(member_conf, garden)
+        await ctx.send(f"{COMPANIONS[key]['emoji']} You adopted **{COMPANIONS[key]['label']}**! Equip it with `gardencompanion equip {key}`.")
+
+    @commands.guild_only()
+    @commands.command(name="gardenbiome", help="View, unlock and change your garden biome.")
+    async def gardenbiome(self, ctx, action: str = "list", biome: str = None):
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            if action.lower() == "list":
+                lines = []
+                for key, info in BIOMES.items():
+                    unlocked = key in garden.get("biomes", []) or garden.get("garden_level", 1) >= info["level"]
+                    lines.append(f"{'✅' if unlocked else '🔒'} **{key} — {info['label']}** (Level {info['level']})\n{info['description']}")
+                return await ctx.send(embed=discord.Embed(title="🌍 Garden Biomes", description="\n\n".join(lines), color=discord.Color.green()))
+            if action.lower() not in ("set", "equip") or not biome or biome.lower() not in BIOMES:
+                return await ctx.send("Use `gardenbiome list` or `gardenbiome set <biome>`.")
+            key = biome.lower()
+            if int(garden.get("garden_level", 1)) < BIOMES[key]["level"] and key not in garden.get("biomes", []):
+                return await ctx.send(f"That biome unlocks at garden level {BIOMES[key]['level']}.")
+            if key not in garden.setdefault("biomes", []):
+                garden["biomes"].append(key)
+            garden["equipped_biome"] = key
+            await self._save_garden(member_conf, garden)
+        await ctx.send(f"🌍 Your garden biome is now **{BIOMES[key]['label']}**.")
+
+    @commands.guild_only()
+    @commands.command(name="gardenexpedition", help="Start or collect a timed garden expedition.")
+    async def gardenexpedition(self, ctx, action: str = "list", mission: str = None):
+        action = action.lower()
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            active = garden.get("expedition")
+            if action == "list":
+                lines = [f"**{key} — {info['label']}** · {info['hours']}h\n{info['description']}" for key, info in EXPEDITIONS.items()]
+                status = "No expedition currently active."
+                if active:
+                    end = datetime.fromisoformat(active["end_time"])
+                    remaining = max(0, int((end - datetime.utcnow()).total_seconds()))
+                    status = f"Active: **{EXPEDITIONS[active['mission']]['label']}** · {remaining // 3600}h {(remaining % 3600) // 60}m remaining."
+                return await ctx.send(embed=discord.Embed(title="🧭 Garden Expeditions", description="\n\n".join(lines) + "\n\n" + status, color=discord.Color.blurple()))
+            if action == "start":
+                key = (mission or "").lower()
+                if key not in EXPEDITIONS:
+                    return await ctx.send("Choose one: " + ", ".join(EXPEDITIONS))
+                if active:
+                    return await ctx.send("You already have an expedition underway. Collect it before starting another.")
+                companion_bonus = 0.9 if garden.get("equipped_companion") == "spirit" else 1.0
+                duration = EXPEDITIONS[key]["hours"] * companion_bonus
+                garden["expedition"] = {"mission": key, "end_time": (datetime.utcnow() + timedelta(hours=duration)).isoformat(), "started_at": datetime.utcnow().isoformat()}
+                await self._save_garden(member_conf, garden)
+                return await ctx.send(f"🧭 Your expedition to **{EXPEDITIONS[key]['label']}** has begun. Return in approximately **{duration:.1f} hours** with `gardenexpedition collect`.")
+            if action == "collect":
+                if not active:
+                    return await ctx.send("You don't have an active expedition.")
+                if datetime.utcnow() < datetime.fromisoformat(active["end_time"]):
+                    return await ctx.send("Your expedition is still underway. Check `gardenexpedition list` for the remaining time.")
+                key = active["mission"]
+                reward_lines = []
+                roll = random.random()
+                if key == "whispering_woods":
+                    self._add_xp(garden, 35)
+                    garden["seed_inventory"]["common"] += 1
+                    reward_lines.extend(["35 garden XP", "1 Common Seed"])
+                    companion_chance = 0.12
+                elif key == "forgotten_ruins":
+                    self._add_xp(garden, 65)
+                    garden.setdefault("items", {})["fertilizer"] += 2
+                    reward_lines.extend(["65 garden XP", "2 Fertilizer"])
+                    companion_chance = 0.22
+                elif key == "crystal_caverns":
+                    self._add_xp(garden, 45)
+                    garden.setdefault("potions", {})["growth_potion"] += 1
+                    reward_lines.extend(["45 garden XP", "1 Growth Potion"])
+                    companion_chance = 0.10
+                else:
+                    self._add_xp(garden, 50)
+                    flower, rarity = self._choose_flower("moonlight", current_seasonal_event(), garden.get("equipped_companion"), garden.get("equipped_biome", "meadow"))
+                    self._add_flower(garden, flower)
+                    self._progress_quests(garden, "flower", 1)
+                    reward_lines.extend(["50 garden XP", f"{rarity} {flower}"])
+                    companion_chance = 0.15
+                if garden.get("equipped_companion") == "spirit":
+                    companion_chance += 0.05
+                if roll < companion_chance:
+                    missing = [name for name in COMPANIONS if name not in garden.get("companions", [])]
+                    if missing:
+                        found = random.choice(missing)
+                        garden.setdefault("companions", []).append(found)
+                        reward_lines.append(f"Discovered {COMPANIONS[found]['label']}")
+                garden["expedition"] = None
+                self._progress_quests(garden, "expedition", 1)
+                self._add_world_tree_xp(garden, 10)
+                await self._save_garden(member_conf, garden)
+                return await ctx.send("🧭 Expedition complete! You found:\n• " + "\n• ".join(reward_lines))
+        await ctx.send("Use `gardenexpedition list`, `gardenexpedition start <mission>`, or `gardenexpedition collect`.")
+
+    @commands.guild_only()
+    @commands.command(name="gardenvisit", help="Visit another member's garden and leave a public compliment.")
+    async def gardenvisit(self, ctx, member: discord.Member, *, compliment: str = "Your garden is lovely!"):
+        if member.bot or member.id == ctx.author.id:
+            return await ctx.send("Choose another human member's garden to visit.")
+        ordered_ids = sorted((member.id, ctx.author.id))
+        first = self._member_lock(ctx.guild.id, ordered_ids[0])
+        second = self._member_lock(ctx.guild.id, ordered_ids[1])
+        async with first:
+            async with second:
+                owner_conf = self.config.user(member)
+                owner_garden = await self._get_garden(owner_conf)
+                visitor_conf = self.config.user(ctx.author)
+                visitor_garden = await self._get_garden(visitor_conf)
+                today = datetime.utcnow().date().isoformat()
+                if visitor_garden.setdefault("last_visits", {}).get(str(member.id)) == today:
+                    return await ctx.send("You've already visited this garden today.")
+                visitor_garden["last_visits"][str(member.id)] = today
+                owner_garden["visit_count"] = int(owner_garden.get("visit_count", 0)) + 1
+                owner_garden.setdefault("guestbook", []).append({"visitor_id": ctx.author.id, "message": discord.utils.escape_mentions(compliment[:160]), "timestamp": datetime.utcnow().isoformat()})
+                owner_garden["guestbook"] = owner_garden["guestbook"][-20:]
+                self._progress_quests(visitor_garden, "visit", 1)
+                self._add_xp(visitor_garden, 5)
+                await self._save_garden(owner_conf, owner_garden)
+                await self._save_garden(visitor_conf, visitor_garden)
+        biome = owner_garden.get("equipped_biome", "meadow")
+        companion = COMPANIONS.get(owner_garden.get("equipped_companion"), {})
+        summary = (f"**Level:** {owner_garden.get('garden_level', 1)} · **Prestige:** {owner_garden.get('prestige', 0)}\n"
+                   f"**Biome:** {BIOMES.get(biome, BIOMES['meadow'])['label']}\n"
+                   f"**Flowers:** {sum(owner_garden.get('flowers', {}).values())} · **Unique:** {len([v for v in owner_garden.get('flowers', {}).values() if v > 0])}\n"
+                   f"**Companion:** {companion.get('label', 'None')}\n"
+                   f"**Decoration:** {owner_garden.get('equipped_decoration') or 'None'}\n"
+                   f"🌷 **Visits:** {owner_garden['visit_count']}\n\n{discord.utils.escape_mentions(compliment[:160])}")
+        await ctx.send(embed=discord.Embed(title=f"🏡 Visiting {member.display_name}'s Garden", description=summary, color=discord.Color.green()))
+
+    @commands.guild_only()
+    @commands.command(name="gardenguestbook", help="Read the guestbook of your garden or another member's garden.")
+    async def gardenguestbook(self, ctx, member: discord.Member = None):
+        member = member or ctx.author
+        garden = await self._get_garden(self.config.user(member))
+        entries = garden.get("guestbook", [])[-10:]
+        if not entries:
+            return await ctx.send(f"{member.display_name}'s garden guestbook is empty.")
+        lines = []
+        for entry in reversed(entries):
+            visitor = ctx.guild.get_member(int(entry.get("visitor_id", 0)))
+            label = visitor.display_name if visitor else f"Visitor {entry.get('visitor_id')}"
+            lines.append(f"**{discord.utils.escape_markdown(label)}**: {entry.get('message', '')}")
+        await ctx.send(embed=discord.Embed(title=f"📖 {member.display_name}'s Guestbook", description="\n".join(lines)[:4000], color=discord.Color.green()))
+
+    @commands.guild_only()
+    @commands.command(name="gardengift", help="Give another member one of your flowers once per day.")
+    async def gardengift(self, ctx, member: discord.Member, *, flower: str):
+        if member.bot or member.id == ctx.author.id:
+            return await ctx.send("Choose another human member.")
+        ordered_ids = sorted((ctx.author.id, member.id))
+        first = self._member_lock(ctx.guild.id, ordered_ids[0])
+        second = self._member_lock(ctx.guild.id, ordered_ids[1])
+        async with first:
+            async with second:
+                sender_conf = self.config.user(ctx.author)
+                receiver_conf = self.config.user(member)
+                sender = await self._get_garden(sender_conf)
+                receiver = await self._get_garden(receiver_conf)
+                today = datetime.utcnow().date().isoformat()
+                if sender.setdefault("last_visit_gifts", {}).get(str(member.id)) == today:
+                    return await ctx.send("You've already given this member a garden gift today.")
+                found = next((name for name in sender.get("flowers", {}) if name.lower() == flower.lower()), None)
+                if not found or int(sender["flowers"].get(found, 0)) < 1:
+                    return await ctx.send("You don't have that flower to give.")
+                sender["flowers"][found] -= 1
+                receiver.setdefault("flowers", {})[found] = int(receiver["flowers"].get(found, 0)) + 1
+                sender["last_visit_gifts"][str(member.id)] = today
+                self._add_xp(receiver, 5)
+                await self._save_garden(sender_conf, sender)
+                await self._save_garden(receiver_conf, receiver)
+        await ctx.send(f"🎁 {ctx.author.mention} gifted **{found}** to {member.mention}!")
+
+    @commands.guild_only()
+    @commands.command(name="gardenhelpwater", help="Help water another member's growing seed once per day.")
+    async def gardenhelpwater(self, ctx, member: discord.Member, seed_id: str):
+        if member.bot or member.id == ctx.author.id:
+            return await ctx.send("Choose another member's growing seed.")
+        guild_lock = self._guild_lock(ctx.guild.id)
+        async with guild_lock:
+            guild_conf = self.config.guild(ctx.guild)
+            fortunes = await guild_conf.fortunes()
+            info = fortunes.get(seed_id)
+            if not info or int(info.get("owner_id", 0)) != member.id or info.get("processed"):
+                return await ctx.send("That isn't one of this member's growing seeds in this server.")
+            today = datetime.utcnow().date().isoformat()
+            key = str(ctx.author.id)
+            watered = info.setdefault("helped_by", {})
+            if watered.get(key) == today:
+                return await ctx.send("You've already helped water this seed today.")
+            bloom_time = datetime.fromisoformat(info["bloom_time"])
+            info["bloom_time"] = max(datetime.utcnow(), bloom_time - timedelta(minutes=15)).isoformat()
+            watered[key] = today
+            await guild_conf.fortunes.set(fortunes)
+        helper_conf = self.config.user(ctx.author)
+        helper_lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with helper_lock:
+            helper_garden = await self._get_garden(helper_conf)
+            self._progress_quests(helper_garden, "water", 1)
+            self._add_xp(helper_garden, 3)
+            await self._save_garden(helper_conf, helper_garden)
+        await ctx.send(f"💧 You helped {member.mention} water their seed and reduced its growing time by 15 minutes! You earned 3 garden XP.")
+
+    def _market_stock(self, now=None):
+        day = (now or datetime.utcnow()).date().isoformat()
+        keys = list(MARKET_ITEMS)
+        return random.Random(day).sample(keys, 4)
+
+    @commands.guild_only()
+    @commands.command(name="gardenmarket", help="View the rotating garden supply shop and current prices.")
+    async def gardenmarket(self, ctx):
+        day = datetime.utcnow().date().isoformat()
+        currency = await bank.get_currency_name(ctx.guild)
+        stock = self._market_stock()
+        lines = [f"**{key}** — {MARKET_ITEMS[key]['label']} · **{MARKET_ITEMS[key]['price']} {currency}**\n{MARKET_ITEMS[key]['description']}" for key in stock]
+        embed = discord.Embed(title="🛍️ Garden Supply Market", description="\n\n".join(lines), color=discord.Color.gold())
+        embed.set_footer(text=f"Prices shown for {day}. Purchase with gardenbuy <item> [amount].")
+        await ctx.send(embed=embed)
+
+    @commands.guild_only()
+    @commands.command(name="gardenbuy", help="Buy seeds or supplies from the garden market using Red currency.")
+    async def gardenbuy(self, ctx, item: str, amount: int = 1):
+        item = item.lower()
+        if item not in MARKET_ITEMS or item not in self._market_stock() or amount < 1 or amount > 25:
+            return await ctx.send("That item isn't in today's rotating stock. Use `gardenmarket` to see what's available. Purchase between 1 and 25 at a time.")
+        total = MARKET_ITEMS[item]["price"] * amount
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            try:
+                await bank.withdraw_credits(ctx.author, total)
+            except Exception as exc:
+                return await ctx.send(f"The purchase couldn't be completed: {exc}")
+            if item == "fertilizer":
+                garden.setdefault("items", {})["fertilizer"] = int(garden["items"].get("fertilizer", 0)) + amount
+            elif item.endswith("_seed"):
+                seed = item.replace("_seed", "")
+                garden["seed_inventory"][seed] = int(garden["seed_inventory"].get(seed, 0)) + amount
+            else:
+                garden.setdefault("potions", {})[item] = int(garden["potions"].get(item, 0)) + amount
+            await self._save_garden(member_conf, garden)
+        currency = await bank.get_currency_name(ctx.guild)
+        await ctx.send(f"🛍️ Purchased **{amount} × {MARKET_ITEMS[item]['label']}** for **{total} {currency}**.")
+
+    @commands.guild_only()
+    @commands.command(name="gardenoffer", help="Offer a player-to-player trade. Usage: gardenoffer @member <give_type> <give_item> <want_type> <want_item> [amount].")
+    async def gardenoffer(self, ctx, member: discord.Member, give_type: str, give_item: str, want_type: str, want_item: str, amount: int = 1):
+        give_type, want_type = give_type.lower(), want_type.lower()
+        give_item, want_item = give_item.lower(), want_item.lower()
+        if member.bot or member.id == ctx.author.id or amount < 1 or amount > 100:
+            return await ctx.send("Choose another human member and an amount between 1 and 100.")
+        if give_type not in ("seed", "flower", "item") or want_type not in ("seed", "flower", "item"):
+            return await ctx.send("Trade types must be `seed`, `flower` or `item`.")
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            garden = await self._get_garden(self.config.user(ctx.author))
+            if self._asset_count(garden, give_type, give_item) < amount:
+                return await ctx.send("You don't have enough of the item you're offering.")
+        guild_lock = self._guild_lock(ctx.guild.id)
+        async with guild_lock:
+            guild_conf = self.config.guild(ctx.guild)
+            offers = await guild_conf.trade_offers()
+            offer_id = f"{int(datetime.utcnow().timestamp())}-{random.randint(1000, 9999)}"
+            offers[offer_id] = {"from": ctx.author.id, "to": member.id, "give": {"type": give_type, "item": give_item, "amount": amount}, "want": {"type": want_type, "item": want_item, "amount": amount}, "created": datetime.utcnow().isoformat(), "status": "pending"}
+            await guild_conf.trade_offers.set(offers)
+        await ctx.send(f"🤝 Trade offer `{offer_id}` sent to {member.mention}. They can accept or decline with `gardentrade {offer_id} accept|decline`. Both sides exchange **{amount}** item(s).")
+
+    @commands.guild_only()
+    @commands.command(name="gardentrade", help="Accept or decline a garden trade offer.")
+    async def gardentrade(self, ctx, offer_id: str, decision: str):
+        decision = decision.lower()
+        if decision not in ("accept", "decline"):
+            return await ctx.send("Use `gardentrade <offer_id> accept` or `decline`.")
+        guild_lock = self._guild_lock(ctx.guild.id)
+        async with guild_lock:
+            guild_conf = self.config.guild(ctx.guild)
+            offers = await guild_conf.trade_offers()
+            offer = offers.get(offer_id)
+            if not offer or offer.get("status") != "pending":
+                return await ctx.send("That trade offer is missing or no longer active.")
+            if int(offer.get("to", 0)) != ctx.author.id:
+                return await ctx.send("Only the intended recipient can respond to this offer.")
+            created = datetime.fromisoformat(offer["created"])
+            if datetime.utcnow() - created > timedelta(days=2):
+                offer["status"] = "expired"
+                await guild_conf.trade_offers.set(offers)
+                return await ctx.send("That trade offer has expired.")
+            if decision == "decline":
+                offer["status"] = "declined"
+                await guild_conf.trade_offers.set(offers)
+                return await ctx.send("Trade offer declined.")
+            sender = await self._resolve_member(ctx.guild, offer["from"])
+            if sender is None:
+                return await ctx.send("The person who made this offer is no longer in the server.")
+            ids = sorted((sender.id, ctx.author.id))
+            locks = [self._member_lock(ctx.guild.id, uid) for uid in ids]
+            async with locks[0]:
+                async with locks[1]:
+                    sender_conf = self.config.user(sender)
+                    receiver_conf = self.config.user(ctx.author)
+                    sender_garden = await self._get_garden(sender_conf)
+                    receiver_garden = await self._get_garden(receiver_conf)
+                    give, want = offer["give"], offer["want"]
+                    try:
+                        self._transfer_asset(sender_garden, give["type"], give["item"], int(give["amount"]), add=False)
+                        self._transfer_asset(receiver_garden, want["type"], want["item"], int(want["amount"]), add=False)
+                        self._transfer_asset(sender_garden, want["type"], want["item"], int(want["amount"]), add=True)
+                        self._transfer_asset(receiver_garden, give["type"], give["item"], int(give["amount"]), add=True)
+                    except ValueError as exc:
+                        return await ctx.send(f"Trade couldn't complete: {exc}")
+                    await self._save_garden(sender_conf, sender_garden)
+                    await self._save_garden(receiver_conf, receiver_garden)
+                    offer["status"] = "accepted"
+                    offer["completed"] = datetime.utcnow().isoformat()
+                    await guild_conf.trade_offers.set(offers)
+        await ctx.send(f"🤝 Trade `{offer_id}` completed between {sender.mention} and {ctx.author.mention}!")
+
+    @commands.guild_only()
+    @commands.command(name="worldtree", help="View or nourish your personal World Tree using one flower.")
+    async def worldtree(self, ctx, action: str = "view", *, flower: str = None):
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            if action.lower() in ("view", "info"):
+                level = int(garden.get("world_tree_level", 1))
+                xp = int(garden.get("world_tree_xp", 0))
+                return await ctx.send(embed=discord.Embed(title="🌳 Your World Tree", description=f"**Level {level}** · {xp % 100}/100 growth XP\nYour tree gains a little experience whenever your seeds bloom. Nourish it with a flower using `worldtree nourish <flower>`.", color=discord.Color.green()))
+            if action.lower() != "nourish" or not flower:
+                return await ctx.send("Use `worldtree view` or `worldtree nourish <flower>`.")
+            found = next((name for name in garden.get("flowers", {}) if name.lower() == flower.lower()), None)
+            if not found or int(garden["flowers"].get(found, 0)) < 1:
+                return await ctx.send("You don't have that flower to nourish the tree.")
+            garden["flowers"][found] -= 1
+            self._add_world_tree_xp(garden, 25)
+            await self._save_garden(member_conf, garden)
+        await ctx.send(f"🌳 Your World Tree absorbed **{found}** and gained 25 growth XP. It is now level **{garden['world_tree_level']}**.")
+
+    @commands.guild_only()
+    @commands.command(name="gardencommunity", help="View the server's shared community garden and milestones.")
+    async def gardencommunity(self, ctx):
+        data = await self.config.guild(ctx.guild).community_garden()
+        xp = int(data.get("xp", 0))
+        level = 1 + xp // 250
+        contributions = sorted(data.get("contributions", {}).items(), key=lambda item: int(item[1]), reverse=True)[:5]
+        top = []
+        for uid, score in contributions:
+            member = ctx.guild.get_member(int(uid))
+            top.append(f"{member.display_name if member else uid}: {score}")
+        embed = discord.Embed(title=f"🌳 {ctx.guild.name}'s Community Garden", description=f"**Level {level}** · {xp % 250}/250 toward the next level\n**Total growth:** {xp} community points\n**Your contributions:** {data.get('contributions', {}).get(str(ctx.author.id), 0)}", color=discord.Color.green())
+        embed.add_field(name="Top Contributors", value="\n".join(top) if top else "No contributions yet.", inline=False)
+        embed.set_footer(text="Contribute with gardencontribute flower <name>, seed <type>, or credits <amount>.")
+        await ctx.send(embed=embed)
+
+    @commands.guild_only()
+    @commands.command(name="gardencontribute", help="Contribute a flower, seed or credits to the shared server garden.")
+    async def gardencontribute(self, ctx, kind: str, item: str, amount: int = 1):
+        kind = kind.lower()
+        amount = int(amount)
+        if amount < 1 or amount > 100000:
+            return await ctx.send("Contribution amount must be between 1 and 100,000.")
+        if kind not in ("flower", "seed", "credits"):
+            return await ctx.send("Use `gardencontribute flower <name>`, `seed <type>`, or `credits <amount>`.")
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            if kind == "credits":
+                try:
+                    amount = int(item)
+                except ValueError:
+                    return await ctx.send("For credits, use `gardencontribute credits <amount>`.")
+                if amount < 1 or amount > 100000:
+                    return await ctx.send("Credit contribution must be between 1 and 100,000.")
+                try:
+                    await bank.withdraw_credits(ctx.author, amount)
+                except Exception as exc:
+                    return await ctx.send(f"Contribution failed: {exc}")
+            else:
+                if amount < 1:
+                    return await ctx.send("Amount must be positive.")
+                asset_type = kind
+                item = item.lower()
+                try:
+                    self._transfer_asset(garden, asset_type, item, amount, add=False)
+                except ValueError as exc:
+                    return await ctx.send(str(exc))
+            await self._save_garden(member_conf, garden)
+        points = amount * (5 if kind == "flower" else 10 if kind == "seed" else 1)
+        guild_lock = self._guild_lock(ctx.guild.id)
+        async with guild_lock:
+            guild_conf = self.config.guild(ctx.guild)
+            data = await guild_conf.community_garden()
+            data["xp"] = int(data.get("xp", 0)) + points
+            data["level"] = 1 + data["xp"] // 250
+            data.setdefault("contributions", {})[str(ctx.author.id)] = int(data["contributions"].get(str(ctx.author.id), 0)) + points
+            await guild_conf.community_garden.set(data)
+        await ctx.send(f"🌱 Thank you for contributing! The community garden gained **{points}** growth points and is now level **{data['level']}**.")
+
+    @commands.guild_only()
+    @commands.command(name="gardencommunityclaim", help="Claim a one-time personal reward for each community garden level milestone.")
+    async def gardencommunityclaim(self, ctx):
+        data = await self.config.guild(ctx.guild).community_garden()
+        level = int(data.get("level", 1))
+        if level < 2:
+            return await ctx.send("The community garden needs to reach level 2 before milestone rewards unlock.")
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            all_claims = garden.setdefault("community_claims", {})
+            if isinstance(all_claims, list):
+                all_claims = {}
+                garden["community_claims"] = all_claims
+            claims = set(int(value) for value in all_claims.get(str(ctx.guild.id), []))
+            available = [value for value in range(2, level + 1) if value not in claims]
+            if not available:
+                return await ctx.send("You've already claimed every community garden milestone currently available.")
+            for milestone in available:
+                all_claims.setdefault(str(ctx.guild.id), []).append(milestone)
+                garden["seed_inventory"]["common"] += 1
+                garden.setdefault("items", {})["fertilizer"] += 1
+            await self._save_garden(member_conf, garden)
+        await ctx.send(f"🎉 Claimed **{len(available)}** community milestones! You received {len(available)} Common Seed(s) and {len(available)} Fertilizer.")
+
+    @commands.guild_only()
+    @commands.command(name="gardenjournal", help="Browse the botanical journal, including undiscovered flowers.")
+    async def gardenjournal(self, ctx, member: discord.Member = None):
+        member = member or ctx.author
+        garden = await self._get_garden(self.config.user(member))
+        flowers = garden.get("flowers", {})
+        rarity_order = {"Common": 0, "Uncommon": 1, "Rare": 2, "Epic": 3, "Legendary": 4, "Seasonal": 5}
+        lines = []
+        for name, rarity in sorted(FLOWERS.items(), key=lambda item: (rarity_order.get(item[1], 9), item[0])):
+            count = int(flowers.get(name, 0))
+            lines.append(f"{'🌸' if count else '🔒'} **{name}** · {rarity}" + (f" ×{count}" if count else " · Not discovered"))
+        pages = []
+        for start in range(0, len(lines), 12):
+            pages.append(discord.Embed(title=f"📖 {member.display_name}'s Botanical Journal", description="\n".join(lines[start:start + 12]), color=discord.Color.green()))
+        if len(pages) == 1:
+            return await ctx.send(embed=pages[0])
+        view = FortunePaginator(ctx.author.id, pages)
+        view.message = await ctx.send(embed=pages[0], view=view)
+
+    @commands.guild_only()
+    @commands.command(name="gardendesign", help="Customize your garden layout, background and path.")
+    async def gardendesign(self, ctx, category: str = "list", *, choice: str = None):
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            if category.lower() == "list":
+                design = garden.get("design", {})
+                lines = [f"**{kind.title()}**: {', '.join(options)}\nEquipped: {design.get(kind, 'default')}" for kind, options in DESIGN_OPTIONS.items()]
+                return await ctx.send(embed=discord.Embed(title="🎨 Garden Design Studio", description="\n\n".join(lines) + "\n\nUse `gardendesign <layout|background|path> <choice>`.", color=discord.Color.blurple()))
+            category = category.lower()
+            if category not in DESIGN_OPTIONS or not choice:
+                return await ctx.send("Use `gardendesign list` or `gardendesign <layout|background|path> <choice>`.")
+            key = choice.lower()
+            if key not in DESIGN_OPTIONS[category]:
+                return await ctx.send(f"Available {category} choices: {', '.join(DESIGN_OPTIONS[category])}.")
+            garden.setdefault("design", {})[category] = key
+            await self._save_garden(member_conf, garden)
+        await ctx.send(f"🎨 Your garden {category} is now **{DESIGN_OPTIONS[category][key]}**.")
+
+    @commands.guild_only()
+    @commands.command(name="gardenleaderboard", help="View server-member garden rankings or seasonal event rankings.")
+    async def gardenleaderboard(self, ctx, category: str = "level"):
+        category = category.lower()
+        event = current_seasonal_event()
+        ranked = []
+        for member in ctx.guild.members:
+            if member.bot:
+                continue
+            garden = await self._get_garden(self.config.user(member))
+            if category == "seasonal":
+                score = int(garden.get("event_progress", {}).get(event["key"], 0))
+                label = f"{score} seasonal blooms"
+            elif category == "flowers":
+                score = sum(int(value) for value in garden.get("flowers", {}).values())
+                label = f"{score} flowers"
+            else:
+                score = int(garden.get("garden_level", 1))
+                label = f"Level {score}"
+            ranked.append((score, member.display_name, label))
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        if not ranked:
+            return await ctx.send("There are no member gardens to rank yet.")
+        title = "Seasonal Garden Leaderboard" if category == "seasonal" else "Flower Collection Leaderboard" if category == "flowers" else "Garden Level Leaderboard"
+        lines = [f"**{index}. {discord.utils.escape_markdown(name)}** — {label}" for index, (_, name, label) in enumerate(ranked[:10], 1)]
+        await ctx.send(embed=discord.Embed(title=f"🏆 {title}", description="\n".join(lines), color=discord.Color.gold()))
+
+    @commands.guild_only()
+    @commands.command(name="gardenweather", help="Check your garden's current weather and moon phase.")
+    async def gardenweather(self, ctx):
+        garden = await self._get_garden(self.config.user(ctx.author))
+        biome = garden.get("equipped_biome", "meadow")
+        weather, moon = weather_and_moon(biome=biome)
+        effects = {"Rainy": "Growing seeds are 5% faster.", "Snowy": "Growing seeds take 5% longer.", "Starlit": "Moonlight seeds grow 5% faster."}
+        effect = effects.get(weather, "No direct growth modifier from today's weather.")
+        if moon == "Full Moon":
+            effect += " Full moon: moonlight seeds grow 10% faster."
+        await ctx.send(embed=discord.Embed(title="🌦️ Garden Weather", description=f"**Biome:** {BIOMES.get(biome, BIOMES['meadow'])['label']}\n**Weather:** {weather}\n**Moon phase:** {moon}\n\n{effect}", color=discord.Color.blurple()))
+
+    @commands.guild_only()
+    @commands.command(name="gardenprestige", help="Prestige your garden at level 20 for permanent bonuses and exclusive rewards.")
+    async def gardenprestige(self, ctx, confirm: str = ""):
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            if int(garden.get("garden_level", 1)) < 20:
+                return await ctx.send("Garden prestige unlocks at level 20.")
+            if confirm.lower() != "confirm":
+                return await ctx.send("Prestige resets your current garden level and XP, but keeps flowers, seeds, companions, biomes, decorations and other collections. It grants an Ancient Seed, 3 Fertilizer and a permanent 1% XP bonus. Run `gardenprestige confirm` to proceed.")
+            garden["prestige"] = int(garden.get("prestige", 0)) + 1
+            garden["permanent_xp_bonus"] = min(50, int(garden.get("permanent_xp_bonus", 0)) + 1)
+            garden["garden_xp"] = 0
+            garden["garden_level"] = 1
+            garden["seed_inventory"]["ancient"] = int(garden["seed_inventory"].get("ancient", 0)) + 1
+            garden.setdefault("items", {})["fertilizer"] = int(garden["items"].get("fertilizer", 0)) + 3
+            if "Prestige Blossom" not in garden.setdefault("unlocked_decorations", []):
+                garden["unlocked_decorations"].append("Prestige Blossom")
+            garden["equipped_decoration"] = "Prestige Blossom"
+            await self._save_garden(member_conf, garden)
+        await ctx.send(f"🌟 Your garden reached prestige **{garden['prestige']}**! You earned an Ancient Seed, 3 Fertilizer and a permanent +{garden['permanent_xp_bonus']}% XP bonus.")
+
+    @commands.guild_only()
+    @commands.command(name="gardenbirthday", help="Optionally set your birthday (MM-DD) and claim a yearly garden gift on that date.")
+    async def gardenbirthday(self, ctx, action: str = "claim", date_text: str = None):
+        action = action.lower()
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            member_conf = self.config.user(ctx.author)
+            garden = await self._get_garden(member_conf)
+            if action == "set":
+                if not date_text:
+                    return await ctx.send("Use `gardenbirthday set MM-DD`, for example `gardenbirthday set 04-21`.")
+                try:
+                    parsed = datetime.strptime(f"{date_text}-2000", "%m-%d-%Y")
+                except ValueError:
+                    return await ctx.send("Use a valid month and day in MM-DD format.")
+                garden["birthday"] = parsed.strftime("%m-%d")
+                await self._save_garden(member_conf, garden)
+                return await ctx.send(f"🎂 Birthday saved as **{garden['birthday']}**. This is optional and stored with your global garden profile.")
+            if action != "claim":
+                return await ctx.send("Use `gardenbirthday set MM-DD` or `gardenbirthday claim`.")
+            today = datetime.utcnow()
+            if garden.get("birthday") != today.strftime("%m-%d"):
+                return await ctx.send("Today isn't your saved birthday. Set your date with `gardenbirthday set MM-DD` if you'd like to use this feature.")
+            if int(garden.get("birthday_claimed_year") or 0) == today.year:
+                return await ctx.send("You've already claimed this year's birthday gift.")
+            garden["birthday_claimed_year"] = today.year
+            garden["seed_inventory"]["golden"] = int(garden["seed_inventory"].get("golden", 0)) + 1
+            garden.setdefault("items", {})["fertilizer"] = int(garden["items"].get("fertilizer", 0)) + 2
+            self._add_xp(garden, 50)
+            await self._save_garden(member_conf, garden)
+        await ctx.send("🎂 Happy Birthday! Your garden gift is **1 Golden Seed**, **2 Fertilizer** and **50 garden XP**!")
+
+    @commands.guild_only()
+    @commands.command(name="gardenrender", help="Generate a visual picture of your garden.")
+    async def gardenrender(self, ctx, member: discord.Member = None):
+        member = member or ctx.author
+        lock = self._member_lock(ctx.guild.id, member.id)
+        async with lock:
+            garden = await self._get_garden(self.config.user(member))
+        try:
+            import io
+            from PIL import Image, ImageDraw, ImageFont
+            width, height = 1000, 620
+            biome = garden.get("equipped_biome", "meadow")
+            backgrounds = {"sunrise": (255, 219, 170), "emerald": (31, 92, 62), "twilight": (48, 48, 91), "starlight": (24, 32, 68)}
+            bg = backgrounds.get(garden.get("design", {}).get("background", "emerald"), (31, 92, 62))
+            palettes = {"meadow": (76, 145, 80), "moonlit": (73, 91, 132), "frozen": (135, 190, 213), "celestial": (77, 70, 130), "ruins": (111, 116, 77)}
+            grass = palettes.get(biome, palettes["meadow"])
+            image = Image.new("RGB", (width, height), bg)
+            draw = ImageDraw.Draw(image)
+            font = ImageFont.load_default()
+            draw.rounded_rectangle((28, 28, 972, 592), radius=30, fill=grass, outline=(225, 226, 185), width=5)
+            title = f"{member.display_name}'s {BIOMES.get(biome, BIOMES['meadow'])['label']}"
+            draw.text((55, 48), title[:64], fill=(255, 255, 255), font=font)
+            draw.text((55, 72), f"Level {garden.get('garden_level', 1)}  |  Prestige {garden.get('prestige', 0)}  |  {garden.get('equipped_decoration') or 'Growing Garden'}", fill=(245, 245, 220), font=font)
+            layout = garden.get("design", {}).get("layout", "cottage")
+            path_color = {"stone": (184, 180, 160), "moss": (86, 116, 72), "crystal": (155, 214, 232), "wood": (133, 88, 55)}.get(garden.get("design", {}).get("path", "stone"), (184, 180, 160))
+            draw.polygon([(470, 570), (530, 570), (650, 240), (350, 240)], fill=path_color)
+            flower_names = [name for name, count in garden.get("flowers", {}).items() for _ in range(min(3, int(count)))][:36]
+            flower_colors = [(245, 210, 95), (220, 130, 190), (170, 205, 245), (250, 240, 220), (185, 130, 235), (240, 120, 95)]
+            plots = []
+            for row in range(3):
+                for col in range(6):
+                    x = 95 + col * 135 + (row % 2) * 18
+                    y = 190 + row * 115
+                    plots.append((x, y))
+            if layout == "formal":
+                draw.rectangle((70, 145, 930, 555), outline=(245, 235, 190), width=4)
+                draw.line((500, 145, 500, 555), fill=path_color, width=18)
+            elif layout == "zen":
+                draw.ellipse((390, 250, 610, 470), fill=(170, 195, 180), outline=(230, 230, 210), width=5)
+                draw.ellipse((430, 290, 570, 430), fill=(68, 132, 155))
+            elif layout == "wild":
+                for _ in range(35):
+                    x, y = random.randint(70, 920), random.randint(145, 550)
+                    draw.ellipse((x, y, x + 8, y + 8), fill=(190, 215, 140))
+            for index, name in enumerate(flower_names):
+                x, y = plots[index % len(plots)]
+                color = flower_colors[index % len(flower_colors)]
+                draw.line((x + 14, y + 25, x + 14, y + 58), fill=(34, 80, 42), width=4)
+                draw.ellipse((x + 3, y + 4, x + 25, y + 26), fill=color, outline=(255, 255, 230), width=2)
+                draw.ellipse((x + 8, y + 9, x + 20, y + 21), fill=(245, 220, 105))
+                draw.text((x - 8, y + 62), name[:14], fill=(255, 255, 255), font=font)
+            if not flower_names:
+                draw.text((365, 350), "Your first flowers will bloom here!", fill=(255, 255, 255), font=font)
+            draw.text((55, 558), f"Flowers: {sum(garden.get('flowers', {}).values())}  |  Visitors: {garden.get('visit_count', 0)}  |  World Tree: Lv. {garden.get('world_tree_level', 1)}", fill=(255, 255, 255), font=font)
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            buffer.seek(0)
+            await ctx.send(file=discord.File(buffer, filename="fortunegarden.png"))
+        except ImportError:
+            await ctx.send("Garden rendering requires Pillow. Install it in the Redbot environment with `pip install Pillow`.")
+        except Exception as exc:
+            log.exception("Could not render FortuneGarden for %s", member.id)
+            await ctx.send(f"Could not render this garden: {exc}")
 
     @commands.guild_only()
     @commands.has_guild_permissions(manage_guild=True)
@@ -1817,7 +2919,7 @@ class FortuneGarden(commands.Cog):
     @commands.guild_only()
     @commands.command(name="seedopt", help="Manage receiving fortune seeds. Usage: seedopt off|on|status|help")
     async def seedopt(self, ctx, choice: str = None):
-        member_conf = self.config.member(ctx.author)
+        member_conf = self.config.user(ctx.author)
         current = await member_conf.opt_out()
         choice = (choice or "help").lower()
         if choice in ("help", "h"):
@@ -1847,6 +2949,7 @@ class FortuneGarden(commands.Cog):
         embed.add_field(name="Reward Channel", value=channel.mention if channel else "Original planting channel / DM fallback", inline=True)
         embed.add_field(name="Reward Weights", value="\n".join(f"{key}: {value}" for key, value in weights.items())[:1024], inline=False)
         embed.add_field(name="Ignored Channels / Roles", value=f"{len(data.get('ignored_channels', []))} channel(s) / {len(data.get('ignored_roles', []))} role(s)", inline=True)
+        embed.add_field(name="Profile Storage", value="Seeds, cooldowns, flowers, companions, quests and personal gardens are shared globally across servers. Community gardens, seed-drop settings and trade offers are server-specific.", inline=False)
         await ctx.send(embed=embed)
 
     @commands.guild_only()
@@ -2026,7 +3129,7 @@ class FortuneGarden(commands.Cog):
         action = action.lower()
         lock = self._member_lock(ctx.guild.id, member.id)
         async with lock:
-            member_conf = self.config.member(member)
+            member_conf = self.config.user(member)
             garden = await self._get_garden(member_conf)
             if action == "inspect":
                 pass
