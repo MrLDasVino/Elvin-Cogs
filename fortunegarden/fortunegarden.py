@@ -1977,12 +1977,14 @@ class FortuneGarden(commands.Cog):
                 if changed:
                     await guild_conf.fortunes.set(fortunes)
 
+    @tasks.loop(seconds=60.0)
     async def bloom_loop(self):
         try:
             await self._process_due_seeds()
         except Exception:
             log.exception("FortuneGarden bloom processor failed; it will retry on the next cycle.")
 
+    @bloom_loop.before_loop
     async def before_bloom(self):
         await self.bot.wait_until_ready()
         await self._migrate_member_data()
