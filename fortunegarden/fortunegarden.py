@@ -645,8 +645,10 @@ ADVICE = [
 ]
     
 import asyncio
+import calendar
 import logging
 import math
+import time
 import random
 import re
 import string
@@ -1040,6 +1042,36 @@ def current_festival_event(now=None):
     return event
 
 
+def garden_level_requirement(level):
+    level = max(1, int(level))
+    return 100 + (level - 1) * 50
+
+
+def garden_total_xp_for_level(level):
+    level = max(1, int(level))
+    steps = level - 1
+    return steps * 100 + 25 * steps * (steps - 1)
+
+
+def garden_level_progress(total_xp):
+    remaining = max(0, int(total_xp))
+    level = 1
+    while remaining >= garden_level_requirement(level):
+        remaining -= garden_level_requirement(level)
+        level += 1
+    return level, remaining, garden_level_requirement(level)
+
+
+def normalized_garden_xp(garden, force_legacy=False):
+    total = max(0, int(garden.get("garden_xp", 0)))
+    if not force_legacy and int(garden.get("xp_curve_version", 0)) >= 2:
+        return total
+    old_level = max(1, int(garden.get("garden_level", 1)), 1 + total // 100)
+    old_progress = total % 100
+    progress_ratio = old_progress / 100.0
+    return garden_total_xp_for_level(old_level) + int(garden_level_requirement(old_level) * progress_ratio)
+
+
 def create_garden(seed_count=0):
     return {
         "seeds": max(0, int(seed_count)),
@@ -1047,6 +1079,7 @@ def create_garden(seed_count=0):
         "flowers": {},
         "garden_xp": 0,
         "garden_level": 1,
+        "xp_curve_version": 2,
         "total_planted": 0,
         "total_blooms": 0,
         "total_waterings": 0,
@@ -1158,6 +1191,77 @@ class FortunePaginator(discord.ui.View):
                 pass
 
 
+class GardenSelectionView(discord.ui.View):
+    def __init__(self, author_id, options, callback, placeholder="Choose an option"):
+        super().__init__(timeout=300)
+        self.author_id = author_id
+        self.callback_handler = callback
+        self.message = None
+        select = discord.ui.Select(
+            placeholder=placeholder[:150],
+            min_values=1,
+            max_values=1,
+            options=options[:25],
+        )
+
+        async def selected(interaction):
+            if interaction.user.id != self.author_id:
+                return await interaction.response.send_message("This selection belongs to someone else.", ephemeral=True)
+            value = select.values[0]
+            for child in self.children:
+                child.disabled = True
+            self.stop()
+            await interaction.response.edit_message(view=self)
+            await self.callback_handler(interaction, value)
+
+        select.callback = selected
+        self.add_item(select)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+
+class GardenUserSelectView(discord.ui.View):
+    def __init__(self, author_id, callback, placeholder="Choose a server member"):
+        super().__init__(timeout=300)
+        self.author_id = author_id
+        self.callback_handler = callback
+        self.message = None
+        select = discord.ui.UserSelect(
+            placeholder=placeholder[:150],
+            min_values=1,
+            max_values=1,
+        )
+
+        async def selected(interaction):
+            if interaction.user.id != self.author_id:
+                return await interaction.response.send_message("This selection belongs to someone else.", ephemeral=True)
+            member = select.values[0]
+            for child in self.children:
+                child.disabled = True
+            self.stop()
+            await interaction.response.edit_message(view=self)
+            await self.callback_handler(interaction, member)
+
+        select.callback = selected
+        self.add_item(select)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+
 class GardenInteractionContext:
     def __init__(self, interaction, ephemeral=True):
         self.interaction = interaction
@@ -1182,39 +1286,18 @@ class GardenInteractionContext:
         return None
 
 
-class GardenActionModal(discord.ui.Modal):
-    def __init__(self, author_id, title, fields, handler):
-        super().__init__(title=title[:45], timeout=300)
-        self.author_id = author_id
-        self.handler = handler
-        for custom_id, label, placeholder, required in fields:
-            self.add_item(discord.ui.TextInput(
-                custom_id=custom_id,
-                label=label[:45],
-                placeholder=(placeholder or "")[:100],
-                required=required,
-                max_length=300 if custom_id in ("compliment", "message") else 100,
-            ))
-
-    async def on_submit(self, interaction):
-        if interaction.user.id != self.author_id:
-            return await interaction.response.send_message("This form belongs to someone else.", ephemeral=True)
-        values = {item.custom_id: str(item.value).strip() for item in self.children}
-        await self.handler(interaction, values)
-
-
 class GardenMenuView(discord.ui.View):
     SECTIONS = {
         "home": ("🌿 FortuneGarden", "Choose a section below to manage your garden. Only the person who opened this menu can use its buttons; they expire after five minutes."),
         "garden": ("🏡 Your Garden", "View your garden, weather, World Tree, birthday rewards and prestige."),
         "seeds": ("🌱 Seeds & Growing", "Plant seeds, check your growing plants, and care for them."),
-        "collections": ("📚 Collections", "Browse flowers, achievements, your botanical journal and reward history."),
-        "quests": ("📜 Quests & Rankings", "Track daily and weekly objectives, claim rewards and compare progress."),
-        "alchemy": ("⚗️ Alchemy", "Review recipes, craft potions and use them on growing seeds."),
+        "collections": ("📚 Collections & Inventory", "Browse your complete inventory, flowers, achievements, journal and reward history."),
+        "quests": ("📜 Quests & Rankings", "Track daily and weekly objectives, claim completed quests and compare progress."),
+        "alchemy": ("⚗️ Alchemy", "Review recipes, craft potions and use potions on a selected growing seed."),
         "companions": ("🧚 Companions", "Adopt companions and choose which one accompanies your garden."),
         "explore": ("🧭 Explore", "Send expeditions, collect discoveries and unlock new garden biomes."),
         "social": ("🤝 Social Garden", "Visit other gardens, leave gifts, help members and trade resources."),
-        "community": ("🛍️ Market & Community", "Shop for supplies and contribute to your server's shared garden."),
+        "community": ("🛍️ Market & Community", "Shop with dropdowns and contribute to your server's shared garden."),
         "customize": ("🎨 Customize", "Change your garden's decoration, layout, background and path."),
         "extras": ("✨ More Garden Features", "Manage your seed preferences and explore additional garden features."),
     }
@@ -1232,7 +1315,7 @@ class GardenMenuView(discord.ui.View):
         title, description = self.SECTIONS[self.section]
         embed = discord.Embed(title=title, description=description, color=discord.Color.green())
         if self.section == "home":
-            embed.add_field(name="Getting started", value="Earn seeds by chatting, plant them, and return when they bloom. Collect flowers, grow your garden and unlock new discoveries.", inline=False)
+            embed.add_field(name="Getting started", value="Earn seeds by chatting, plant them, and return when they bloom. Your inventory, quests, crafting and shop purchases are all available through dropdowns.", inline=False)
             embed.set_footer(text="Only the person who opened this menu can use it • Expires in 5 minutes")
         else:
             embed.set_footer(text="Use Back to return to the main garden menu • Buttons expire after 5 minutes")
@@ -1265,12 +1348,6 @@ class GardenMenuView(discord.ui.View):
     def _add_action(self, label, method, *args, emoji=None, style=discord.ButtonStyle.secondary, **kwargs):
         async def action(interaction):
             await self._call(interaction, method, *args, **kwargs)
-        self._add_button(label, action, emoji=emoji, style=style)
-
-    def _add_modal(self, label, title, fields, handler, emoji=None, style=discord.ButtonStyle.secondary):
-        async def action(interaction):
-            modal = GardenActionModal(self.author_id, title, fields, handler)
-            await interaction.response.send_modal(modal)
         self._add_button(label, action, emoji=emoji, style=style)
 
     def _add_back(self):
@@ -1306,35 +1383,277 @@ class GardenMenuView(discord.ui.View):
             except discord.HTTPException:
                 pass
 
-    async def _resolve_member(self, interaction, text):
-        match = re.search(r"\d{15,22}", text or "")
-        if not match:
-            await interaction.response.send_message("Please enter a member mention or numeric Discord user ID.", ephemeral=True)
-            return None
-        member_id = int(match.group())
-        member = interaction.guild.get_member(member_id)
-        if member is None:
-            try:
-                member = await interaction.guild.fetch_member(member_id)
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                member = None
-        if member is None:
-            await interaction.response.send_message("I couldn't find that member in this server.", ephemeral=True)
-            return None
-        return member
-
-    async def _run_member_action(self, interaction, values, method, member_field="member", extra=None):
-        member = await self._resolve_member(interaction, values.get(member_field, ""))
-        if member is None:
+    async def _show_select(self, interaction, title, description, options, callback, placeholder="Choose an option"):
+        options = list(options)[:25]
+        if not options:
+            text = "There are no available options for this action yet. Check your inventory or try again later."
+            if interaction.response.is_done():
+                await interaction.followup.send(text, ephemeral=True)
+            else:
+                await interaction.response.send_message(text, ephemeral=True)
             return
-        extra = extra or {}
-        await self._call(interaction, method, member, **extra(values))
+        view = GardenSelectionView(self.author_id, options, callback, placeholder)
+        embed = discord.Embed(title=title, description=description, color=discord.Color.blurple())
+        if interaction.response.is_done():
+            view.message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
+        else:
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            view.message = await interaction.original_response()
+
+    async def _show_user_select(self, interaction, title, description, callback, placeholder="Choose a server member"):
+        view = GardenUserSelectView(self.author_id, callback, placeholder)
+        embed = discord.Embed(title=title, description=description, color=discord.Color.blurple())
+        if interaction.response.is_done():
+            view.message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
+        else:
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            view.message = await interaction.original_response()
+
+    async def _active_seed_options(self, interaction, owner_id=None, mode="all"):
+        if interaction.guild is None:
+            return []
+        owner_id = self.author_id if owner_id is None else int(owner_id)
+        fortunes = await self.cog.config.guild(interaction.guild).fortunes()
+        now = datetime.utcnow()
+        options = []
+        for fid, info in sorted(fortunes.items(), key=lambda row: row[1].get("bloom_time", "")):
+            if int(info.get("owner_id", 0)) != owner_id or info.get("processed") or info.get("currency_claimed"):
+                continue
+            if mode == "fertilize" and info.get("fertilized"):
+                continue
+            if mode == "remove" and info.get("currency_claimed"):
+                continue
+            try:
+                bloom = datetime.fromisoformat(info.get("bloom_time", ""))
+                remaining = max(0, int((bloom - now).total_seconds()))
+                hours, seconds = divmod(remaining, 3600)
+                minutes = seconds // 60
+                timer = f"{hours}h {minutes}m remaining" if hours else f"{minutes}m remaining"
+            except (TypeError, ValueError):
+                timer = "Timer unavailable"
+            seed_type = info.get("seed_type", "common")
+            seed_label = SEED_TYPES.get(seed_type, SEED_TYPES["common"])["label"]
+            seed_name = info.get("name") or info.get("seed_name") or seed_label
+            options.append(discord.SelectOption(label=f"{str(seed_name)[:65]} · {seed_label}"[:100], value=str(fid)[:100], description=timer[:100]))
+        return options
+
+    def _asset_options(self, garden, include_empty=False):
+        options = []
+        for key, info in SEED_TYPES.items():
+            count = int(garden.get("seed_inventory", {}).get(key, 0))
+            if count or include_empty:
+                options.append(discord.SelectOption(label=f"{info['label']} Seeds ×{count}"[:100], value=f"seed:{key}", description="Seed inventory"))
+        for flower, count in sorted(garden.get("flowers", {}).items(), key=lambda row: (-int(row[1]), row[0].lower())):
+            if int(count) > 0:
+                options.append(discord.SelectOption(label=f"{flower} ×{count}"[:100], value=f"flower:{flower}"[:100], description=f"{FLOWERS.get(flower, 'Common')} flower"))
+        fertilizer = int(garden.get("items", {}).get("fertilizer", 0))
+        if fertilizer:
+            options.append(discord.SelectOption(label=f"Fertilizer ×{fertilizer}", value="item:fertilizer", description="Garden supply"))
+        for key, info in RECIPES.items():
+            count = int(garden.get("potions", {}).get(key, 0))
+            if count:
+                options.append(discord.SelectOption(label=f"{info['label']} ×{count}"[:100], value=f"item:{key}", description="Potion"))
+        return options[:25]
+
+    async def _choose_seed(self, interaction, method, mode="all"):
+        options = await self._active_seed_options(interaction, mode=mode)
+        async def chosen(select_interaction, fid):
+            await self._call(select_interaction, method, fid)
+        labels = {"waterfortune": "Water a Growing Seed", "fertilizefortune": "Fertilize a Growing Seed", "removefortune": "Remove a Growing Seed"}
+        descriptions = {"waterfortune": "Choose one of your active seeds to water.", "fertilizefortune": "Choose an active seed that has not already been fertilized.", "removefortune": "Choose an active seed to remove and return to your inventory."}
+        await self._show_select(interaction, labels.get(method, "Choose a Seed"), descriptions.get(method, "Choose one of your growing seeds."), options, chosen, "Select one of your growing seeds")
+
+    async def _choose_flower(self, interaction, title, callback, description="Choose one of your collected flowers"):
+        garden = await self.cog._get_garden(self.cog.config.user(interaction.user))
+        flowers = sorted(((name, int(count)) for name, count in garden.get("flowers", {}).items() if int(count) > 0), key=lambda row: (-row[1], row[0].lower()))
+        options = [discord.SelectOption(label=f"{name} ×{count}"[:100], value=name[:100], description=f"{FLOWERS.get(name, 'Common')} flower") for name, count in flowers[:25]]
+        await self._show_select(interaction, title, description, options, callback, "Select a flower from your collection")
+
+    async def _choose_quest(self, interaction):
+        member_lock = self.cog._member_lock(interaction.guild.id, interaction.user.id)
+        async with member_lock:
+            member_conf = self.cog.config.user(interaction.user)
+            garden = await self.cog._get_garden(member_conf)
+            self.cog._refresh_quests(garden)
+            await self.cog._save_garden(member_conf, garden)
+        options = []
+        for period in ("daily", "weekly"):
+            for task in garden.get("quest_state", {}).get(period, []):
+                if not task.get("claimed") and int(task.get("progress", 0)) >= int(task.get("target", 1)):
+                    label = f"{'Daily' if period == 'daily' else 'Weekly'}: {task['description']}"
+                    desc = f"Reward: {task.get('xp', 0)} XP + {task.get('amount', 1)} {str(task.get('item') or 'bonus').replace('_', ' ')}"
+                    options.append(discord.SelectOption(label=label[:100], value=task["id"], description=desc[:100]))
+        async def chosen(select_interaction, quest_id):
+            await self._call(select_interaction, "gardenquestclaim", quest_id)
+        await self._show_select(interaction, "🎁 Claim a Completed Quest", "Only completed, unclaimed quests are shown here. Select one to collect its rewards.", options, chosen, "Select a completed quest")
+
+    async def _choose_potion(self, interaction):
+        garden = await self.cog._get_garden(self.cog.config.user(interaction.user))
+        options = [discord.SelectOption(label=f"{RECIPES[key]['label']} ×{count}"[:100], value=key, description=RECIPES[key]["description"][:100]) for key, count in garden.get("potions", {}).items() if key in RECIPES and int(count) > 0]
+        async def potion_chosen(select_interaction, potion):
+            seed_options = await self._active_seed_options(select_interaction)
+            async def seed_chosen(seed_interaction, seed_id):
+                await self._call(seed_interaction, "gardenbrew", "use", potion, seed_id)
+            await self._show_select(select_interaction, f"Use {RECIPES[potion]['label']}", "Now choose which of your growing seeds should receive this potion.", seed_options, seed_chosen, "Select the seed to use this potion on")
+        await self._show_select(interaction, "🧪 Choose a Potion", "Only potions currently in your inventory are listed. After selecting one, choose the growing seed to use it on.", options, potion_chosen, "Select a potion you own")
+
+    async def _choose_market_item(self, interaction):
+        stock = self.cog._market_stock()
+        currency = await bank.get_currency_name(interaction.guild)
+        options = [discord.SelectOption(label=f"{MARKET_ITEMS[key]['label']} · {MARKET_ITEMS[key]['price']} {currency}"[:100], value=key, description=MARKET_ITEMS[key]["description"][:100]) for key in stock]
+        async def item_chosen(select_interaction, item):
+            quantities = [1, 2, 5, 10, 25]
+            amount_options = [discord.SelectOption(label=f"{amount} × {MARKET_ITEMS[item]['label']}", value=str(amount), description=f"Total: {MARKET_ITEMS[item]['price'] * amount} {currency}") for amount in quantities]
+            async def amount_chosen(amount_interaction, amount):
+                await self._call(amount_interaction, "gardenbuy", item, int(amount))
+            await self._show_select(select_interaction, f"Buy {MARKET_ITEMS[item]['label']}", "Choose how many you want to purchase. The bot checks your balance before charging you.", amount_options, amount_chosen, "Select a purchase quantity")
+        await self._show_select(interaction, "🛍️ Today's Market", "Choose an item from today's rotating stock.", options, item_chosen, "Select an item to buy")
+
+    async def _choose_companion_equip(self, interaction):
+        garden = await self.cog._get_garden(self.cog.config.user(interaction.user))
+        keys = [key for key in garden.get("companions", []) if key in COMPANIONS]
+        options = [discord.SelectOption(label=COMPANIONS[key]["label"], value=key, description=COMPANIONS[key]["description"][:100]) for key in keys]
+        async def chosen(select_interaction, key):
+            await self._call(select_interaction, "gardencompanion", "equip", companion=key)
+        await self._show_select(interaction, "✨ Equip a Companion", "Choose one of the companions you have already discovered.", options, chosen, "Select a companion to equip")
+
+    async def _choose_biome(self, interaction):
+        garden = await self.cog._get_garden(self.cog.config.user(interaction.user))
+        keys = [key for key, info in BIOMES.items() if key in garden.get("biomes", []) or int(garden.get("garden_level", 1)) >= int(info["level"])]
+        options = [discord.SelectOption(label=BIOMES[key]["label"], value=key, description=BIOMES[key]["description"][:100]) for key in keys]
+        async def chosen(select_interaction, key):
+            await self._call(select_interaction, "gardenbiome", "set", key)
+        await self._show_select(interaction, "🌍 Choose Your Biome", "Only biomes you have unlocked are selectable.", options, chosen, "Select an unlocked biome")
+
+    async def _choose_decoration(self, interaction):
+        garden = await self.cog._get_garden(self.cog.config.user(interaction.user))
+        unlocked = list(garden.get("unlocked_decorations", []))
+        options = [discord.SelectOption(label=name[:100], value=name[:100], description="Unlocked garden decoration") for name in unlocked[:24]]
+        options.append(discord.SelectOption(label="Remove Current Decoration", value="none", description="Display no equipped decoration"))
+        async def chosen(select_interaction, name):
+            await self._call(select_interaction, "gardendecorate", decoration=name)
+        await self._show_select(interaction, "🪴 Equip a Decoration", "Choose an unlocked decoration or remove your current one.", options, chosen, "Select a decoration")
+
+    async def _choose_design_category(self, interaction):
+        options = [discord.SelectOption(label=kind.title(), value=kind) for kind in DESIGN_OPTIONS]
+        async def chosen(select_interaction, category):
+            choices = [discord.SelectOption(label=label, value=key) for key, label in DESIGN_OPTIONS[category].items()]
+            async def design_chosen(final_interaction, choice):
+                await self._call(final_interaction, "gardendesign", category, choice=choice)
+            await self._show_select(select_interaction, f"🎨 Choose {category.title()}", "Select the design you want to use.", choices, design_chosen, f"Select a {category}")
+        await self._show_select(interaction, "🎨 Garden Design", "First choose what you want to customize.", options, chosen, "Choose layout, background or path")
+
+    async def _choose_birthday(self, interaction):
+        months = [discord.SelectOption(label=calendar.month_name[m], value=f"{m:02d}") for m in range(1, 13)]
+        async def month_chosen(month_interaction, month):
+            month_int = int(month)
+            days_in_month = calendar.monthrange(2000, month_int)[1]
+            days = [discord.SelectOption(label=f"{day}", value=f"{day:02d}") for day in range(1, days_in_month + 1)]
+            async def day_chosen(day_interaction, day):
+                await self._call(day_interaction, "gardenbirthday", "set", f"{month}-{day}")
+            await self._show_select(month_interaction, "🎂 Choose Your Birthday", f"Choose a day in {calendar.month_name[month_int]}.", days, day_chosen, "Select the day")
+        await self._show_select(interaction, "🎂 Set Your Birthday", "Choose your birth month. Then you will choose the day.", months, month_chosen, "Select your birth month")
+
+    async def _choose_social_user(self, interaction, action):
+        async def user_chosen(user_interaction, member):
+            if not isinstance(member, discord.Member):
+                try:
+                    member = await user_interaction.guild.fetch_member(member.id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    return await user_interaction.followup.send("I couldn't find that member in this server.", ephemeral=True)
+            if member.bot or member.id == self.author_id:
+                return await user_interaction.followup.send("Choose another human member.", ephemeral=True)
+            if action == "visit":
+                await self._call(user_interaction, "gardenvisit", member, compliment="Your garden is lovely!", _ephemeral=False)
+            elif action == "guestbook":
+                await self._call(user_interaction, "gardenguestbook", member)
+            elif action == "gift":
+                sender_garden = await self.cog._get_garden(self.cog.config.user(user_interaction.user))
+                flowers = [(name, int(count)) for name, count in sender_garden.get("flowers", {}).items() if int(count) > 0]
+                options = [discord.SelectOption(label=f"{name} ×{count}"[:100], value=name[:100], description=f"{FLOWERS.get(name, 'Common')} flower") for name, count in sorted(flowers, key=lambda row: (-row[1], row[0].lower()))[:25]]
+                async def flower_chosen(final_interaction, flower):
+                    await self._call(final_interaction, "gardengift", member, flower=flower, _ephemeral=False)
+                await self._show_select(user_interaction, f"🎁 Gift a Flower to {member.display_name}", "Choose one flower from your collection to send.", options, flower_chosen, "Select a flower to gift")
+            elif action == "helpwater":
+                seed_options = await self._active_seed_options(user_interaction, owner_id=member.id)
+                async def seed_chosen(final_interaction, seed_id):
+                    await self._call(final_interaction, "gardenhelpwater", member, seed_id)
+                await self._show_select(user_interaction, f"💧 Help {member.display_name} Water", "Choose one of this member's active seeds.", seed_options, seed_chosen, "Select their growing seed")
+            elif action == "trade":
+                await self._start_trade_flow(user_interaction, member)
+        await self._show_user_select(interaction, "Choose a Member", "Select someone from this server. You no longer need to type their ID or mention.", user_chosen)
+
+    async def _start_trade_flow(self, interaction, member):
+        sender = await self.cog._get_garden(self.cog.config.user(interaction.user))
+        receiver = await self.cog._get_garden(self.cog.config.user(member))
+        give_options = self._asset_options(sender)
+        async def give_chosen(give_interaction, give_value):
+            want_options = self._asset_options(receiver)
+            async def want_chosen(want_interaction, want_value):
+                give_type, give_item = give_value.split(":", 1)
+                want_type, want_item = want_value.split(":", 1)
+                give_count = self.cog._asset_count(sender, give_type, give_item)
+                want_count = self.cog._asset_count(receiver, want_type, want_item)
+                max_amount = min(100, give_count, want_count)
+                quantities = [n for n in (1, 2, 5, 10, 25, 50, 100) if n <= max_amount]
+                amount_options = [discord.SelectOption(label=str(n), value=str(n), description=f"Exchange {n} of each selected item") for n in quantities]
+                async def amount_chosen(final_interaction, amount):
+                    await self._call(final_interaction, "gardenoffer", member, give_type, give_item, want_type, want_item, int(amount), _ephemeral=False)
+                await self._show_select(want_interaction, "🤝 Choose Trade Quantity", f"Trade **{give_item}** for **{want_item}** with {member.display_name}.", amount_options, amount_chosen, "Select how many of each item")
+            await self._show_select(give_interaction, "🤝 Choose What You Want", f"Choose an item from {member.display_name}'s inventory to request.", want_options, want_chosen, "Select their offered item")
+        await self._show_select(interaction, "🤝 Choose What You Offer", f"Choose an item from your inventory to offer to {member.display_name}.", give_options, give_chosen, "Select an item you own")
+
+    async def _choose_trade_response(self, interaction):
+        offers = await self.cog.config.guild(interaction.guild).trade_offers()
+        pending = [(key, offer) for key, offer in offers.items() if offer.get("status") == "pending" and int(offer.get("to", 0)) == self.author_id]
+        options = []
+        for key, offer in pending[:25]:
+            sender = interaction.guild.get_member(int(offer.get("from", 0)))
+            sender_name = sender.display_name if sender else f"User {offer.get('from')}"
+            give, want = offer.get("give", {}), offer.get("want", {})
+            label = f"From {sender_name}: {give.get('item')} for {want.get('item')}"
+            options.append(discord.SelectOption(label=label[:100], value=key[:100], description=f"{give.get('amount', 1)} item(s) · Offer ID {key}"[:100]))
+        async def chosen(select_interaction, offer_id):
+            decisions = [discord.SelectOption(label="Accept Trade", value="accept", description="Exchange the selected items"), discord.SelectOption(label="Decline Trade", value="decline", description="Reject this offer")]
+            async def decision_chosen(final_interaction, decision):
+                await self._call(final_interaction, "gardentrade", offer_id, decision)
+            await self._show_select(select_interaction, "Respond to Trade", f"Choose whether to accept trade `{offer_id}`.", decisions, decision_chosen, "Accept or decline")
+        await self._show_select(interaction, "📨 Incoming Trade Offers", "Choose an outstanding offer addressed to you.", options, chosen, "Select a trade offer")
+
+    async def _choose_contribution(self, interaction):
+        kinds = [discord.SelectOption(label="Flowers", value="flower"), discord.SelectOption(label="Seeds", value="seed"), discord.SelectOption(label="Credits", value="credits")]
+        async def kind_chosen(kind_interaction, kind):
+            garden = await self.cog._get_garden(self.cog.config.user(kind_interaction.user))
+            if kind == "credits":
+                choices = (100, 250, 500, 1000, 2500, 5000)
+                options = [discord.SelectOption(label=f"{n:,} credits", value=str(n)) for n in choices]
+                async def amount_chosen(final_interaction, amount):
+                    await self._call(final_interaction, "gardencontribute", "credits", amount, 1)
+                return await self._show_select(kind_interaction, "🌱 Contribute Credits", "Choose how many Redbot economy credits to contribute.", options, amount_chosen, "Select a credit contribution")
+            if kind == "seed":
+                options = [discord.SelectOption(label=f"{SEED_TYPES[key]['label']} ×{count}", value=key) for key, count in garden.get("seed_inventory", {}).items() if int(count) > 0]
+            else:
+                options = [discord.SelectOption(label=f"{name} ×{count}"[:100], value=name, description=f"{FLOWERS.get(name, 'Common')} flower") for name, count in sorted(garden.get("flowers", {}).items(), key=lambda row: (-int(row[1]), row[0].lower())) if int(count) > 0][:25]
+            async def item_chosen(item_interaction, item):
+                if kind == "seed":
+                    item_label = SEED_TYPES[item]["label"]
+                    available = int(garden.get("seed_inventory", {}).get(item, 0))
+                else:
+                    item_label = item
+                    available = int(garden.get("flowers", {}).get(item, 0))
+                quantities = [n for n in (1, 2, 5, 10, 25, 50, 100) if n <= available]
+                amount_options = [discord.SelectOption(label=str(n), value=str(n), description=f"Contribute {n} {item_label}") for n in quantities]
+                async def amount_chosen(final_interaction, amount):
+                    await self._call(final_interaction, "gardencontribute", kind, item, int(amount))
+                await self._show_select(item_interaction, f"Contribute {item_label}", "Choose the amount to contribute.", amount_options, amount_chosen, "Select a quantity")
+            await self._show_select(kind_interaction, "Choose a Contribution", f"Select a {kind} you currently own.", options, item_chosen, f"Select a {kind}")
+        await self._show_select(interaction, "🌳 Community Contribution", "Choose whether to contribute flowers, seeds or Redbot economy credits.", kinds, kind_chosen, "Select contribution type")
 
     def _build(self):
         if self.section == "home":
             sections = [
                 ("My Garden", "garden", "🏡"), ("Seeds & Growing", "seeds", "🌱"),
-                ("Collections", "collections", "📚"), ("Quests & Rankings", "quests", "📜"),
+                ("Collections & Inventory", "collections", "📚"), ("Quests & Rankings", "quests", "📜"),
                 ("Alchemy", "alchemy", "⚗️"), ("Companions", "companions", "🧚"),
                 ("Explore", "explore", "🧭"), ("Social", "social", "🤝"),
                 ("Market & Community", "community", "🛍️"), ("Customize", "customize", "🎨"),
@@ -1354,46 +1673,48 @@ class GardenMenuView(discord.ui.View):
 
         if self.section == "garden":
             self._add_action("Garden Overview", "show_garden_profile", emoji="🏡", style=discord.ButtonStyle.success)
+            self._add_action("Full Inventory", "gardeninventory", emoji="🎒")
             self._add_action("Visual Garden", "gardenrender", None, emoji="🖼️")
             self._add_action("Weather & Moon", "gardenweather", emoji="🌦️")
             self._add_action("World Tree", "worldtree", "view", emoji="🌳")
-            async def nourish(interaction, values):
-                await self._call(interaction, "worldtree", "nourish", flower=values["flower"])
-            self._add_modal("Nourish Tree", "Nourish your World Tree", [("flower", "Flower name", "Enter a flower you own", True)], nourish, emoji="🌸")
-            async def prestige(interaction, values):
-                if values["confirm"].strip().upper() != "PRESTIGE":
-                    return await interaction.response.send_message("Prestige cancelled. Type PRESTIGE exactly to confirm.", ephemeral=True)
-                await self._call(interaction, "gardenprestige", "confirm")
-            self._add_modal("Prestige", "Confirm Garden Prestige", [("confirm", "Type PRESTIGE to confirm", "PRESTIGE", True)], prestige, emoji="⭐", style=discord.ButtonStyle.danger)
+            async def nourish(interaction):
+                async def chosen(final_interaction, flower):
+                    await self._call(final_interaction, "worldtree", "nourish", flower=flower)
+                await self._choose_flower(interaction, "🌸 Nourish Your World Tree", chosen)
+            self._add_button("Nourish Tree", nourish, emoji="🌸")
+            async def prestige(interaction):
+                options = [discord.SelectOption(label="Confirm Prestige", value="confirm", description="Reset level and XP, keep collections and receive prestige rewards"), discord.SelectOption(label="Cancel", value="cancel", description="Keep your current level")]
+                async def chosen(final_interaction, value):
+                    if value == "confirm":
+                        await self._call(final_interaction, "gardenprestige", "confirm")
+                    else:
+                        await final_interaction.followup.send("Prestige cancelled. Your garden has not been changed.", ephemeral=True)
+                await self._show_select(interaction, "⭐ Garden Prestige", "Prestige resets your level and XP but preserves your collections. Confirm only if you are sure.", options, chosen, "Confirm or cancel")
+            self._add_button("Prestige", prestige, emoji="⭐", style=discord.ButtonStyle.danger)
             self._add_action("Claim Birthday Gift", "gardenbirthday", "claim", None, emoji="🎂", style=discord.ButtonStyle.success)
-            async def birthday(interaction, values):
-                await self._call(interaction, "gardenbirthday", "set", values["date"])
-            self._add_modal("Set Birthday", "Set your optional birthday", [("date", "Birthday (MM-DD)", "Example: 04-21", True)], birthday, emoji="📅")
+            self._add_button("Set Birthday", self._choose_birthday, emoji="📅")
 
         elif self.section == "seeds":
-            self._add_action("Seed Inventory", "fortuneseeds", None, emoji="🎒", style=discord.ButtonStyle.success)
+            self._add_action("Seed Inventory", "fortuneseeds", None, emoji="🌱", style=discord.ButtonStyle.success)
+            self._add_action("Full Inventory", "gardeninventory", emoji="🎒")
             self._add_action("Growing Seeds", "listfortunes", emoji="⌛")
             for key, info in SEED_TYPES.items():
                 self._add_action(f"Plant {info['label']}", "plantfortune", key, emoji=info["emoji"], style=discord.ButtonStyle.success)
-            async def seed_id_action(interaction, values, method):
-                await self._call(interaction, method, values["seed_id"])
-            for label, method, emoji in (("Water Seed", "waterfortune", "💧"), ("Use Fertilizer", "fertilizefortune", "🌿"), ("Remove Seed", "removefortune", "🗑️")):
-                async def handler(interaction, values, target=method):
-                    await seed_id_action(interaction, values, target)
-                self._add_modal(label, f"{label}", [("seed_id", "Seed ID", "Paste the ID shown in your growing seed list", True)], handler, emoji=emoji)
+            self._add_button("Water Seed", lambda interaction: self._choose_seed(interaction, "waterfortune"), emoji="💧")
+            self._add_button("Use Fertilizer", lambda interaction: self._choose_seed(interaction, "fertilizefortune", "fertilize"), emoji="🌿")
+            self._add_button("Remove Seed", lambda interaction: self._choose_seed(interaction, "removefortune", "remove"), emoji="🗑️")
 
         elif self.section == "collections":
-            self._add_action("Flower Collection", "gardenflowers", None, emoji="🌸", style=discord.ButtonStyle.success)
+            self._add_action("Full Inventory", "gardeninventory", emoji="🎒", style=discord.ButtonStyle.success)
+            self._add_action("Flower Collection", "gardenflowers", None, emoji="🌸")
             self._add_action("Botanical Journal", "gardenjournal", None, emoji="📖")
             self._add_action("Achievements", "gardenachievements", None, emoji="🏆")
-            self._add_action("Reward History", "fortunehistory", None, emoji="📜")
+            self._add_action("Reward History", "fortunehistory", emoji="📜")
             self._add_action("Seasonal Event", "fortuneevent", emoji="🎪")
 
         elif self.section == "quests":
             self._add_action("Daily & Weekly Quests", "gardenquests", emoji="📜", style=discord.ButtonStyle.success)
-            async def claim(interaction, values):
-                await self._call(interaction, "gardenquestclaim", values["quest_id"])
-            self._add_modal("Claim Quest", "Claim a completed quest", [("quest_id", "Quest ID", "For example: d_plant or w_bloom", True)], claim, emoji="🎁")
+            self._add_button("Claim Completed Quest", self._choose_quest, emoji="🎁", style=discord.ButtonStyle.success)
             self._add_action("Seasonal Event", "fortuneevent", emoji="🎪")
             self._add_action("Level Leaderboard", "gardenleaderboard", "level", emoji="🏅")
             self._add_action("Flower Leaderboard", "gardenleaderboard", "flowers", emoji="🌸")
@@ -1404,20 +1725,20 @@ class GardenMenuView(discord.ui.View):
             self._add_action("View Recipes", "gardenbrew", "recipes", None, None, emoji="📖", style=discord.ButtonStyle.success)
             for key, recipe in RECIPES.items():
                 self._add_action(f"Craft {recipe['label']}", "gardenbrew", "craft", key, None, emoji="⚗️")
-            async def use_potion(interaction, values):
-                await self._call(interaction, "gardenbrew", "use", values["potion"], values["seed_id"])
-            potion_keys = ", ".join(RECIPES)
-            self._add_modal("Use Potion", "Use a potion on a growing seed", [("potion", "Potion ID", potion_keys[:100], True), ("seed_id", "Seed ID", "Paste the growing seed ID", True)], use_potion, emoji="🧪")
+            self._add_button("Use a Potion", self._choose_potion, emoji="🧪", style=discord.ButtonStyle.success)
+            self._add_action("Full Inventory", "gardeninventory", emoji="🎒")
 
         elif self.section == "companions":
             self._add_action("My Companions", "gardencompanion", "list", emoji="🐾", style=discord.ButtonStyle.success)
-            for key, info in COMPANIONS.items():
-                async def adopt(interaction, target=key):
-                    await self._call(interaction, "gardenadopt", target)
-                self._add_button(f"Adopt {info['label']}", adopt, emoji=info["emoji"])
-            async def equip(interaction, values):
-                await self._call(interaction, "gardencompanion", "equip", companion=values["companion"])
-            self._add_modal("Equip Companion", "Equip a discovered companion", [("companion", "Companion", "Enter its name or key (e.g. fairy)", True)], equip, emoji="✨")
+            async def adopt(interaction):
+                garden = await self.cog._get_garden(self.cog.config.user(interaction.user))
+                owned = set(garden.get("companions", []))
+                options = [discord.SelectOption(label=info["label"], value=key, description=f"Cost: {info['cost']['count']} {info['cost']['flower']}") for key, info in COMPANIONS.items() if key not in owned]
+                async def chosen(final_interaction, key):
+                    await self._call(final_interaction, "gardenadopt", key)
+                await self._show_select(interaction, "🧚 Adopt a Companion", "Choose a companion to adopt. Required flowers will be checked before anything is consumed.", options, chosen, "Select a companion")
+            self._add_button("Adopt Companion", adopt, emoji="🧚")
+            self._add_button("Equip Companion", self._choose_companion_equip, emoji="✨")
 
         elif self.section == "explore":
             self._add_action("Expedition Guide", "gardenexpedition", "list", None, emoji="🧭", style=discord.ButtonStyle.success)
@@ -1427,78 +1748,32 @@ class GardenMenuView(discord.ui.View):
                 self._add_button(f"Start {info['label']}", start, emoji="🗺️")
             self._add_action("Collect Expedition", "gardenexpedition", "collect", None, emoji="🎁")
             self._add_action("View Biomes", "gardenbiome", "list", None, emoji="🌍")
-            for key, info in BIOMES.items():
-                async def biome(interaction, target=key):
-                    await self._call(interaction, "gardenbiome", "set", target)
-                self._add_button(info["label"], biome, emoji="🌱")
+            self._add_button("Choose Biome", self._choose_biome, emoji="🌍")
             self._add_action("Weather & Moon", "gardenweather", emoji="🌦️")
 
         elif self.section == "social":
             self._add_action("My Guestbook", "gardenguestbook", None, emoji="📖", style=discord.ButtonStyle.success)
-            async def visit(interaction, values):
-                member = await self._resolve_member(interaction, values["member"])
-                if member:
-                    await self._call(interaction, "gardenvisit", member, compliment=values["compliment"] or "Your garden is lovely!", _ephemeral=False)
-            self._add_modal("Visit a Garden", "Visit another member's garden", [("member", "Member mention or ID", "@member or numeric user ID", True), ("compliment", "Leave a compliment", "Your garden is lovely!", False)], visit, emoji="🏡")
-            async def guestbook(interaction, values):
-                member = await self._resolve_member(interaction, values["member"])
-                if member:
-                    await self._call(interaction, "gardenguestbook", member)
-            self._add_modal("View Guestbook", "Read another garden's guestbook", [("member", "Member mention or ID", "@member or numeric user ID", True)], guestbook, emoji="📚")
-            async def gift(interaction, values):
-                member = await self._resolve_member(interaction, values["member"])
-                if member:
-                    await self._call(interaction, "gardengift", member, flower=values["flower"], _ephemeral=False)
-            self._add_modal("Gift a Flower", "Send a flower to another member", [("member", "Member mention or ID", "@member or numeric user ID", True), ("flower", "Flower name", "Enter the flower you want to gift", True)], gift, emoji="🎁")
-            async def help_water(interaction, values):
-                member = await self._resolve_member(interaction, values["member"])
-                if member:
-                    await self._call(interaction, "gardenhelpwater", member, values["seed_id"])
-            self._add_modal("Help Water", "Water another member's seed", [("member", "Member mention or ID", "@member or numeric user ID", True), ("seed_id", "Seed ID", "Their growing seed ID", True)], help_water, emoji="💧")
-            async def offer(interaction, values):
-                member = await self._resolve_member(interaction, values["member"])
-                if member:
-                    try:
-                        give_type, give_item = values["give"].split(":", 1)
-                        want_type, want_item = values["want"].split(":", 1)
-                        amount = int(values.get("amount") or "1")
-                    except (ValueError, TypeError):
-                        return await interaction.response.send_message("Use `type:item` for both sides, for example `flower:Dandelion` and `seed:golden`, and enter a whole-number amount.", ephemeral=True)
-                    await self._call(interaction, "gardenoffer", member, give_type.strip(), give_item.strip(), want_type.strip(), want_item.strip(), amount, _ephemeral=False)
-            self._add_modal("Offer a Trade", "Create a player-to-player trade", [("member", "Recipient mention or ID", "@member or numeric user ID", True), ("give", "What you offer (type:item)", "e.g. flower:Dandelion", True), ("want", "What you want (type:item)", "e.g. seed:golden", True), ("amount", "Amount per side", "1", False)], offer, emoji="🤝")
-            async def trade(interaction, values):
-                await self._call(interaction, "gardentrade", values["offer_id"], values["decision"].lower())
-            self._add_modal("Respond to Trade", "Accept or decline a trade offer", [("offer_id", "Trade offer ID", "Paste the offer ID", True), ("decision", "Decision", "accept or decline", True)], trade, emoji="✅")
+            self._add_button("Visit a Garden", lambda interaction: self._choose_social_user(interaction, "visit"), emoji="🏡")
+            self._add_button("View Another Guestbook", lambda interaction: self._choose_social_user(interaction, "guestbook"), emoji="📚")
+            self._add_button("Gift a Flower", lambda interaction: self._choose_social_user(interaction, "gift"), emoji="🎁")
+            self._add_button("Help Water a Seed", lambda interaction: self._choose_social_user(interaction, "helpwater"), emoji="💧")
+            self._add_button("Offer a Trade", lambda interaction: self._choose_social_user(interaction, "trade"), emoji="🤝")
+            self._add_button("Respond to Trade", self._choose_trade_response, emoji="📨")
 
         elif self.section == "community":
             self._add_action("Today's Market", "gardenmarket", emoji="🛍️", style=discord.ButtonStyle.success)
-            async def buy(interaction, values):
-                try:
-                    amount = int(values.get("amount") or "1")
-                except ValueError:
-                    return await interaction.response.send_message("Amount must be a whole number.", ephemeral=True)
-                await self._call(interaction, "gardenbuy", values["item"], amount)
-            self._add_modal("Buy Supplies", "Purchase from today's market", [("item", "Market item key", "fertilizer, growth_potion, fortune_elixir, common_seed, golden_seed", True), ("amount", "Quantity (1–25)", "1", True)], buy, emoji="🪙")
+            self._add_button("Buy Supplies", self._choose_market_item, emoji="🪙")
             self._add_action("Community Garden", "gardencommunity", emoji="🌳")
-            async def contribute(interaction, values):
-                try:
-                    amount = int(values.get("amount") or "1")
-                except ValueError:
-                    return await interaction.response.send_message("Amount must be a whole number.", ephemeral=True)
-                await self._call(interaction, "gardencontribute", values["kind"], values["item"], amount)
-            self._add_modal("Contribute", "Contribute to the community garden", [("kind", "Contribution type", "flower, seed or credits", True), ("item", "Item name/type or credit amount", "e.g. Dandelion, common, or 100", True), ("amount", "Quantity (credits use item field)", "1", False)], contribute, emoji="🌱")
+            self._add_button("Contribute", self._choose_contribution, emoji="🌱")
             self._add_action("Claim Community Rewards", "gardencommunityclaim", emoji="🎁")
             self._add_action("World Tree", "worldtree", "view", emoji="🌳")
 
         elif self.section == "customize":
             self._add_action("View Decorations", "gardendecorate", decoration="list", emoji="🪴", style=discord.ButtonStyle.success)
-            async def decorate(interaction, values):
-                await self._call(interaction, "gardendecorate", decoration=values["decoration"])
-            self._add_modal("Equip Decoration", "Equip an unlocked decoration", [("decoration", "Decoration name or 'none'", "Enter a decoration you unlocked", True)], decorate, emoji="🏡")
-            async def design(interaction, values):
-                await self._call(interaction, "gardendesign", values["category"].lower(), choice=values["choice"].lower())
-            self._add_modal("Change Garden Design", "Set your garden layout, background or path", [("category", "Design category", "layout, background or path", True), ("choice", "Choice", "e.g. cottage, emerald or stone", True)], design, emoji="🎨")
+            self._add_button("Equip Decoration", self._choose_decoration, emoji="🏡")
+            self._add_button("Change Garden Design", self._choose_design_category, emoji="🎨")
             self._add_action("View Garden Biomes", "gardenbiome", "list", None, emoji="🌍")
+            self._add_button("Choose Biome", self._choose_biome, emoji="🌍")
 
         elif self.section == "extras":
             self._add_action("Seed Preferences: Status", "seedopt", "status", emoji="🌱", style=discord.ButtonStyle.success)
@@ -1529,7 +1804,8 @@ class FortuneGarden(commands.Cog):
             value=" • ".join(f"{SEED_TYPES[key]['emoji']} {garden['seed_inventory'].get(key, 0)}" for key in SEED_TYPES),
             inline=False,
         )
-        embed.add_field(name="⭐ Garden Level", value=f"Level **{garden.get('garden_level', 1)}** · {int(garden.get('garden_xp', 0)) % 100}/100 XP", inline=True)
+        level, progress, needed = garden_level_progress(normalized_garden_xp(garden))
+        embed.add_field(name="⭐ Garden Level", value=f"Level **{level}** · {progress}/{needed} XP", inline=True)
         embed.add_field(name="🌸 Flowers", value=f"{sum(int(value) for value in garden.get('flowers', {}).values())} collected", inline=True)
         embed.add_field(name="🌳 World Tree", value=f"Level {garden.get('world_tree_level', 1)}", inline=True)
         embed.add_field(name="🧚 Companion", value=COMPANIONS.get(garden.get('equipped_companion'), {}).get("label", "None equipped"), inline=True)
@@ -1576,6 +1852,7 @@ class FortuneGarden(commands.Cog):
         self._member_locks = {}
         self._reset_lock = asyncio.Lock()
         self._resetting = False
+        self._leaderboard_cache = {}
 
     async def cog_check(self, ctx):
         if self._resetting and ctx.command and ctx.command.name != "fortunereset":
@@ -1648,6 +1925,7 @@ class FortuneGarden(commands.Cog):
                         combined["design"] = source["design"]
                     has_legacy_data = has_legacy_data or source != create_garden() or bool(row.get("seeds"))
                 combined["garden_level"] = 1 + int(combined["garden_xp"]) // 100
+                combined["xp_curve_version"] = 1
                 combined["world_tree_level"] = 1 + int(combined["world_tree_xp"]) // 100
                 combined["seeds"] = sum(combined["seed_inventory"].values())
                 combined["reward_history"] = sorted(history, key=lambda item: item.get("timestamp", ""))[-20:]
@@ -1693,6 +1971,8 @@ class FortuneGarden(commands.Cog):
         garden["garden_level"] = max(1, int(garden.get("garden_level", 1)))
         await member_conf.garden.set(garden)
         await member_conf.seeds.set(garden["seeds"])
+        if hasattr(self, "_leaderboard_cache"):
+            self._leaderboard_cache.clear()
 
     async def _get_garden(self, member_conf):
         if not self._migration_complete and int(await self.config.member_migration_version()) < 1:
@@ -1705,6 +1985,7 @@ class FortuneGarden(commands.Cog):
             return garden
 
         changed = False
+        stored_xp_curve_version = int(garden.get("xp_curve_version", 0))
         defaults = create_garden()
         for key, value in defaults.items():
             if key not in garden:
@@ -1729,6 +2010,16 @@ class FortuneGarden(commands.Cog):
             changed = True
         elif inventory_total != stored_total:
             garden["seeds"] = inventory_total
+            changed = True
+        xp_curve_version = stored_xp_curve_version
+        if xp_curve_version < 2:
+            garden["garden_xp"] = normalized_garden_xp(garden, force_legacy=True)
+            garden["garden_level"], _, _ = garden_level_progress(garden["garden_xp"])
+            garden["xp_curve_version"] = 2
+            unlocked = garden.setdefault("unlocked_decorations", [])
+            for unlock_level, decoration in DECORATION_UNLOCKS.items():
+                if garden["garden_level"] >= unlock_level and decoration not in unlocked:
+                    unlocked.append(decoration)
             changed = True
         if changed or int(await member_conf.seeds()) != inventory_total:
             await self._save_garden(member_conf, garden)
@@ -1811,8 +2102,9 @@ class FortuneGarden(commands.Cog):
         if garden.get("equipped_companion") == "owl":
             multiplier += 0.10
         garden["garden_xp"] = max(0, int(garden.get("garden_xp", 0)) + int(int(amount) * multiplier))
-        new_level = 1 + garden["garden_xp"] // 100
+        garden["xp_curve_version"] = 2
         old_level = int(garden.get("garden_level", 1))
+        new_level, _, _ = garden_level_progress(garden["garden_xp"])
         garden["garden_level"] = new_level
         unlocked = garden.setdefault("unlocked_decorations", [])
         for level, decoration in DECORATION_UNLOCKS.items():
@@ -2746,8 +3038,8 @@ class FortuneGarden(commands.Cog):
             garden = await self._get_garden(self.config.user(member))
         unique_flowers = sum(1 for count in garden.get("flowers", {}).values() if count > 0)
         total_flowers = sum(int(count) for count in garden.get("flowers", {}).values())
-        xp = int(garden.get("garden_xp", 0))
-        current_level_xp = xp % 100
+        xp = normalized_garden_xp(garden)
+        current_level, current_level_xp, level_xp_required = garden_level_progress(xp)
         event = current_seasonal_event()
         event_points = int(garden.get("event_progress", {}).get(event["key"], 0))
         embed = discord.Embed(
@@ -2757,7 +3049,7 @@ class FortuneGarden(commands.Cog):
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="🌱 Seeds", value=f"**{garden['seeds']}**\n" + " • ".join(f"{SEED_TYPES[key]['emoji']} {garden['seed_inventory'].get(key, 0)}" for key in SEED_TYPES), inline=False)
-        embed.add_field(name="⭐ Garden Level", value=f"**Level {garden['garden_level']}**\n{current_level_xp}/100 XP", inline=True)
+        embed.add_field(name="⭐ Garden Level", value=f"**Level {current_level}**\n{current_level_xp}/{level_xp_required} XP", inline=True)
         embed.add_field(name="🌸 Flowers", value=f"{total_flowers} collected\n{unique_flowers} unique", inline=True)
         embed.add_field(name="🌿 Growth", value=f"{garden.get('total_planted', 0)} planted\n{garden.get('total_blooms', 0)} bloomed", inline=True)
         embed.add_field(name="🏅 Achievements", value=str(len(garden.get("achievements", []))), inline=True)
@@ -2770,6 +3062,48 @@ class FortuneGarden(commands.Cog):
             preview = sorted(garden["flowers"].items(), key=lambda item: (list(FLOWERS.values()).index(FLOWERS.get(item[0], "Common")), item[0]))[:8]
             embed.add_field(name="Recent Collection", value=" • ".join(f"{name} ×{count}" for name, count in preview), inline=False)
         await ctx.send(embed=embed)
+
+    async def gardeninventory(self, ctx):
+        lock = self._member_lock(ctx.guild.id, ctx.author.id)
+        async with lock:
+            garden = await self._get_garden(self.config.user(ctx.author))
+        pages = []
+        seed_lines = [f"{SEED_TYPES[key]['emoji']} **{SEED_TYPES[key]['label']}** ×{int(garden.get('seed_inventory', {}).get(key, 0))}" for key in SEED_TYPES]
+        potion_lines = [f"🧪 **{RECIPES[key]['label']}** ×{int(garden.get('potions', {}).get(key, 0))}" for key in RECIPES if int(garden.get('potions', {}).get(key, 0)) > 0]
+        if not potion_lines:
+            potion_lines = ["No potions yet. Craft them in Alchemy or buy them from the market."]
+        items = garden.get("items", {})
+        supply_lines = [f"🌿 **Fertilizer** ×{int(items.get('fertilizer', 0))}"]
+        companion_lines = [f"{COMPANIONS[key]['emoji']} {COMPANIONS[key]['label']}" for key in garden.get("companions", []) if key in COMPANIONS]
+        if not companion_lines:
+            companion_lines = ["No companions discovered yet."]
+        decoration_lines = list(garden.get("unlocked_decorations", []))
+        if not decoration_lines:
+            decoration_lines = ["No decorations unlocked yet."]
+        first = discord.Embed(title=f"🎒 {ctx.author.display_name}'s Inventory", color=discord.Color.green())
+        first.add_field(name="🌱 Seeds", value="\n".join(seed_lines), inline=False)
+        first.add_field(name="🧪 Potions", value="\n".join(potion_lines)[:1024], inline=False)
+        first.add_field(name="🌿 Supplies", value="\n".join(supply_lines), inline=True)
+        first.add_field(name="🧚 Companions", value="\n".join(companion_lines)[:1024], inline=True)
+        first.add_field(name="🪴 Decorations", value="\n".join(decoration_lines[-15:])[:1024], inline=False)
+        first.add_field(name="🌍 Biomes", value=", ".join(BIOMES[key]["label"] for key in garden.get("biomes", []) if key in BIOMES) or "Wildflower Meadow", inline=False)
+        first.set_footer(text=f"Garden Level {garden.get('garden_level', 1)} · Prestige {garden.get('prestige', 0)} · Page 1")
+        pages.append(first)
+        flower_rows = sorted(((name, int(count)) for name, count in garden.get("flowers", {}).items() if int(count) > 0), key=lambda row: (row[0].lower()))
+        if flower_rows:
+            for start in range(0, len(flower_rows), 20):
+                chunk = flower_rows[start:start + 20]
+                embed = discord.Embed(title=f"🌸 {ctx.author.display_name}'s Flower Inventory", description="\n".join(f"**{name}** · {FLOWERS.get(name, 'Common')} ×{count}" for name, count in chunk), color=discord.Color.green())
+                embed.set_footer(text=f"{len(flower_rows)} flower varieties owned · Page {len(pages) + 1}")
+                pages.append(embed)
+        else:
+            empty = discord.Embed(title="🌸 Flower Inventory", description="You haven't discovered any flowers yet. Plant seeds and wait for them to bloom!", color=discord.Color.green())
+            empty.set_footer(text="Page 2")
+            pages.append(empty)
+        if len(pages) == 1:
+            return await ctx.send(embed=pages[0])
+        view = FortunePaginator(ctx.author.id, pages)
+        view.message = await ctx.send(embed=pages[0], view=view)
 
     async def gardenflowers(self, ctx, member: discord.Member = None):
         member = member or ctx.author
@@ -3521,32 +3855,50 @@ class FortuneGarden(commands.Cog):
 
     async def gardenleaderboard(self, ctx, category: str = "level"):
         category = category.lower()
-        event = current_seasonal_event()
-        ranked = []
-        for member in ctx.guild.members:
-            if member.bot:
-                continue
-            garden = await self._get_garden(self.config.user(member))
-            if category == "seasonal":
-                score = int(garden.get("event_progress", {}).get(event["key"], 0))
-                label = f"{score} seasonal blooms"
-            elif category == "flowers":
-                score = sum(int(value) for value in garden.get("flowers", {}).values())
-                label = f"{score} flowers"
-            elif category == "festival":
-                festival = current_festival_event()
-                score = int(garden.get("festival_progress", {}).get(festival["key"], 0))
-                label = f"{score} {festival['name']} blooms"
-            else:
-                score = int(garden.get("garden_level", 1))
-                label = f"Level {score}"
-            ranked.append((score, member.display_name, label))
-        ranked.sort(key=lambda item: item[0], reverse=True)
+        if category not in ("level", "flowers", "seasonal", "festival"):
+            category = "level"
+        cache_key = (ctx.guild.id, category)
+        now = time.monotonic()
+        cached = self._leaderboard_cache.get(cache_key)
+        if cached and now - cached[0] < 30:
+            ranked = cached[1]
+        else:
+            if not self._migration_complete and int(await self.config.member_migration_version()) < 1:
+                await self._migrate_member_data()
+            profiles = await self.config.all_users()
+            event = current_seasonal_event()
+            festival = current_festival_event()
+            ranked = []
+            for member in ctx.guild.members:
+                if member.bot:
+                    continue
+                data = profiles.get(member.id) or profiles.get(str(member.id)) or {}
+                garden = data.get("garden") if isinstance(data, dict) else None
+                if not isinstance(garden, dict):
+                    garden = create_garden(max(0, int(data.get("seeds", 0))) if isinstance(data, dict) else 0)
+                if category == "seasonal":
+                    score = int(garden.get("event_progress", {}).get(event["key"], 0))
+                    label = f"{score} seasonal blooms"
+                elif category == "flowers":
+                    score = sum(int(value) for value in garden.get("flowers", {}).values())
+                    label = f"{score} flowers"
+                elif category == "festival":
+                    score = int(garden.get("festival_progress", {}).get(festival["key"], 0))
+                    label = f"{score} {festival['name']} blooms"
+                else:
+                    xp = normalized_garden_xp(garden)
+                    score = garden_level_progress(xp)[0]
+                    label = f"Level {score}"
+                ranked.append((score, member.display_name, label))
+            ranked.sort(key=lambda item: (-item[0], item[1].casefold()))
+            self._leaderboard_cache[cache_key] = (now, ranked)
         if not ranked:
             return await ctx.send("There are no member gardens to rank yet.")
         title = "Seasonal Garden Leaderboard" if category == "seasonal" else "Festival Garden Leaderboard" if category == "festival" else "Flower Collection Leaderboard" if category == "flowers" else "Garden Level Leaderboard"
         lines = [f"**{index}. {discord.utils.escape_markdown(name)}** — {label}" for index, (_, name, label) in enumerate(ranked[:10], 1)]
-        await ctx.send(embed=discord.Embed(title=f"🏆 {title}", description="\n".join(lines), color=discord.Color.gold()))
+        embed = discord.Embed(title=f"🏆 {title}", description="\n".join(lines), color=discord.Color.gold())
+        embed.set_footer(text="Rankings refresh automatically; cached for up to 30 seconds to keep large servers responsive.")
+        await ctx.send(embed=embed)
 
     async def gardenweather(self, ctx):
         lock = self._member_lock(ctx.guild.id, ctx.author.id)
@@ -3595,6 +3947,7 @@ class FortuneGarden(commands.Cog):
             garden["permanent_xp_bonus"] = min(50, int(garden.get("permanent_xp_bonus", 0)) + 1)
             garden["garden_xp"] = 0
             garden["garden_level"] = 1
+            garden["xp_curve_version"] = 2
             garden["seed_inventory"]["ancient"] = int(garden["seed_inventory"].get("ancient", 0)) + 1
             garden.setdefault("items", {})["fertilizer"] = int(garden["items"].get("fertilizer", 0)) + 3
             if "Prestige Blossom" not in garden.setdefault("unlocked_decorations", []):
@@ -4047,6 +4400,7 @@ class FortuneGarden(commands.Cog):
 
                 await self.config.member_migration_version.set(1)
                 self._migration_complete = True
+                self._leaderboard_cache.clear()
                 log.warning(
                     "FortuneGarden global reset completed by owner %s: %s profiles, %s legacy member records, %s guilds.",
                     ctx.author.id, len(profile_ids), legacy_count, len(guilds)
