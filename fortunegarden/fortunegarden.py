@@ -2687,6 +2687,7 @@ class FortuneGarden(commands.Cog):
         await self.bot.wait_until_ready()
         await self._migrate_member_data()
 
+    @commands.Cog.listener()
     async def on_message(self, message):
         if self._resetting:
             return
