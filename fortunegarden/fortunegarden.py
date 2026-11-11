@@ -1841,10 +1841,14 @@ class FortuneGarden(commands.Cog):
             "seeds": 0,
             "last_earned": None,
             "opt_out": False,
-            "garden": {},
+            "garden_data": {},
         }
         self.config.register_user(**user_defaults)
-        self.config.register_member(**user_defaults)
+        self.config.register_member(
+            seeds=0,
+            last_earned=None,
+            opt_out=False,
+        )
         self.config.register_global(member_migration_version=0)
         self._guild_locks = {}
         self._migration_lock = asyncio.Lock()
@@ -1871,17 +1875,31 @@ class FortuneGarden(commands.Cog):
                 self._migration_complete = True
                 return
             legacy = await self.config.all_members()
+            users = await self.config.all_users()
             merged_rows = {}
             for guild_members in legacy.values():
                 for user_id, data in guild_members.items():
                     merged_rows.setdefault(str(user_id), []).append(data)
-            for user_id, rows in merged_rows.items():
+            user_ids = set(merged_rows)
+            user_ids.update(str(user_id) for user_id in users)
+            for user_id in user_ids:
                 user_conf = self.config.user_from_id(int(user_id))
-                current = await user_conf.all()
-                current_garden = current.get("garden")
+                current_garden = await user_conf.garden_data()
+                if not isinstance(current_garden, dict) or not current_garden:
+                    old_garden = await user_conf.get_raw("garden", default={})
+                    if isinstance(old_garden, dict) and old_garden:
+                        current_garden = old_garden
+                        await user_conf.garden_data.set(current_garden)
+                        await user_conf.clear_raw("garden")
                 if isinstance(current_garden, dict) and current_garden:
                     continue
-                if int(current.get("seeds", 0)) > 0 or current.get("last_earned") or current.get("opt_out"):
+                current_seeds = max(0, int(await user_conf.seeds()))
+                current_last_earned = await user_conf.last_earned()
+                current_opt_out = bool(await user_conf.opt_out())
+                if current_seeds > 0 or current_last_earned or current_opt_out:
+                    continue
+                rows = merged_rows.get(user_id, [])
+                if not rows:
                     continue
                 combined = create_garden()
                 last_earned = []
@@ -1977,7 +1995,7 @@ class FortuneGarden(commands.Cog):
         garden["seeds"] = sum(inventory.values())
         garden["garden_xp"] = max(0, int(garden.get("garden_xp", 0)))
         garden["garden_level"] = max(1, int(garden.get("garden_level", 1)))
-        await member_conf.garden.set(garden)
+        await member_conf.garden_data.set(garden)
         await member_conf.seeds.set(garden["seeds"])
         if hasattr(self, "_leaderboard_cache"):
             self._leaderboard_cache.clear()
@@ -1985,12 +2003,18 @@ class FortuneGarden(commands.Cog):
     async def _get_garden(self, member_conf):
         if not self._migration_complete and int(await self.config.member_migration_version()) < 1:
             await self._migrate_member_data()
-        garden = await member_conf.garden()
+        garden = await member_conf.garden_data()
         if not isinstance(garden, dict) or not garden:
-            legacy_seeds = max(0, int(await member_conf.seeds()))
-            garden = create_garden(legacy_seeds)
-            await self._save_garden(member_conf, garden)
-            return garden
+            old_garden = await member_conf.get_raw("garden", default={})
+            if isinstance(old_garden, dict) and old_garden:
+                garden = old_garden
+                await member_conf.garden_data.set(garden)
+                await member_conf.clear_raw("garden")
+            else:
+                legacy_seeds = max(0, int(await member_conf.seeds()))
+                garden = create_garden(legacy_seeds)
+                await self._save_garden(member_conf, garden)
+                return garden
 
         changed = False
         stored_xp_curve_version = int(garden.get("xp_curve_version", 0))
@@ -3960,7 +3984,7 @@ class FortuneGarden(commands.Cog):
                 if member.bot:
                     continue
                 data = profiles.get(member.id) or profiles.get(str(member.id)) or {}
-                garden = data.get("garden") if isinstance(data, dict) else None
+                garden = data.get("garden_data", data.get("garden")) if isinstance(data, dict) else None
                 if not isinstance(garden, dict):
                     garden = create_garden(max(0, int(data.get("seeds", 0))) if isinstance(data, dict) else 0)
                 if category == "seasonal":
