@@ -1841,7 +1841,7 @@ class FortuneGarden(commands.Cog):
             "seeds": 0,
             "last_earned": None,
             "opt_out": False,
-            "garden": None,
+            "garden": {},
         }
         self.config.register_user(**user_defaults)
         self.config.register_member(**user_defaults)
@@ -1878,7 +1878,8 @@ class FortuneGarden(commands.Cog):
             for user_id, rows in merged_rows.items():
                 user_conf = self.config.user_from_id(int(user_id))
                 current = await user_conf.all()
-                if isinstance(current.get("garden"), dict):
+                current_garden = current.get("garden")
+                if isinstance(current_garden, dict) and current_garden:
                     continue
                 if int(current.get("seeds", 0)) > 0 or current.get("last_earned") or current.get("opt_out"):
                     continue
@@ -1892,7 +1893,7 @@ class FortuneGarden(commands.Cog):
                         last_earned.append(row["last_earned"])
                     opt_out = opt_out or bool(row.get("opt_out"))
                     source = row.get("garden")
-                    if not isinstance(source, dict):
+                    if not isinstance(source, dict) or not source:
                         legacy_seeds = max(0, int(row.get("seeds", 0)))
                         source = create_garden(legacy_seeds)
                     inventory = source.get("seed_inventory") if isinstance(source.get("seed_inventory"), dict) else {"common": source.get("seeds", row.get("seeds", 0))}
@@ -1985,7 +1986,7 @@ class FortuneGarden(commands.Cog):
         if not self._migration_complete and int(await self.config.member_migration_version()) < 1:
             await self._migrate_member_data()
         garden = await member_conf.garden()
-        if not isinstance(garden, dict):
+        if not isinstance(garden, dict) or not garden:
             legacy_seeds = max(0, int(await member_conf.seeds()))
             garden = create_garden(legacy_seeds)
             await self._save_garden(member_conf, garden)
@@ -2754,11 +2755,11 @@ class FortuneGarden(commands.Cog):
             lock = self._member_lock(message.guild.id, message.author.id)
             async with lock:
                 member_conf = self.config.user(message.author)
-                member_data = await member_conf.all()
-                if member_data.get("opt_out"):
+                if await member_conf.opt_out():
                     self._record_seed_check(message.guild.id, "member_opted_out", message.author.id)
                     return
 
+                last = await member_conf.last_earned()
                 garden = await self._get_garden(member_conf)
                 seed_limit = max(0, int(guild_data.get("seed_limit", 20)))
                 if self._seed_count(garden) >= seed_limit:
@@ -2766,7 +2767,6 @@ class FortuneGarden(commands.Cog):
                     return
 
                 now = datetime.utcnow()
-                last = member_data.get("last_earned")
                 if last:
                     try:
                         last_dt = datetime.fromisoformat(last)
@@ -2819,13 +2819,13 @@ class FortuneGarden(commands.Cog):
         member = member or ctx.author
         guild_data = await self.config.guild(ctx.guild).all()
         member_conf = self.config.user(member)
-        member_data = await member_conf.all()
+        opt_out = bool(await member_conf.opt_out())
+        last = await member_conf.last_earned()
         garden = await self._get_garden(member_conf)
         intents = getattr(self.bot, "intents", None)
         message_content = getattr(intents, "message_content", None) if intents is not None else None
         guild_messages = getattr(intents, "guild_messages", None) if intents is not None else None
         now = datetime.utcnow()
-        last = member_data.get("last_earned")
         cooldown_text = "Ready"
         if last:
             try:
@@ -2847,7 +2847,7 @@ class FortuneGarden(commands.Cog):
         embed = discord.Embed(title="🔎 FortuneGarden Seed Diagnostics", color=discord.Color.blurple())
         embed.add_field(name="Discord Intents", value=f"Message Content: **{content_status}**\nGuild Messages: **{guild_status}**", inline=False)
         embed.add_field(name="Server Settings", value=f"Enabled: **{guild_data.get('enabled', True)}**\nDrop chance: **{guild_data.get('seed_chance', 5)}%**\nCooldown: **{guild_data.get('seed_cooldown', 60)} minutes**\nMinimum length: **{guild_data.get('min_message_length', 8)}**\nInventory cap: **{guild_data.get('seed_limit', 20)}**", inline=False)
-        embed.add_field(name=f"{member.display_name}'s Profile", value=f"Opted out: **{bool(member_data.get('opt_out', False))}**\nSeeds: **{garden.get('seeds', 0)} / {guild_data.get('seed_limit', 20)}**\nCooldown: **{cooldown_text}**", inline=False)
+        embed.add_field(name=f"{member.display_name}'s Profile", value=f"Opted out: **{opt_out}**\nSeeds: **{garden.get('seeds', 0)} / {guild_data.get('seed_limit', 20)}**\nCooldown: **{cooldown_text}**", inline=False)
         embed.add_field(name="Last Message Check", value=f"Result: **{last_result.replace('_', ' ')}**\nChecked: `{last_checked}`\nMember ID: `{stats.get('last_member_id') or 'None'}`\nChecks since reload: **{stats.get('checked', 0)}** · Drops: **{stats.get('drops', 0)}", inline=False)
         embed.add_field(name="Reason Counts", value=result_summary[:1024], inline=False)
         embed.set_footer(text="Send a normal text message, then run this command again. Prefix commands are intentionally ignored. If Message Content is disabled, ordinary message text is unavailable to the cog and seed drops cannot trigger.")
