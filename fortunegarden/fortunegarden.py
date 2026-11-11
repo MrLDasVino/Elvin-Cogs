@@ -1853,6 +1853,7 @@ class FortuneGarden(commands.Cog):
         self._reset_lock = asyncio.Lock()
         self._resetting = False
         self._leaderboard_cache = {}
+        self._seed_event_stats = {}
 
     async def cog_check(self, ctx):
         if self._resetting and ctx.command and ctx.command.name != "fortunereset":
@@ -1944,6 +1945,12 @@ class FortuneGarden(commands.Cog):
             log.info("FortuneGarden migrated legacy per-server member data to global user profiles.")
 
     def cog_load(self):
+        intents = getattr(self.bot, "intents", None)
+        if intents is not None:
+            if not getattr(intents, "guild_messages", True):
+                log.error("FortuneGarden seed drops cannot run because the Guild Messages intent is disabled. Red expects this intent to be enabled; remove any --disable-intent guild_messages setting and restart Red.")
+            if not getattr(intents, "message_content", False):
+                log.error("FortuneGarden seed drops need message text. Enable Message Content Intent on the Discord Developer Portal Bot page, ensure Red is requesting it, and restart Red.")
         if not self.bloom_loop.is_running():
             self.bloom_loop.start()
 
@@ -2687,85 +2694,164 @@ class FortuneGarden(commands.Cog):
         await self.bot.wait_until_ready()
         await self._migrate_member_data()
 
+    def _record_seed_check(self, guild_id, result, member_id=None):
+        stats = self._seed_event_stats.setdefault(int(guild_id), {"checked": 0, "results": {}, "last_result": None, "last_checked": None, "last_member_id": None, "drops": 0})
+        stats["checked"] += 1
+        stats["last_result"] = str(result)
+        stats["last_checked"] = datetime.utcnow().isoformat()
+        stats["last_member_id"] = int(member_id) if member_id is not None else None
+        stats["results"][str(result)] = int(stats["results"].get(str(result), 0)) + 1
+        if result == "dropped":
+            stats["drops"] += 1
+
     @commands.Cog.listener()
     async def on_message(self, message):
+        if not message.guild or message.author.bot or getattr(message, "webhook_id", None):
+            return
         if self._resetting:
+            self._record_seed_check(message.guild.id, "reset_in_progress", message.author.id)
             return
-        if message.author.bot or message.webhook_id or not message.guild:
-            return
-        content = (message.content or "").strip()
-        if not content:
-            return
-        prefixes = await self.bot.get_prefix(message)
-        if isinstance(prefixes, str):
-            prefixes = [prefixes]
-        if any(content.startswith(prefix) for prefix in prefixes if prefix):
-            return
+        try:
+            content = (message.content or "").strip()
+            if not content:
+                intents = getattr(self.bot, "intents", None)
+                if intents is not None and not getattr(intents, "message_content", False):
+                    self._record_seed_check(message.guild.id, "message_content_intent_disabled", message.author.id)
+                else:
+                    self._record_seed_check(message.guild.id, "empty_message_content", message.author.id)
+                return
 
-        guild_conf = self.config.guild(message.guild)
-        guild_data = await guild_conf.all()
-        if not guild_data.get("enabled", True):
-            return
-        min_length = max(0, int(guild_data.get("min_message_length", 8)))
-        if len(content) < min_length:
-            return
-        ignored_channels = {int(value) for value in guild_data.get("ignored_channels", [])}
-        channel_ids = {message.channel.id}
-        parent_id = getattr(message.channel, "parent_id", None)
-        if parent_id:
-            channel_ids.add(parent_id)
-        if channel_ids.intersection(ignored_channels):
-            return
-        ignored_roles = {int(value) for value in guild_data.get("ignored_roles", [])}
-        if any(role.id in ignored_roles for role in getattr(message.author, "roles", [])):
-            return
-
-        lock = self._member_lock(message.guild.id, message.author.id)
-        async with lock:
-            member_conf = self.config.user(message.author)
-            member_data = await member_conf.all()
-            if member_data.get("opt_out"):
-                return
-            garden = await self._get_garden(member_conf)
-            seed_limit = max(0, int(guild_data.get("seed_limit", 20)))
-            if garden["seeds"] >= seed_limit:
-                return
-            last = member_data.get("last_earned")
-            now = datetime.utcnow()
-            if last:
-                try:
-                    last_dt = datetime.fromisoformat(last)
-                    if now - last_dt < timedelta(minutes=max(0, int(guild_data.get("seed_cooldown", 60)))):
-                        return
-                except (TypeError, ValueError):
-                    pass
-            chance = max(0.0, min(100.0, float(guild_data.get("seed_chance", 5.0))))
-            if random.random() * 100 >= chance:
-                return
-            seed_type = self._choose_seed_type()
-            garden["seed_inventory"][seed_type] = garden["seed_inventory"].get(seed_type, 0) + 1
-            await self._save_garden(member_conf, garden)
-            await member_conf.last_earned.set(now.isoformat())
-            template = guild_data.get("discover_message") or DEFAULT_DISCOVER_MSG
             prefixes = await self.bot.get_prefix(message)
-            prefix = prefixes[0] if isinstance(prefixes, (list, tuple)) and prefixes else str(prefixes)
-            plural = "s" if garden["seeds"] != 1 else ""
-            values = {
-                "mention": message.author.mention,
-                "seeds": garden["seeds"],
-                "plural": plural,
-                "prefix": prefix,
-                "seed_type": SEED_TYPES[seed_type]["label"],
-                "seed_emoji": SEED_TYPES[seed_type]["emoji"],
-            }
+            if isinstance(prefixes, str):
+                prefixes = [prefixes]
+            if any(content.startswith(prefix) for prefix in prefixes if prefix):
+                return
+
+            guild_data = await self.config.guild(message.guild).all()
+            if not guild_data.get("enabled", True):
+                self._record_seed_check(message.guild.id, "server_seed_drops_disabled", message.author.id)
+                return
+
+            min_length = max(0, int(guild_data.get("min_message_length", 8)))
+            if len(content) < min_length:
+                self._record_seed_check(message.guild.id, "message_too_short", message.author.id)
+                return
+
+            ignored_channels = {int(value) for value in guild_data.get("ignored_channels", [])}
+            channel_ids = {message.channel.id}
+            parent_id = getattr(message.channel, "parent_id", None)
+            if parent_id:
+                channel_ids.add(parent_id)
+            if channel_ids.intersection(ignored_channels):
+                self._record_seed_check(message.guild.id, "channel_ignored", message.author.id)
+                return
+
+            ignored_roles = {int(value) for value in guild_data.get("ignored_roles", [])}
+            if any(role.id in ignored_roles for role in getattr(message.author, "roles", [])):
+                self._record_seed_check(message.guild.id, "role_ignored", message.author.id)
+                return
+
+            lock = self._member_lock(message.guild.id, message.author.id)
+            async with lock:
+                member_conf = self.config.user(message.author)
+                member_data = await member_conf.all()
+                if member_data.get("opt_out"):
+                    self._record_seed_check(message.guild.id, "member_opted_out", message.author.id)
+                    return
+
+                garden = await self._get_garden(member_conf)
+                seed_limit = max(0, int(guild_data.get("seed_limit", 20)))
+                if self._seed_count(garden) >= seed_limit:
+                    self._record_seed_check(message.guild.id, "inventory_limit_reached", message.author.id)
+                    return
+
+                now = datetime.utcnow()
+                last = member_data.get("last_earned")
+                if last:
+                    try:
+                        last_dt = datetime.fromisoformat(last)
+                        cooldown = max(0, int(guild_data.get("seed_cooldown", 60)))
+                        remaining = timedelta(minutes=cooldown) - (now - last_dt)
+                        if remaining.total_seconds() > 0:
+                            self._record_seed_check(message.guild.id, "cooldown_active", message.author.id)
+                            return
+                    except (TypeError, ValueError):
+                        log.warning("Invalid FortuneGarden last_earned value for user %s: %r", message.author.id, last)
+
+                chance = max(0.0, min(100.0, float(guild_data.get("seed_chance", 5.0))))
+                if random.random() * 100 >= chance:
+                    self._record_seed_check(message.guild.id, "chance_not_hit", message.author.id)
+                    return
+
+                seed_type = self._choose_seed_type()
+                garden.setdefault("seed_inventory", {})[seed_type] = int(garden["seed_inventory"].get(seed_type, 0)) + 1
+                await self._save_garden(member_conf, garden)
+                await member_conf.last_earned.set(now.isoformat())
+                self._record_seed_check(message.guild.id, "dropped", message.author.id)
+
+                template = guild_data.get("discover_message") or DEFAULT_DISCOVER_MSG
+                prefix = prefixes[0] if isinstance(prefixes, (list, tuple)) and prefixes else str(prefixes)
+                plural = "s" if garden["seeds"] != 1 else ""
+                values = {
+                    "mention": message.author.mention,
+                    "seeds": garden["seeds"],
+                    "plural": plural,
+                    "prefix": prefix,
+                    "seed_type": SEED_TYPES[seed_type]["label"],
+                    "seed_emoji": SEED_TYPES[seed_type]["emoji"],
+                }
+                try:
+                    content_out = template.format(**values)
+                except (KeyError, IndexError, ValueError):
+                    content_out = DEFAULT_DISCOVER_MSG.format(**values)
+                try:
+                    await message.channel.send(content_out)
+                except discord.HTTPException:
+                    log.warning("Seed was awarded to user %s, but the discovery message could not be sent in channel %s.", message.author.id, message.channel.id)
+        except Exception:
+            self._record_seed_check(message.guild.id, "listener_error", message.author.id)
+            log.exception("FortuneGarden failed while processing a chat message in guild %s from user %s.", message.guild.id, message.author.id)
+
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_guild=True)
+    @commands.command(name="seeddebug", help="Diagnose why chat seed drops are or are not triggering.")
+    async def seeddebug(self, ctx, member: discord.Member = None):
+        member = member or ctx.author
+        guild_data = await self.config.guild(ctx.guild).all()
+        member_conf = self.config.user(member)
+        member_data = await member_conf.all()
+        garden = await self._get_garden(member_conf)
+        intents = getattr(self.bot, "intents", None)
+        message_content = getattr(intents, "message_content", None) if intents is not None else None
+        guild_messages = getattr(intents, "guild_messages", None) if intents is not None else None
+        now = datetime.utcnow()
+        last = member_data.get("last_earned")
+        cooldown_text = "Ready"
+        if last:
             try:
-                content_out = template.format(**values)
-            except (KeyError, IndexError, ValueError):
-                content_out = DEFAULT_DISCOVER_MSG.format(**values)
-            try:
-                await message.channel.send(content_out)
-            except discord.HTTPException:
-                log.warning("Could not send seed discovery message in channel %s.", message.channel.id)
+                last_dt = datetime.fromisoformat(last)
+                remaining = timedelta(minutes=max(0, int(guild_data.get("seed_cooldown", 60)))) - (now - last_dt)
+                if remaining.total_seconds() > 0:
+                    seconds = int(remaining.total_seconds())
+                    cooldown_text = f"{seconds // 3600}h {(seconds % 3600) // 60}m remaining"
+            except (TypeError, ValueError):
+                cooldown_text = "Invalid stored timestamp (will be ignored)"
+
+        stats = self._seed_event_stats.get(ctx.guild.id, {})
+        last_result = stats.get("last_result", "No eligible chat message checked since this cog was loaded")
+        last_checked = stats.get("last_checked") or "Never"
+        result_counts = stats.get("results", {})
+        result_summary = "\n".join(f"{key.replace('_', ' ').title()}: {value}" for key, value in sorted(result_counts.items())) or "No message checks recorded"
+        content_status = "Enabled" if message_content is True else "DISABLED — enable it on the Discord Developer Portal Bot page, then restart Red" if message_content is False else "Unknown"
+        guild_status = "Enabled" if guild_messages is True else "DISABLED — Red must request Guild Messages" if guild_messages is False else "Unknown"
+        embed = discord.Embed(title="🔎 FortuneGarden Seed Diagnostics", color=discord.Color.blurple())
+        embed.add_field(name="Discord Intents", value=f"Message Content: **{content_status}**\nGuild Messages: **{guild_status}**", inline=False)
+        embed.add_field(name="Server Settings", value=f"Enabled: **{guild_data.get('enabled', True)}**\nDrop chance: **{guild_data.get('seed_chance', 5)}%**\nCooldown: **{guild_data.get('seed_cooldown', 60)} minutes**\nMinimum length: **{guild_data.get('min_message_length', 8)}**\nInventory cap: **{guild_data.get('seed_limit', 20)}**", inline=False)
+        embed.add_field(name=f"{member.display_name}'s Profile", value=f"Opted out: **{bool(member_data.get('opt_out', False))}**\nSeeds: **{garden.get('seeds', 0)} / {guild_data.get('seed_limit', 20)}**\nCooldown: **{cooldown_text}**", inline=False)
+        embed.add_field(name="Last Message Check", value=f"Result: **{last_result.replace('_', ' ')}**\nChecked: `{last_checked}`\nMember ID: `{stats.get('last_member_id') or 'None'}`\nChecks since reload: **{stats.get('checked', 0)}** · Drops: **{stats.get('drops', 0)}", inline=False)
+        embed.add_field(name="Reason Counts", value=result_summary[:1024], inline=False)
+        embed.set_footer(text="Send a normal text message, then run this command again. Prefix commands are intentionally ignored. If Message Content is disabled, ordinary message text is unavailable to the cog and seed drops cannot trigger.")
+        await ctx.send(embed=embed)
 
     async def fortuneseeds(self, ctx, member: discord.Member = None):
         member = member or ctx.author
