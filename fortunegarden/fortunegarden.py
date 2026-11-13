@@ -1361,27 +1361,56 @@ class GardenMenuView(discord.ui.View):
         await interaction.response.edit_message(embed=new_view.make_embed(), view=new_view)
 
     async def _call(self, interaction, method, *args, _ephemeral=True, **kwargs):
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.defer(ephemeral=_ephemeral, thinking=True)
+            except discord.NotFound as exc:
+                if getattr(exc, "code", None) == 10062:
+                    try:
+                        age = (discord.utils.utcnow() - interaction.created_at).total_seconds()
+                    except Exception:
+                        age = -1.0
+                    log.warning(
+                        "FortuneGarden interaction expired before acknowledgement; action=%s user=%s guild=%s age=%.2fs. The action was not run; the user must reopen /forgarden and try again.",
+                        method,
+                        getattr(interaction.user, "id", "unknown"),
+                        getattr(interaction.guild, "id", "unknown"),
+                        age,
+                    )
+                    return
+                log.exception("FortuneGarden could not acknowledge menu action: %s", method)
+                return
+            except discord.HTTPException:
+                log.exception("FortuneGarden could not acknowledge menu action: %s", method)
+                return
+
         ctx = GardenInteractionContext(interaction, ephemeral=_ephemeral)
         try:
             if self.cog._resetting:
-                if not interaction.response.is_done():
-                    await interaction.response.send_message("FortuneGarden is being reset by the bot owner. Please try again shortly.", ephemeral=True)
-                else:
-                    await interaction.followup.send("FortuneGarden is being reset by the bot owner. Please try again shortly.", ephemeral=True)
+                await interaction.followup.send(
+                    "FortuneGarden is being reset by the bot owner. Please try again shortly.",
+                    ephemeral=True,
+                )
                 return
-            if not interaction.response.is_done():
-                await interaction.response.defer(ephemeral=_ephemeral, thinking=True)
             await getattr(self.cog, method)(ctx, *args, **kwargs)
+        except discord.NotFound as exc:
+            if getattr(exc, "code", None) == 10062:
+                log.warning(
+                    "FortuneGarden interaction expired while completing action=%s user=%s guild=%s; the result could not be sent.",
+                    method,
+                    getattr(interaction.user, "id", "unknown"),
+                    getattr(interaction.guild, "id", "unknown"),
+                )
+                return
+            log.exception("FortuneGarden menu action failed: %s", method)
         except Exception:
             log.exception("FortuneGarden menu action failed: %s", method)
-            message = "That garden action could not be completed. Please try again or contact a server administrator if it continues."
-            try:
-                if interaction.response.is_done():
-                    await interaction.followup.send(message, ephemeral=True)
-                else:
-                    await interaction.response.send_message(message, ephemeral=True)
-            except discord.HTTPException:
-                pass
+
+        message = "That garden action could not be completed. Please try again or contact a server administrator if it continues."
+        try:
+            await interaction.followup.send(message, ephemeral=True)
+        except discord.HTTPException:
+            pass
 
     async def _show_select(self, interaction, title, description, options, callback, placeholder="Choose an option"):
         options = list(options)[:25]
