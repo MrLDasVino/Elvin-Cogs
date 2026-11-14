@@ -1148,6 +1148,38 @@ def current_seasonal_event(now=None):
     return event
 
 
+async def _defer_component_update(interaction, action, **edit_kwargs):
+    if not interaction.response.is_done():
+        try:
+            await interaction.response.defer()
+        except discord.NotFound as exc:
+            try:
+                age = (discord.utils.utcnow() - interaction.created_at).total_seconds()
+            except Exception:
+                age = -1.0
+            if getattr(exc, "code", None) == 10062:
+                log.warning(
+                    "FortuneGarden %s interaction expired before acknowledgement; user=%s guild=%s age=%.2fs.",
+                    action,
+                    getattr(interaction.user, "id", "unknown"),
+                    getattr(interaction.guild, "id", "unknown"),
+                    age,
+                )
+            else:
+                log.warning("FortuneGarden could not acknowledge %s: %s", action, exc)
+            return False
+        except discord.HTTPException as exc:
+            log.warning("FortuneGarden could not acknowledge %s: %s", action, exc)
+            return False
+
+    if edit_kwargs:
+        try:
+            await interaction.edit_original_response(**edit_kwargs)
+        except discord.HTTPException as exc:
+            log.warning("FortuneGarden acknowledged %s, but could not update its message: %s", action, exc)
+    return True
+
+
 class FortunePaginator(discord.ui.View):
     def __init__(self, author_id, pages):
         super().__init__(timeout=300)
@@ -1169,7 +1201,12 @@ class FortunePaginator(discord.ui.View):
 
     async def _show_page(self, interaction):
         self._refresh_buttons()
-        await interaction.response.edit_message(embed=self.pages[self.index], view=self)
+        await _defer_component_update(
+            interaction,
+            "garden pagination",
+            embed=self.pages[self.index],
+            view=self,
+        )
 
     @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, emoji="◀️")
     async def previous_button(self, interaction, button):
@@ -1197,6 +1234,7 @@ class GardenSelectionView(discord.ui.View):
         self.author_id = author_id
         self.callback_handler = callback
         self.message = None
+        self._selection_in_progress = False
         select = discord.ui.Select(
             placeholder=placeholder[:150],
             min_values=1,
@@ -1206,12 +1244,27 @@ class GardenSelectionView(discord.ui.View):
 
         async def selected(interaction):
             if interaction.user.id != self.author_id:
-                return await interaction.response.send_message("This selection belongs to someone else.", ephemeral=True)
+                try:
+                    return await interaction.response.send_message("This selection belongs to someone else.", ephemeral=True)
+                except discord.HTTPException:
+                    return
+            if self._selection_in_progress:
+                try:
+                    return await interaction.response.send_message("This selection is already being processed.", ephemeral=True)
+                except discord.HTTPException:
+                    return
+            self._selection_in_progress = True
             value = select.values[0]
+            if not await _defer_component_update(interaction, "garden dropdown selection"):
+                self._selection_in_progress = False
+                return
             for child in self.children:
                 child.disabled = True
             self.stop()
-            await interaction.response.edit_message(view=self)
+            try:
+                await interaction.edit_original_response(view=self)
+            except discord.HTTPException as exc:
+                log.warning("Could not disable the completed garden dropdown: %s", exc)
             await self.callback_handler(interaction, value)
 
         select.callback = selected
@@ -1233,6 +1286,7 @@ class GardenUserSelectView(discord.ui.View):
         self.author_id = author_id
         self.callback_handler = callback
         self.message = None
+        self._selection_in_progress = False
         select = discord.ui.UserSelect(
             placeholder=placeholder[:150],
             min_values=1,
@@ -1241,12 +1295,27 @@ class GardenUserSelectView(discord.ui.View):
 
         async def selected(interaction):
             if interaction.user.id != self.author_id:
-                return await interaction.response.send_message("This selection belongs to someone else.", ephemeral=True)
+                try:
+                    return await interaction.response.send_message("This selection belongs to someone else.", ephemeral=True)
+                except discord.HTTPException:
+                    return
+            if self._selection_in_progress:
+                try:
+                    return await interaction.response.send_message("This selection is already being processed.", ephemeral=True)
+                except discord.HTTPException:
+                    return
+            self._selection_in_progress = True
             member = select.values[0]
+            if not await _defer_component_update(interaction, "garden member selection"):
+                self._selection_in_progress = False
+                return
             for child in self.children:
                 child.disabled = True
             self.stop()
-            await interaction.response.edit_message(view=self)
+            try:
+                await interaction.edit_original_response(view=self)
+            except discord.HTTPException as exc:
+                log.warning("Could not disable the completed garden member selector: %s", exc)
             await self.callback_handler(interaction, member)
 
         select.callback = selected
@@ -1358,7 +1427,12 @@ class GardenMenuView(discord.ui.View):
     async def _navigate(self, interaction, section):
         new_view = GardenMenuView(self.cog, self.author_id, section, self.message)
         self.stop()
-        await interaction.response.edit_message(embed=new_view.make_embed(), view=new_view)
+        await _defer_component_update(
+            interaction,
+            "garden menu navigation",
+            embed=new_view.make_embed(),
+            view=new_view,
+        )
 
     async def _call(self, interaction, method, *args, _ephemeral=True, **kwargs):
         if not interaction.response.is_done():
@@ -1393,6 +1467,7 @@ class GardenMenuView(discord.ui.View):
                 )
                 return
             await getattr(self.cog, method)(ctx, *args, **kwargs)
+            return
         except discord.NotFound as exc:
             if getattr(exc, "code", None) == 10062:
                 log.warning(
@@ -1696,7 +1771,13 @@ class GardenMenuView(discord.ui.View):
                 self.stop()
                 for item in self.children:
                     item.disabled = True
-                await interaction.response.edit_message(content="FortuneGarden menu closed.", embed=None, view=self)
+                await _defer_component_update(
+                    interaction,
+                    "garden menu close",
+                    content="FortuneGarden menu closed.",
+                    embed=None,
+                    view=self,
+                )
             self._add_button("Close", close, emoji="✖️", style=discord.ButtonStyle.danger)
             return
 
